@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, interactive-widget=resizes-content" />
+    <title>Nexus Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Hide scrollbar for cleaner mobile UI */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      
+      /* --- EDITOR CONTENT STYLES --- */
+      /* Override Tailwind Preflight/Reset for contentEditable */
+      
+      .editor-content:empty:before {
+        content: attr(data-placeholder);
+        color: #9ca3af;
+        pointer-events: none;
+        display: block; /* Ensure placeholder shows properly */
+      }
+
+      /* Headings */
+      .editor-content h1 {
+        font-size: 2.25em;
+        font-weight: 800;
+        margin-bottom: 0.5em;
+        margin-top: 0.5em;
+        line-height: 1.2;
+      }
+      .editor-content h2 {
+        font-size: 1.75em;
+        font-weight: 700;
+        margin-bottom: 0.5em;
+        margin-top: 1em;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 0.2em;
+      }
+      .editor-content h3 {
+        font-size: 1.5em;
+        font-weight: 600;
+        margin-bottom: 0.5em;
+        margin-top: 1em;
+      }
+
+      /* Lists - This fixes the bullet point issue */
+      .editor-content ul {
+        display: block;
+        list-style-type: disc;
+        margin-top: 1em;
+        margin-bottom: 1em;
+        padding-left: 2em;
+      }
+      .editor-content ol {
+        display: block;
+        list-style-type: decimal;
+        margin-top: 1em;
+        margin-bottom: 1em;
+        padding-left: 2em;
+      }
+      .editor-content li {
+        display: list-item;
+        margin-bottom: 0.25em;
+      }
+
+      /* Mentions */
+      .mention-chip {
+        background-color: #e0f2fe;
+        color: #0369a1;
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-weight: 500;
+        display: inline-block;
+        margin: 0 2px;
+        text-decoration: none;
+        user-select: none;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "d3": "https://esm.sh/d3@^7.9.0"
+  }
+}
+</script>
+</head>
+  <body class="bg-gray-50 text-gray-900 overflow-hidden fixed inset-0">
+    <div id="root" class="h-full w-full"></div>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "Nexus Notes Mobile",
+  "description": "A mobile-first connected note-taking app with graph view, rich mentions, and gesture support.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
