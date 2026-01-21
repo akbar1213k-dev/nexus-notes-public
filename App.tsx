@@ -9,13 +9,18 @@ import { PreviewSheet } from './components/PreviewSheet';
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
-  // Initially start at Home, so currentNoteId can be null, but we'll manage it via viewMode
   const [currentNoteId, setCurrentNoteId] = useState<string>(''); 
   const [viewMode, setViewMode] = useState<ViewMode>('HOME');
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
-  
-  // Navigation stack for tracking drill-down navigation (e.g. Note A -> Note B)
   const [history, setHistory] = useState<string[]>([]);
+  
+  // Theme State
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+        return localStorage.getItem('nexus_theme') === 'dark';
+    }
+    return false;
+  });
 
   useEffect(() => {
     const loaded = getNotes();
@@ -27,6 +32,17 @@ export default function App() {
       saveNotes(notes);
     }
   }, [notes]);
+
+  // Apply Theme
+  useEffect(() => {
+    if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('nexus_theme', 'dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('nexus_theme', 'light');
+    }
+  }, [isDarkMode]);
 
   const currentNote = notes.find(n => n.id === currentNoteId);
 
@@ -43,6 +59,10 @@ export default function App() {
     };
     setNotes(prev => [...prev, newNote]);
     return newNote.id;
+  };
+
+  const handleDeleteNote = (id: string) => {
+      setNotes(prev => prev.filter(n => n.id !== id));
   };
 
   const handleFabCreate = async () => {
@@ -66,7 +86,6 @@ export default function App() {
       setHistory(prevHist => prevHist.slice(0, -1));
       setCurrentNoteId(prev);
     } else {
-        // If no history, go home
         setViewMode('HOME');
         setCurrentNoteId('');
     }
@@ -78,7 +97,6 @@ export default function App() {
     setViewMode('HOME');
   };
 
-  // Preview Logic
   const handleLinkClick = (id: string) => {
     navigateToNote(id);
   };
@@ -90,7 +108,6 @@ export default function App() {
 
   const previewNote = notes.find(n => n.id === previewNoteId) || null;
 
-  // Render logic based on ViewMode
   const renderContent = () => {
     if (viewMode === 'HOME') {
         return (
@@ -98,6 +115,7 @@ export default function App() {
                 notes={notes} 
                 onNoteClick={navigateToNote} 
                 onCreateNew={handleFabCreate}
+                onDeleteNote={handleDeleteNote}
             />
         );
     }
@@ -107,12 +125,12 @@ export default function App() {
              <GraphView 
                 notes={notes}
                 onNodeClick={navigateToNote}
+                isDarkMode={isDarkMode}
             />
         );
     }
 
-    // EDITOR mode
-    if (!currentNote) return <div className="p-10 text-center">Note not found</div>;
+    if (!currentNote) return <div className="p-10 text-center dark:text-white">Note not found</div>;
     
     return (
         <Editor 
@@ -122,12 +140,13 @@ export default function App() {
             onCreateNewNote={handleCreateNote}
             onLinkClick={handleLinkClick}
             onLinkLongPress={handleLinkLongPress}
+            onGoHome={handleGoHome}
         />
     );
   };
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-white dark:bg-gray-900 transition-colors">
       <TopBar 
         mode={viewMode}
         onToggleMode={() => setViewMode(prev => prev === 'EDITOR' ? 'GRAPH' : 'EDITOR')}
@@ -135,6 +154,8 @@ export default function App() {
         onBack={handleBack}
         onGoHome={handleGoHome}
         title={viewMode === 'EDITOR' ? currentNote?.title : 'Graph View'}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(prev => !prev)}
       />
 
       <div className="flex-1 overflow-hidden relative flex flex-col">

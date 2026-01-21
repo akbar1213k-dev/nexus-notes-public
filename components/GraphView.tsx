@@ -5,9 +5,10 @@ import { Note, GraphNode, GraphLink } from '../types';
 interface GraphViewProps {
   notes: Note[];
   onNodeClick: (noteId: string) => void;
+  isDarkMode: boolean;
 }
 
-export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
+export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDarkMode }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -30,7 +31,6 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
   useEffect(() => {
     if (!svgRef.current || !notes.length) return;
 
-    // 1. Prepare Data
     const nodes: GraphNode[] = notes.map(n => ({
       id: n.id,
       title: n.title,
@@ -39,8 +39,6 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
 
     const links: GraphLink[] = [];
     
-    // Parse content to find links (simple regex for the demo, ideal would be parsing DOM)
-    // Looking for data-id="..." inside the content
     notes.forEach(sourceNote => {
       const doc = new DOMParser().parseFromString(sourceNote.content, 'text/html');
       const mentions = doc.querySelectorAll('.mention-chip');
@@ -55,24 +53,20 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
       });
     });
 
-    // 2. Clear Previous
     d3.select(svgRef.current).selectAll("*").remove();
 
-    // 3. Setup Simulation
     const simulation = d3.forceSimulation(nodes)
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(100))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(dimensions.width / 2, dimensions.height / 2))
       .force("collide", d3.forceCollide().radius(40));
 
-    // 4. Draw
     const svg = d3.select(svgRef.current)
       .attr("width", dimensions.width)
       .attr("height", dimensions.height)
       .attr("viewBox", [0, 0, dimensions.width, dimensions.height])
       .attr("style", "max-width: 100%; height: auto;");
 
-    // Add zoom capability
     const g = svg.append("g");
     
     const zoom = d3.zoom<SVGSVGElement, unknown>()
@@ -83,18 +77,16 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
     
     svg.call(zoom);
 
-    // Links
     const link = g.append("g")
-      .attr("stroke", "#999")
+      .attr("stroke", isDarkMode ? "#555" : "#999")
       .attr("stroke-opacity", 0.6)
       .selectAll("line")
       .data(links)
       .join("line")
       .attr("stroke-width", 2);
 
-    // Nodes (Circles)
     const node = g.append("g")
-      .attr("stroke", "#fff")
+      .attr("stroke", isDarkMode ? "#1f2937" : "#fff")
       .attr("stroke-width", 1.5)
       .selectAll("g")
       .data(nodes)
@@ -108,28 +100,28 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
       .attr("r", 20)
       .attr("fill", "#3b82f6")
       .on("click", (event, d) => {
-        // Haptic feedback
         if (navigator.vibrate) navigator.vibrate(10);
         onNodeClick(d.id);
       });
 
-    // Labels
+    // Shadow/Outline text
     node.append("text")
       .attr("x", 25)
       .attr("y", 5)
       .text(d => d.title)
       .clone(true).lower()
       .attr("fill", "none")
-      .attr("stroke", "white")
+      .attr("stroke", isDarkMode ? "#000" : "#fff")
       .attr("stroke-width", 3);
       
+    // Main Text
     node.append("text")
       .attr("x", 25)
       .attr("y", 5)
       .text(d => d.title)
       .attr("font-size", "12px")
       .attr("font-weight", "bold")
-      .attr("fill", "#1f2937");
+      .attr("fill", isDarkMode ? "#e5e7eb" : "#1f2937");
 
 
     simulation.on("tick", () => {
@@ -163,11 +155,11 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick }) => {
     return () => {
       simulation.stop();
     };
-  }, [notes, dimensions, onNodeClick]);
+  }, [notes, dimensions, onNodeClick, isDarkMode]);
 
   return (
-    <div ref={containerRef} className="w-full h-full bg-slate-50 relative overflow-hidden">
-      <div className="absolute top-4 left-4 bg-white/80 p-2 rounded-lg text-xs text-gray-500 pointer-events-none z-10 backdrop-blur">
+    <div ref={containerRef} className="w-full h-full bg-slate-50 dark:bg-gray-950 relative overflow-hidden transition-colors">
+      <div className="absolute top-4 left-4 bg-white/80 dark:bg-gray-800/80 p-2 rounded-lg text-xs text-gray-500 dark:text-gray-400 pointer-events-none z-10 backdrop-blur border dark:border-gray-700">
         Pinch to zoom • Drag to move
       </div>
       <svg ref={svgRef} className="w-full h-full touch-none" />
