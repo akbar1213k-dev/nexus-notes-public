@@ -61,8 +61,8 @@ export default function App() {
     return newNote.id;
   };
 
-  const handleDeleteNote = (id: string) => {
-      setNotes(prev => prev.filter(n => n.id !== id));
+  const handleDeleteNotes = (ids: string[]) => {
+      setNotes(prev => prev.filter(n => !ids.includes(n.id)));
   };
 
   const handleFabCreate = async () => {
@@ -115,7 +115,7 @@ export default function App() {
                 notes={notes} 
                 onNoteClick={navigateToNote} 
                 onCreateNew={handleFabCreate}
-                onDeleteNote={handleDeleteNote}
+                onDeleteNotes={handleDeleteNotes}
             />
         );
     }

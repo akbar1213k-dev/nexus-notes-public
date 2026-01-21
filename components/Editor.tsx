@@ -50,28 +50,52 @@ export const Editor: React.FC<EditorProps> = ({
     if (!editorRef.current) return;
     const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => {
-        // Prevent default double-binding
         (cb as HTMLInputElement).onclick = (e) => {
             const target = e.target as HTMLInputElement;
             const parent = target.closest('.todo-item');
             if (parent) {
-                const span = parent.querySelector('span');
                 if (target.checked) {
                     parent.classList.add('completed');
                 } else {
                     parent.classList.remove('completed');
                 }
-                // We need to trigger save manually
                 handleInput(); 
             }
         }
     });
   };
 
+  // --- KEYBOARD HANDLING FOR LISTS ---
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === 'Backspace') {
+        const selection = window.getSelection();
+        if (!selection?.anchorNode) return;
+        
+        let node: Node | null = selection.anchorNode;
+        // If anchor is the text node, get parent
+        if (node.nodeType === Node.TEXT_NODE) {
+            node = node.parentNode;
+        }
+        
+        // Find LI
+        const li = (node as HTMLElement).closest('li');
+        
+        if (li) {
+            const isEmpty = li.textContent?.trim() === '';
+            // If empty LI and Enter/Backspace pressed -> Outdent (Reset to Paragraph)
+            if (isEmpty) {
+                 // Allow default Backspace to just delete the bullet if it's the first thing?
+                 // Or enforce outdent. Outdent usually turns LI into P.
+                 document.execCommand('outdent');
+                 e.preventDefault(); 
+                 return;
+            }
+        }
+    }
+  };
+
   const handleInput = () => {
     if (!editorRef.current) return;
-    
-    // Check context for Table Menu availability
     checkSelectionContext();
 
     const content = editorRef.current.innerHTML;
@@ -170,7 +194,7 @@ export const Editor: React.FC<EditorProps> = ({
 
   const handleEditorClick = (e: React.MouseEvent) => {
     checkSelectionContext();
-    setActiveMenu('NONE'); // Close menus on click
+    setActiveMenu('NONE');
 
     const target = e.target as HTMLElement;
     if (target.classList.contains('mention-chip')) {
@@ -228,20 +252,31 @@ export const Editor: React.FC<EditorProps> = ({
   };
 
   const handleTableAction = (action: string) => {
+      // NOTE: We must access selection immediately. 
+      // The buttons use onMouseDown.preventDefault() to keep selection in the editor.
       const selection = window.getSelection();
-      if (!selection?.rangeCount) return;
+      
+      if (!selection || selection.rangeCount === 0) {
+          console.log("No selection found for table action");
+          return;
+      }
       
       let node = selection.anchorNode as HTMLElement | null;
-      // Traverse up to find TR and TABLE
-      while(node && node.nodeName !== 'TD' && node.nodeName !== 'TH' && node !== editorRef.current) {
+      
+      // Traverse up
+      while(node && node.nodeName !== 'TD' && node.nodeName !== 'TH' && node !== editorRef.current && node.nodeName !== 'BODY') {
           node = node.parentElement;
       }
       
-      const cell = node as HTMLTableCellElement;
-      if (!cell || (cell.nodeName !== 'TD' && cell.nodeName !== 'TH')) return;
+      // Validation
+      if (!node || (node.nodeName !== 'TD' && node.nodeName !== 'TH')) {
+          console.log("Not inside a table cell");
+          return;
+      }
       
+      const cell = node as HTMLTableCellElement;
       const row = cell.parentElement as HTMLTableRowElement;
-      const table = row.parentElement?.parentElement as HTMLTableElement; // tbody -> table
+      const table = row?.parentElement?.parentElement as HTMLTableElement; // td -> tr -> tbody -> table
 
       if (!row || !table) return;
 
@@ -265,10 +300,13 @@ export const Editor: React.FC<EditorProps> = ({
             break;
           case 'delCol':
             const idx = cell.cellIndex;
-            Array.from(table.rows).forEach(r => r.deleteCell(idx));
+            Array.from(table.rows).forEach(r => {
+                if(r.cells[idx]) r.deleteCell(idx);
+            });
             break;
           case 'delTable':
             table.remove();
+            setIsTableContext(false);
             break;
       }
       handleInput();
@@ -282,6 +320,11 @@ export const Editor: React.FC<EditorProps> = ({
   const filteredNotes = allNotes.filter(n => 
     n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && n.id !== note.id
   );
+
+  // Helper for menu buttons to prevent focus loss
+  const preventFocusLoss = (e: React.MouseEvent) => {
+      e.preventDefault();
+  };
 
   return (
     <div className="flex flex-col h-full relative">
@@ -297,6 +340,7 @@ export const Editor: React.FC<EditorProps> = ({
                 className="editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200"
                 contentEditable
                 onInput={handleInput}
+                onKeyDown={handleKeyDown}
                 onClick={handleEditorClick}
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
@@ -334,7 +378,6 @@ export const Editor: React.FC<EditorProps> = ({
             </div>
         )}
 
-        {/* Floating Home Button */}
         <button 
             onClick={onGoHome}
             className="fixed bottom-20 right-4 w-12 h-12 bg-gray-800 dark:bg-gray-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-black z-30 opacity-90 transition-opacity"
@@ -343,14 +386,15 @@ export const Editor: React.FC<EditorProps> = ({
         </button>
 
         {/* --- Toolbar Menus (Popups) --- */}
-        
+        {/* Added onMouseDown={preventFocusLoss} to all action buttons to keep selection in editor */}
+
         {/* Format Menu */}
         {activeMenu === 'FORMAT' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-2 z-40 flex flex-wrap gap-2 animate-in slide-in-from-bottom-5 fade-in">
-                <button onClick={() => execCmd('bold')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Bold size={18} /></button>
-                <button onClick={() => execCmd('italic')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Italic size={18} /></button>
-                <button onClick={() => execCmd('underline')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Underline size={18} /></button>
-                <button onClick={() => execCmd('strikeThrough')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Strikethrough size={18} /></button>
+                <button onMouseDown={preventFocusLoss} onClick={() => execCmd('bold')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Bold size={18} /></button>
+                <button onMouseDown={preventFocusLoss} onClick={() => execCmd('italic')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Italic size={18} /></button>
+                <button onMouseDown={preventFocusLoss} onClick={() => execCmd('underline')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Underline size={18} /></button>
+                <button onMouseDown={preventFocusLoss} onClick={() => execCmd('strikeThrough')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Strikethrough size={18} /></button>
                 <div className="w-full flex gap-2 mt-1">
                      <select onChange={(e) => execCmd('fontSize', e.target.value)} className="bg-gray-100 dark:bg-gray-700 dark:text-white p-2 rounded text-sm flex-1">
                         <option value="3">Normal Size</option>
@@ -365,20 +409,20 @@ export const Editor: React.FC<EditorProps> = ({
         {/* List Menu */}
         {activeMenu === 'LIST' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-2 z-40 flex flex-wrap gap-2 animate-in slide-in-from-bottom-5 fade-in">
-                 <button onClick={() => execCmd('insertUnorderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><List size={18} /> Bullet</button>
-                 <button onClick={() => execCmd('insertOrderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><ListOrdered size={18} /> 123</button>
-                 <button onClick={() => { insertCheckbox(); setActiveMenu('NONE'); }} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><CheckSquare size={18} /> Todo</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('insertUnorderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><List size={18} /> Bullet</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('insertOrderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><ListOrdered size={18} /> 123</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => { insertCheckbox(); setActiveMenu('NONE'); }} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><CheckSquare size={18} /> Todo</button>
             </div>
         )}
 
         {/* Table Menu */}
         {activeMenu === 'TABLE' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-3 z-40 grid grid-cols-2 gap-2 animate-in slide-in-from-bottom-5 fade-in">
-                 <button onClick={() => handleTableAction('addRow')} className="p-2 text-sm bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-100 rounded flex items-center gap-2"><Plus size={16}/> Row</button>
-                 <button onClick={() => handleTableAction('addCol')} className="p-2 text-sm bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-100 rounded flex items-center gap-2"><Plus size={16}/> Col</button>
-                 <button onClick={() => handleTableAction('delRow')} className="p-2 text-sm bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-100 rounded flex items-center gap-2"><Trash2 size={16}/> Row</button>
-                 <button onClick={() => handleTableAction('delCol')} className="p-2 text-sm bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-100 rounded flex items-center gap-2"><Trash2 size={16}/> Col</button>
-                 <button onClick={() => handleTableAction('delTable')} className="col-span-2 p-2 text-sm bg-red-100 dark:bg-red-900 font-bold text-red-700 dark:text-red-100 rounded flex justify-center items-center gap-2"><Trash2 size={16}/> Delete Entire Table</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('addRow')} className="p-2 text-sm bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-100 rounded flex items-center gap-2"><Plus size={16}/> Row</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('addCol')} className="p-2 text-sm bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-100 rounded flex items-center gap-2"><Plus size={16}/> Col</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('delRow')} className="p-2 text-sm bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-100 rounded flex items-center gap-2"><Trash2 size={16}/> Row</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('delCol')} className="p-2 text-sm bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-100 rounded flex items-center gap-2"><Trash2 size={16}/> Col</button>
+                 <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('delTable')} className="col-span-2 p-2 text-sm bg-red-100 dark:bg-red-900 font-bold text-red-700 dark:text-red-100 rounded flex justify-center items-center gap-2"><Trash2 size={16}/> Delete Entire Table</button>
             </div>
         )}
 
@@ -387,26 +431,26 @@ export const Editor: React.FC<EditorProps> = ({
             <div className="flex space-x-1 overflow-x-auto no-scrollbar w-full items-center">
                 
                 {/* 1. Format Group */}
-                <button onClick={() => toggleMenu('FORMAT')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'FORMAT' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+                <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('FORMAT')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'FORMAT' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <Bold size={20} />
                 </button>
 
                 {/* 2. List Group */}
-                <button onClick={() => toggleMenu('LIST')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'LIST' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+                <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('LIST')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'LIST' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <List size={20} />
                 </button>
 
                 {/* 3. Indent Group */}
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
-                    <button onClick={() => execCmd('indent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-l"><Indent size={18} /></button>
+                    <button onMouseDown={preventFocusLoss} onClick={() => execCmd('indent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-l"><Indent size={18} /></button>
                     <div className="w-[1px] bg-gray-300 dark:bg-gray-600"></div>
-                    <button onClick={() => execCmd('outdent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-r"><Outdent size={18} /></button>
+                    <button onMouseDown={preventFocusLoss} onClick={() => execCmd('outdent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-r"><Outdent size={18} /></button>
                 </div>
 
                 <div className="w-[1px] h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
 
                 {/* 4. Mentions */}
-                <button onClick={() => {
+                <button onMouseDown={preventFocusLoss} onClick={() => {
                    const text = document.createTextNode('@');
                    const sel = window.getSelection();
                    if (sel && sel.rangeCount > 0) {
@@ -425,7 +469,7 @@ export const Editor: React.FC<EditorProps> = ({
                 </label>
 
                 {/* 6. Table */}
-                <button onClick={() => {
+                <button onMouseDown={preventFocusLoss} onClick={() => {
                     if (isTableContext) {
                         toggleMenu('TABLE');
                     } else {

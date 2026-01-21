@@ -59,7 +59,7 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(100))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(dimensions.width / 2, dimensions.height / 2))
-      .force("collide", d3.forceCollide().radius(40));
+      .force("collide", d3.forceCollide().radius(60)); // Increased radius for labels
 
     const svg = d3.select(svgRef.current)
       .attr("width", dimensions.width)
@@ -86,8 +86,6 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
       .attr("stroke-width", 2);
 
     const node = g.append("g")
-      .attr("stroke", isDarkMode ? "#1f2937" : "#fff")
-      .attr("stroke-width", 1.5)
       .selectAll("g")
       .data(nodes)
       .join("g")
@@ -99,30 +97,46 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
     node.append("circle")
       .attr("r", 20)
       .attr("fill", "#3b82f6")
+      .attr("stroke", isDarkMode ? "#1f2937" : "#fff")
+      .attr("stroke-width", 2)
       .on("click", (event, d) => {
         if (navigator.vibrate) navigator.vibrate(10);
         onNodeClick(d.id);
       });
 
-    // Shadow/Outline text
-    node.append("text")
-      .attr("x", 25)
-      .attr("y", 5)
-      .text(d => d.title)
-      .clone(true).lower()
-      .attr("fill", "none")
-      .attr("stroke", isDarkMode ? "#000" : "#fff")
-      .attr("stroke-width", 3);
-      
-    // Main Text
-    node.append("text")
-      .attr("x", 25)
-      .attr("y", 5)
+    // Label Group
+    const labels = node.append("g")
+       .attr("transform", "translate(25, 5)");
+
+    // Background Rectangle for text
+    labels.append("rect")
+      .attr("rx", 4)
+      .attr("ry", 4)
+      .attr("fill", isDarkMode ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.85)")
+      .attr("stroke", isDarkMode ? "#374151" : "#e5e7eb")
+      .attr("stroke-width", 1)
+      .attr("height", 20); // Width is dynamic
+
+    // Text Label
+    const text = labels.append("text")
+      .attr("y", 14) // Vertical center align within rect
+      .attr("x", 4)
       .text(d => d.title)
       .attr("font-size", "12px")
       .attr("font-weight", "bold")
-      .attr("fill", isDarkMode ? "#e5e7eb" : "#1f2937");
-
+      .attr("fill", isDarkMode ? "#f3f4f6" : "#111827")
+      .style("pointer-events", "none");
+    
+    // Dynamic sizing of the background rect
+    labels.each(function() {
+        const bbox = (this.querySelector("text") as SVGTextElement).getBBox();
+        const rect = this.querySelector("rect");
+        if(rect) {
+            rect.setAttribute("width", (bbox.width + 8).toString());
+            rect.setAttribute("height", (bbox.height + 4).toString());
+            rect.setAttribute("y", (bbox.y - 2).toString());
+        }
+    });
 
     simulation.on("tick", () => {
       link
