@@ -40,30 +40,34 @@ export const Editor: React.FC<EditorProps> = ({
 
   // Sync content
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== note.content) {
-      editorRef.current.innerHTML = note.content;
-    }
-    addCheckboxListeners();
-  }, [note.id]);
+  if (editorRef.current && editorRef.current.innerHTML !== note.content) {
+    editorRef.current.innerHTML = note.content;
+  }
+  // Pasang kembali listener setiap kali editor dimuat atau konten berubah
+  addCheckboxListeners();
+}, [note.id, note.content]); // Tambahkan note.content sebagai pemicu
 
   const addCheckboxListeners = () => {
-    if (!editorRef.current) return;
-    const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        (cb as HTMLInputElement).onclick = (e) => {
-            const target = e.target as HTMLInputElement;
-            const parent = target.closest('.todo-item');
-            if (parent) {
-                if (target.checked) {
-                    parent.classList.add('completed');
-                } else {
-                    parent.classList.remove('completed');
-                }
-                handleInput(); 
-            }
-        }
-    });
-  };
+  if (!editorRef.current) return;
+  const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
+  checkboxes.forEach(cb => {
+    const checkbox = cb as HTMLInputElement;
+    checkbox.onclick = (e) => {
+      const target = e.target as HTMLInputElement;
+      const parent = target.closest('.todo-item');
+      
+      // Update atribut checked secara manual agar tersimpan di innerHTML
+      if (target.checked) {
+        target.setAttribute('checked', 'checked');
+        if (parent) parent.classList.add('completed');
+      } else {
+        target.removeAttribute('checked');
+        if (parent) parent.classList.remove('completed');
+      }
+      handleInput(); // Simpan perubahan ke database
+    };
+  });
+};
 
   // --- KEYBOARD HANDLING FOR LISTS ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
