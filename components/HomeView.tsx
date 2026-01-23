@@ -1,17 +1,18 @@
 import React, { useState, useRef } from 'react';
 import { Note } from '../types';
-import { Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X } from 'lucide-react';
+import { Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, Network, FilePlus } from 'lucide-react';
 
 interface HomeViewProps {
   notes: Note[];
   onNoteClick: (id: string) => void;
-  onCreateNew: () => void;
+  onCreateNew: (type: 'note' | 'mindmap') => void;
   onDeleteNotes: (ids: string[]) => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreateNew, onDeleteNotes }) => {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [fabExpanded, setFabExpanded] = useState(false); // State untuk menu tambah
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getPreview = (html: string) => {
@@ -62,15 +63,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
       } else {
         next.add(id);
       }
-      
-      // Auto exit if empty? Optional. Keeping mode active is usually better UX until explicit cancel.
       return next;
     });
   };
 
   const handleSelectAll = () => {
     if (selectedIds.size === notes.length) {
-      setSelectedIds(new Set()); // Deselect all
+      setSelectedIds(new Set());
     } else {
       const allIds = new Set(notes.map(n => n.id));
       setSelectedIds(allIds);
@@ -91,7 +90,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
   };
 
   return (
-    <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col">
+    <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col" onClick={() => setFabExpanded(false)}>
       
       {/* Selection Mode Header Overlay */}
       {selectionMode && (
@@ -125,23 +124,26 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
           <div className="grid grid-cols-1 gap-3">
             {sortedNotes.map((note) => {
               const isSelected = selectedIds.has(note.id);
+              const isMindMap = note.type === 'mindmap';
+              
               return (
                 <div 
                   key={note.id}
                   className={`
-                    bg-white dark:bg-gray-900 p-4 rounded-xl shadow-sm border 
-                    transition-all active:scale-[0.99] cursor-pointer relative overflow-hidden
+                    p-4 rounded-xl shadow-sm border relative overflow-hidden
+                    transition-all active:scale-[0.99] cursor-pointer 
                     ${isSelected 
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                        : 'border-gray-100 dark:border-gray-800'
+                        : isMindMap 
+                            ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800' 
+                            : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
                     }
                   `}
                   onClick={() => handleCardClick(note.id)}
                   onTouchStart={() => handleTouchStart(note.id)}
                   onTouchEnd={handleTouchEnd}
-                  onTouchMove={handleTouchEnd} // Cancel on scroll
+                  onTouchMove={handleTouchEnd}
                 >
-                    {/* Checkbox indicator */}
                     {selectionMode && (
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400">
                              {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
@@ -150,16 +152,17 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
 
                     <div className={selectionMode ? "pr-10" : ""}>
                         <div className="flex justify-between items-start mb-2">
-                            <h3 className={`font-bold text-lg line-clamp-1 ${isSelected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-800 dark:text-gray-100'}`}>
+                            <h3 className={`font-bold text-lg line-clamp-1 flex items-center gap-2 ${isSelected ? 'text-blue-700 dark:text-blue-300' : (isMindMap ? 'text-indigo-800 dark:text-indigo-200' : 'text-gray-800 dark:text-gray-100')}`}>
+                                {isMindMap && <Network size={16} className="shrink-0" />}
                                 {note.title || "Untitled"}
                             </h3>
                         </div>
                         
-                        <p className="text-gray-500 dark:text-gray-400 text-sm line-clamp-2 mb-3 h-10">
-                            {getPreview(note.content) || <span className="italic text-gray-300 dark:text-gray-600">No content</span>}
+                        <p className={`text-sm line-clamp-2 mb-3 h-10 ${isMindMap ? 'text-indigo-600/70 dark:text-indigo-300/70' : 'text-gray-500 dark:text-gray-400'}`}>
+                            {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
                         </p>
 
-                        <div className="flex items-center text-xs text-gray-400 dark:text-gray-500">
+                        <div className={`flex items-center text-xs ${isMindMap ? 'text-indigo-400 dark:text-indigo-500' : 'text-gray-400 dark:text-gray-500'}`}>
                             <Clock size={12} className="mr-1" />
                             <span>
                                 {new Date(note.updatedAt).toLocaleDateString('id-ID', { 
@@ -191,12 +194,38 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
            </button>
         </div>
       ) : (
-        <button 
-            onClick={onCreateNew}
-            className="absolute bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-90 transition-all z-20"
-        >
-            <Plus size={28} />
-        </button>
+        <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
+            {fabExpanded && (
+                <>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onCreateNew('mindmap'); }}
+                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 animate-in slide-in-from-bottom-5 fade-in duration-200"
+                    >
+                        <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center">
+                            <Network size={20} />
+                        </div>
+                        <span className="font-medium whitespace-nowrap">Peta Konsep</span>
+                    </button>
+
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onCreateNew('note'); }}
+                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 animate-in slide-in-from-bottom-5 fade-in duration-200 delay-75"
+                    >
+                         <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
+                            <FilePlus size={20} />
+                        </div>
+                        <span className="font-medium whitespace-nowrap">Catatan</span>
+                    </button>
+                </>
+            )}
+
+            <button 
+                onClick={(e) => { e.stopPropagation(); setFabExpanded(!fabExpanded); }}
+                className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all ${fabExpanded ? 'bg-gray-700 rotate-45 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-90'}`}
+            >
+                <Plus size={28} />
+            </button>
+        </div>
       )}
     </div>
   );

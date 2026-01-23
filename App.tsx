@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Note, ViewMode } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Note, ViewMode, EditorHandle } from './types';
 import { getNotes, saveNotes } from './services/storage';
 import { Editor } from './components/Editor';
 import { GraphView } from './components/GraphView';
@@ -13,6 +13,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('HOME');
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
+  
+  // Editor Ref for undo/redo
+  const editorRef = useRef<EditorHandle>(null);
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -51,19 +54,20 @@ export default function App() {
   };
 
   const handleUndo = () => {
-    document.execCommand('undo', false);
+    editorRef.current?.undo();
   };
 
   const handleRedo = () => {
-    document.execCommand('redo', false);
+    editorRef.current?.redo();
   };
 
-  const handleCreateNote = async (title: string): Promise<string> => {
+  const handleCreateNote = async (title: string, type: 'note' | 'mindmap' = 'note'): Promise<string> => {
     const newNote: Note = {
       id: Date.now().toString(),
-      title: title || 'Untitled',
-      content: '',
-      updatedAt: Date.now()
+      title: title || (type === 'mindmap' ? 'Konsep Baru' : 'Untitled'),
+      content: type === 'mindmap' ? '<ul><li>Ide Utama</li></ul>' : '', // Default tree structure for mindmap
+      updatedAt: Date.now(),
+      type: type
     };
     setNotes(prev => [...prev, newNote]);
     return newNote.id;
@@ -73,8 +77,8 @@ export default function App() {
       setNotes(prev => prev.filter(n => !ids.includes(n.id)));
   };
 
-  const handleFabCreate = async () => {
-    const id = await handleCreateNote('');
+  const handleFabCreate = async (type: 'note' | 'mindmap') => {
+    const id = await handleCreateNote('', type);
     setCurrentNoteId(id);
     setViewMode('EDITOR');
   };
@@ -142,10 +146,11 @@ export default function App() {
     
     return (
         <Editor 
+            ref={editorRef}
             note={currentNote}
             allNotes={notes}
             onUpdate={handleUpdateNote}
-            onCreateNewNote={handleCreateNote}
+            onCreateNewNote={(title) => handleCreateNote(title, 'note')} // Default recursive creation to note
             onLinkClick={handleLinkClick}
             onLinkLongPress={handleLinkLongPress}
             onGoHome={handleGoHome}

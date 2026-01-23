@@ -51,20 +51,98 @@
       .dark .editor-content h2 { border-color: #374151; }
       .editor-content h3 { font-size: 1.5em; font-weight: 600; margin: 1em 0 0.5em; }
 
-      /* Lists */
-      .editor-content ul { display: block; list-style-type: disc; margin: 1em 0; padding-left: 2em; }
-      .editor-content ol { display: block; list-style-type: decimal; margin: 1em 0; padding-left: 2em; }
-      .editor-content li { display: list-item; margin-bottom: 0.25em; }
+      /* Lists - Default Note Mode */
+      .editor-content:not(.mindmap-mode) ul { display: block; list-style-type: disc; margin: 1em 0; padding-left: 2em; }
+      .editor-content:not(.mindmap-mode) ol { display: block; list-style-type: decimal; margin: 1em 0; padding-left: 2em; }
+      .editor-content:not(.mindmap-mode) li { display: list-item; margin-bottom: 0.25em; }
+
+      /* --- MIND MAP MODE (Tree View Styles) --- */
+      .mindmap-mode ul {
+        padding-left: 20px;
+        position: relative;
+        list-style: none; /* Hapus bullet default */
+      }
+      
+      .mindmap-mode ul li {
+        position: relative;
+        padding-left: 10px;
+        margin-bottom: 8px;
+        border-left: 2px solid #cbd5e1; /* Garis vertikal utama */
+      }
+      .dark .mindmap-mode ul li {
+        border-color: #475569;
+      }
+
+      /* Garis horizontal penghubung */
+      .mindmap-mode ul li::before {
+        content: "";
+        position: absolute;
+        top: 12px; /* Setengah tinggi baris pertama */
+        left: 0;
+        width: 10px;
+        height: 2px;
+        background: #cbd5e1;
+      }
+      .dark .mindmap-mode ul li::before {
+        background: #475569;
+      }
+
+      /* Bullet node kustom */
+      .mindmap-mode ul li::after {
+        content: "";
+        position: absolute;
+        top: 8px;
+        left: -4px; /* Menutupi garis vertikal */
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #3b82f6;
+        border: 2px solid white;
+      }
+      .dark .mindmap-mode ul li::after {
+        border-color: #1e293b;
+      }
+
+      /* Styling teks node mindmap */
+      .mindmap-mode li > div, 
+      .mindmap-mode li > span,
+      .mindmap-mode li {
+         /* Membungkus teks agar terlihat seperti blok/kartu minimalis */
+      }
+
+      /* Hapus garis vertikal untuk item terakhir agar tidak 'menggantung' berlebih */
+      .mindmap-mode ul li:last-child {
+        border-left-color: transparent;
+      }
+      /* Tapi kita butuh garis vertikal parsial untuk menghubungkan ke bullet item terakhir */
+      .mindmap-mode ul li:last-child::before {
+        background: #cbd5e1; /* Kembalikan warna garis horizontal */
+        height: 2px;
+        top: 12px;
+      }
+      /* Hack untuk membuat garis vertikal pendek ke atas bagi item terakhir */
+      .mindmap-mode ul li:last-child > .connector-fix {
+         position: absolute;
+         left: -2px;
+         top: 0;
+         height: 12px;
+         width: 2px;
+         background: #cbd5e1;
+      }
+      .dark .mindmap-mode ul li:last-child > .connector-fix {
+          background: #475569;
+      }
+
+      /* --------------------------- */
 
       /* Gaya untuk baris To-Do secara umum */
       .editor-content .todo-item {
         display: flex;
-        align-items: flex-start; /* PERBAIKAN: Agar checkbox di baris pertama, bukan di tengah */
-        margin-bottom: 8px; /* Jarak antar poin sedikit diperlebar */
+        align-items: flex-start; 
+        margin-bottom: 8px; 
         line-height: 1.5;
       }
 
-     /* Gabungan pengaturan kotak centang (Checkbox) */
       .editor-content input[type="checkbox"] {
         margin-right: 10px;
         margin-top: 6px;
@@ -72,11 +150,10 @@
         height: 18px;
         accent-color: #2563eb;
         cursor: pointer;
-        flex-shrink: 0; /* Menjaga kotak tidak gepeng saat teks panjang */
+        flex-shrink: 0; 
         display: inline-block;
       }
 
-      /* Memastikan kotak centang itu sendiri TIDAK ikut tercoret garis */
       .editor-content .todo-item.completed input[type="checkbox"] {
         text-decoration: none;
         display: inline-block;
@@ -111,7 +188,11 @@
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "d3": "https://esm.sh/d3@^7.9.0"
+    "d3": "https://esm.sh/d3@^7.9.0",
+    "path": "https://esm.sh/path@^0.12.7",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "url": "https://esm.sh/url@^0.11.4"
   }
 }
 </script>

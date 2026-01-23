@@ -5,6 +5,7 @@ export interface Note {
   title: string;
   content: string; // HTML content
   updatedAt: number;
+  type?: 'note' | 'mindmap'; // New field
 }
 
 export interface GraphNode extends d3.SimulationNodeDatum {
@@ -19,3 +20,8 @@ export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 }
 
 export type ViewMode = 'HOME' | 'EDITOR' | 'GRAPH';
+
+export interface EditorHandle {
+  undo: () => void;
+  redo: () => void;
+}

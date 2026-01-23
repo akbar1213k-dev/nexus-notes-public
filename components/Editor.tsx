@@ -1,11 +1,11 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { Note } from '../types';
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
+import { Note, EditorHandle } from '../types';
 import { 
   Image as ImageIcon, Table, AtSign, 
   Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, CheckSquare, 
-  Indent, Outdent, ChevronUp, MoreHorizontal,
-  Plus, Trash2, Home
+  Indent, Outdent, MoreHorizontal,
+  Plus, Trash2, Home, Network
 } from 'lucide-react';
 
 interface EditorProps {
@@ -20,7 +20,7 @@ interface EditorProps {
 
 type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE';
 
-export const Editor: React.FC<EditorProps> = ({ 
+export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
   note, 
   allNotes, 
   onUpdate, 
@@ -28,7 +28,7 @@ export const Editor: React.FC<EditorProps> = ({
   onLinkClick,
   onLinkLongPress,
   onGoHome
-}) => {
+}, ref) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [showMentionList, setShowMentionList] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -38,72 +38,76 @@ export const Editor: React.FC<EditorProps> = ({
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
   const [isTableContext, setIsTableContext] = useState(false);
 
+  // Expose undo/redo to parent via Ref
+  useImperativeHandle(ref, () => ({
+    undo: () => {
+      document.execCommand('undo');
+      handleInput();
+    },
+    redo: () => {
+      document.execCommand('redo');
+      handleInput();
+    }
+  }));
+
   // Sync content
   useEffect(() => {
-  if (editorRef.current && editorRef.current.innerHTML !== note.content) {
-    editorRef.current.innerHTML = note.content;
-  }
-  // Pasang kembali listener setiap kali editor dimuat atau konten berubah
-  addCheckboxListeners();
-}, [note.id, note.content]); // Tambahkan note.content sebagai pemicu
+    if (editorRef.current && editorRef.current.innerHTML !== note.content) {
+      editorRef.current.innerHTML = note.content;
+    }
+    addCheckboxListeners();
+  }, [note.id]); // Only re-sync if ID changes (switching notes)
 
   const addCheckboxListeners = () => {
-  if (!editorRef.current) return;
-  const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
-  checkboxes.forEach(cb => {
-    const checkbox = cb as HTMLInputElement;
-    checkbox.onclick = (e) => {
-      const target = e.target as HTMLInputElement;
-      const parent = target.closest('.todo-item');
-      
-      // Update atribut checked secara manual agar tersimpan di innerHTML
-      if (target.checked) {
-        target.setAttribute('checked', 'checked');
-        if (parent) parent.classList.add('completed');
-      } else {
-        target.removeAttribute('checked');
-        if (parent) parent.classList.remove('completed');
-      }
-      handleInput(); // Simpan perubahan ke database
-    };
-  });
-};
+    if (!editorRef.current) return;
+    const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        (cb as HTMLInputElement).onclick = (e) => {
+            const target = e.target as HTMLInputElement;
+            const parent = target.closest('.todo-item');
+            if (parent) {
+                if (target.checked) {
+                    target.setAttribute('checked', 'checked');
+                    parent.classList.add('completed');
+                } else {
+                    target.removeAttribute('checked');
+                    parent.classList.remove('completed');
+                }
+                handleInput(); 
+            }
+        }
+    });
+  };
 
-  // --- KEYBOARD HANDLING FOR LISTS ---
+  // --- KEYBOARD HANDLING ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-        const selection = window.getSelection();
-        if (!selection?.anchorNode) return;
-        
-        let node: Node | null = selection.anchorNode;
-        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-        
-        // Cari apakah kita berada di dalam todo-item
-        const todoItem = (node as HTMLElement).closest('.todo-item');
-        
-        if (todoItem) {
-            // Jika Enter ditekan di todo-item, buat checkbox baru di baris bawah
-            e.preventDefault(); // Hentikan enter standar
-            const newTodoHtml = `<div class="todo-item"><input type="checkbox"><span>&nbsp;</span></div>`;
-            document.execCommand('insertHTML', false, newTodoHtml);
-            
-            // Pasang ulang listener untuk checkbox baru tersebut
-            setTimeout(() => addCheckboxListeners(), 0);
-            return;
+    const selection = window.getSelection();
+    if (!selection?.anchorNode) return;
+    
+    let node: Node | null = selection.anchorNode;
+    if (node.nodeType === Node.TEXT_NODE) {
+        node = node.parentNode;
+    }
+
+    // 1. Handle List Outdent on Enter/Backspace for empty items
+    const li = (node as HTMLElement).closest('li');
+    if (li && (e.key === 'Enter' || e.key === 'Backspace')) {
+        const isEmpty = li.textContent?.trim() === '';
+        if (isEmpty) {
+             document.execCommand('outdent');
+             e.preventDefault(); 
+             return;
         }
     }
 
-    // Logika Backspace tetap sama untuk menghapus list kosong
-    if (e.key === 'Backspace') {
-        const selection = window.getSelection();
-        if (!selection?.anchorNode) return;
-        let node: Node | null = selection.anchorNode;
-        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-        const li = (node as HTMLElement).closest('li');
-        if (li && li.textContent?.trim() === '') {
-            document.execCommand('outdent');
-            e.preventDefault();
-        }
+    // 2. Handle Auto-creation of Todo items on Enter
+    const todoItem = (node as HTMLElement).closest('.todo-item');
+    if (todoItem && e.key === 'Enter') {
+        e.preventDefault(); 
+        const newTodoHtml = `<div class="todo-item"><input type="checkbox"><span>&nbsp;</span></div>`;
+        document.execCommand('insertHTML', false, newTodoHtml);
+        setTimeout(addCheckboxListeners, 0);
+        return;
     }
   };
 
@@ -246,7 +250,7 @@ export const Editor: React.FC<EditorProps> = ({
   };
 
   const insertCheckbox = () => {
-    const html = `<div class="todo-item"><input type="checkbox"><span>&nbsp;To do</span></div>`;
+    const html = `<div class="todo-item"><input type="checkbox"><span>&nbsp;</span></div>`;
     execCmd('insertHTML', html);
     addCheckboxListeners();
   };
@@ -265,31 +269,21 @@ export const Editor: React.FC<EditorProps> = ({
   };
 
   const handleTableAction = (action: string) => {
-      // NOTE: We must access selection immediately. 
-      // The buttons use onMouseDown.preventDefault() to keep selection in the editor.
       const selection = window.getSelection();
       
-      if (!selection || selection.rangeCount === 0) {
-          console.log("No selection found for table action");
-          return;
-      }
+      if (!selection || selection.rangeCount === 0) return;
       
       let node = selection.anchorNode as HTMLElement | null;
       
-      // Traverse up
       while(node && node.nodeName !== 'TD' && node.nodeName !== 'TH' && node !== editorRef.current && node.nodeName !== 'BODY') {
           node = node.parentElement;
       }
       
-      // Validation
-      if (!node || (node.nodeName !== 'TD' && node.nodeName !== 'TH')) {
-          console.log("Not inside a table cell");
-          return;
-      }
+      if (!node || (node.nodeName !== 'TD' && node.nodeName !== 'TH')) return;
       
       const cell = node as HTMLTableCellElement;
       const row = cell.parentElement as HTMLTableRowElement;
-      const table = row?.parentElement?.parentElement as HTMLTableElement; // td -> tr -> tbody -> table
+      const table = row?.parentElement?.parentElement as HTMLTableElement;
 
       if (!row || !table) return;
 
@@ -334,30 +328,36 @@ export const Editor: React.FC<EditorProps> = ({
     n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && n.id !== note.id
   );
 
-  // Helper for menu buttons to prevent focus loss
   const preventFocusLoss = (e: React.MouseEvent) => {
       e.preventDefault();
   };
 
+  // Mind map visual helpers
+  const isMindMap = note.type === 'mindmap';
+
   return (
     <div className="flex flex-col h-full relative">
         <div className="flex-1 overflow-y-auto p-4 no-scrollbar pb-32">
-            <input 
-                value={note.title}
-                onChange={(e) => onUpdate({...note, title: e.target.value})}
-                placeholder="Page Title"
-                className="text-3xl font-bold mb-4 w-full bg-transparent border-none outline-none placeholder-gray-300 dark:placeholder-gray-700 dark:text-gray-100"
-            />
+            <div className="flex items-center gap-2 mb-4">
+                {isMindMap && <Network className="text-indigo-500" size={28} />}
+                <input 
+                    value={note.title}
+                    onChange={(e) => onUpdate({...note, title: e.target.value})}
+                    placeholder={isMindMap ? "Konsep Utama" : "Judul Halaman"}
+                    className={`text-3xl font-bold w-full bg-transparent border-none outline-none placeholder-gray-300 dark:placeholder-gray-700 dark:text-gray-100 ${isMindMap ? 'text-indigo-900 dark:text-indigo-200' : ''}`}
+                />
+            </div>
+            
             <div 
                 ref={editorRef}
-                className="editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200"
+                className={`editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200 ${isMindMap ? 'mindmap-mode' : ''}`}
                 contentEditable
                 onInput={handleInput}
                 onKeyDown={handleKeyDown}
                 onClick={handleEditorClick}
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
-                data-placeholder="Start typing..."
+                data-placeholder={isMindMap ? "Mulai dengan poin utama..." : "Mulai mengetik..."}
             />
         </div>
 
@@ -399,9 +399,6 @@ export const Editor: React.FC<EditorProps> = ({
         </button>
 
         {/* --- Toolbar Menus (Popups) --- */}
-        {/* Added onMouseDown={preventFocusLoss} to all action buttons to keep selection in editor */}
-
-        {/* Format Menu */}
         {activeMenu === 'FORMAT' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-2 z-40 flex flex-wrap gap-2 animate-in slide-in-from-bottom-5 fade-in">
                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('bold')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Bold size={18} /></button>
@@ -419,7 +416,6 @@ export const Editor: React.FC<EditorProps> = ({
             </div>
         )}
 
-        {/* List Menu */}
         {activeMenu === 'LIST' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-2 z-40 flex flex-wrap gap-2 animate-in slide-in-from-bottom-5 fade-in">
                  <button onMouseDown={preventFocusLoss} onClick={() => execCmd('insertUnorderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><List size={18} /> Bullet</button>
@@ -428,7 +424,6 @@ export const Editor: React.FC<EditorProps> = ({
             </div>
         )}
 
-        {/* Table Menu */}
         {activeMenu === 'TABLE' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-3 z-40 grid grid-cols-2 gap-2 animate-in slide-in-from-bottom-5 fade-in">
                  <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('addRow')} className="p-2 text-sm bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-100 rounded flex items-center gap-2"><Plus size={16}/> Row</button>
@@ -443,17 +438,14 @@ export const Editor: React.FC<EditorProps> = ({
         <div className="h-14 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-2 shadow-lg sticky bottom-0 w-full z-40">
             <div className="flex space-x-1 overflow-x-auto no-scrollbar w-full items-center">
                 
-                {/* 1. Format Group */}
                 <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('FORMAT')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'FORMAT' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <Bold size={20} />
                 </button>
 
-                {/* 2. List Group */}
                 <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('LIST')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'LIST' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <List size={20} />
                 </button>
 
-                {/* 3. Indent Group */}
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
                     <button onMouseDown={preventFocusLoss} onClick={() => execCmd('indent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-l"><Indent size={18} /></button>
                     <div className="w-[1px] bg-gray-300 dark:bg-gray-600"></div>
@@ -462,7 +454,6 @@ export const Editor: React.FC<EditorProps> = ({
 
                 <div className="w-[1px] h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
 
-                {/* 4. Mentions */}
                 <button onMouseDown={preventFocusLoss} onClick={() => {
                    const text = document.createTextNode('@');
                    const sel = window.getSelection();
@@ -475,13 +466,11 @@ export const Editor: React.FC<EditorProps> = ({
                    }
                 }} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400"><AtSign size={18} /></button>
 
-                {/* 5. Image */}
                 <label className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center cursor-pointer text-gray-700 dark:text-gray-300">
                     <input type="file" accept="image/*" className="hidden" onChange={insertImage} />
                     <ImageIcon size={18} />
                 </label>
 
-                {/* 6. Table */}
                 <button onMouseDown={preventFocusLoss} onClick={() => {
                     if (isTableContext) {
                         toggleMenu('TABLE');
@@ -495,4 +484,4 @@ export const Editor: React.FC<EditorProps> = ({
         </div>
     </div>
   );
-};
+});
