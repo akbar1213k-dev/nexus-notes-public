@@ -71,29 +71,38 @@ export const Editor: React.FC<EditorProps> = ({
 
   // --- KEYBOARD HANDLING FOR LISTS ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === 'Backspace') {
+    if (e.key === 'Enter') {
         const selection = window.getSelection();
         if (!selection?.anchorNode) return;
         
         let node: Node | null = selection.anchorNode;
-        // If anchor is the text node, get parent
-        if (node.nodeType === Node.TEXT_NODE) {
-            node = node.parentNode;
+        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+        
+        // Cari apakah kita berada di dalam todo-item
+        const todoItem = (node as HTMLElement).closest('.todo-item');
+        
+        if (todoItem) {
+            // Jika Enter ditekan di todo-item, buat checkbox baru di baris bawah
+            e.preventDefault(); // Hentikan enter standar
+            const newTodoHtml = `<div class="todo-item"><input type="checkbox"><span>&nbsp;</span></div>`;
+            document.execCommand('insertHTML', false, newTodoHtml);
+            
+            // Pasang ulang listener untuk checkbox baru tersebut
+            setTimeout(() => addCheckboxListeners(), 0);
+            return;
         }
-        
-        // Find LI
+    }
+
+    // Logika Backspace tetap sama untuk menghapus list kosong
+    if (e.key === 'Backspace') {
+        const selection = window.getSelection();
+        if (!selection?.anchorNode) return;
+        let node: Node | null = selection.anchorNode;
+        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
         const li = (node as HTMLElement).closest('li');
-        
-        if (li) {
-            const isEmpty = li.textContent?.trim() === '';
-            // If empty LI and Enter/Backspace pressed -> Outdent (Reset to Paragraph)
-            if (isEmpty) {
-                 // Allow default Backspace to just delete the bullet if it's the first thing?
-                 // Or enforce outdent. Outdent usually turns LI into P.
-                 document.execCommand('outdent');
-                 e.preventDefault(); 
-                 return;
-            }
+        if (li && li.textContent?.trim() === '') {
+            document.execCommand('outdent');
+            e.preventDefault();
         }
     }
   };
