@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewMode } from '../types';
-import { Network, FileText, ArrowLeft, Sun, Moon } from 'lucide-react';
+import { Network, FileText, ArrowLeft, Sun, Moon, Undo, Redo } from 'lucide-react'; // Tambahkan Undo, Redo
 
 interface TopBarProps {
   mode: ViewMode;
@@ -11,6 +11,9 @@ interface TopBarProps {
   title?: string;
   isDarkMode: boolean;
   onToggleTheme: () => void;
+  // TAMBAHKAN INI:
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
@@ -21,7 +24,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onGoHome,
   title,
   isDarkMode,
-  onToggleTheme
+  onToggleTheme,
+  onUndo, // Terima props ini
+  onRedo  // Terima props ini
 }) => {
   return (
     <div className="h-14 bg-white dark:bg-gray-900 border-b dark:border-gray-800 flex items-center justify-between px-4 z-50 relative shrink-0 transition-colors">
@@ -37,13 +42,33 @@ export const TopBar: React.FC<TopBarProps> = ({
         
         <h1 
             onClick={onGoHome}
-            className="font-bold text-xl truncate max-w-[200px] bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 cursor-pointer"
+            className="font-bold text-xl truncate max-w-[150px] bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 cursor-pointer"
         >
             {mode === 'HOME' ? 'Nexus Notes' : (title || 'Untitled')}
         </h1>
       </div>
       
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-1">
+        {/* TOMBOL UNDO & REDO BARU (Hanya muncul saat di Editor) */}
+        {mode === 'EDITOR' && (
+          <div className="flex items-center mr-2 border-r dark:border-gray-700 pr-2 space-x-1">
+            <button 
+              onClick={onUndo}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+              title="Undo"
+            >
+              <Undo size={18} />
+            </button>
+            <button 
+              onClick={onRedo}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+              title="Redo"
+            >
+              <Redo size={18} />
+            </button>
+          </div>
+        )}
+
         <button 
           onClick={onToggleTheme}
           className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
