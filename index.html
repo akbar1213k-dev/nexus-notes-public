@@ -56,21 +56,33 @@
       .editor-content ol { display: block; list-style-type: decimal; margin: 1em 0; padding-left: 2em; }
       .editor-content li { display: list-item; margin-bottom: 0.25em; }
 
-      /* Checkboxes (Todo List) */
+      /* Gaya untuk baris To-Do secara umum */
       .editor-content .todo-item {
         display: flex;
         align-items: center;
         margin-bottom: 4px;
       }
+
+      /* PERBAIKAN: Gaya ketika To-Do sudah selesai (Dicentang) */
+      .editor-content .todo-item.completed {
+        text-decoration: line-through; /* Memberi garis coret pada teks */
+        opacity: 0.6; /* Membuat teks agak transparan */
+        color: #6b7280; /* Mengubah warna menjadi abu-abu */
+      }
+
+      /* Mengatur ukuran kotak centang */
       .editor-content input[type="checkbox"] {
         margin-right: 8px;
         width: 16px;
         height: 16px;
         accent-color: #2563eb;
+        cursor: pointer;
       }
-      .editor-content .todo-item.completed span {
-        text-decoration: line-through;
-        opacity: 0.6;
+
+      /* Memastikan kotak centang itu sendiri TIDAK ikut tercoret garis */
+      .editor-content .todo-item.completed input[type="checkbox"] {
+        text-decoration: none;
+        display: inline-block;
       }
 
       /* Table Styles */
