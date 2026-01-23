@@ -59,8 +59,20 @@
       /* Gaya untuk baris To-Do secara umum */
       .editor-content .todo-item {
         display: flex;
-        align-items: center;
-        margin-bottom: 4px;
+        align-items: flex-start; /* PERBAIKAN: Agar checkbox di baris pertama, bukan di tengah */
+        margin-bottom: 8px; /* Jarak antar poin sedikit diperlebar */
+        line-height: 1.5;
+      }
+
+      /* Mengatur posisi kotak centang agar pas dengan tinggi teks baris pertama */
+      .editor-content input[type="checkbox"] {
+        margin-right: 10px;
+        margin-top: 6px; /* PERBAIKAN: Menyesuaikan posisi kotak agar sejajar huruf */
+        width: 18px;
+        height: 18px;
+        accent-color: #2563eb;
+        cursor: pointer;
+        flex-shrink: 0; /* Mencegah kotak centang gepeng saat teks panjang */
       }
 
       /* PERBAIKAN: Gaya ketika To-Do sudah selesai (Dicentang) */
