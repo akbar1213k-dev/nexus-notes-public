@@ -64,31 +64,16 @@
         line-height: 1.5;
       }
 
-      /* Mengatur posisi kotak centang agar pas dengan tinggi teks baris pertama */
+     /* Gabungan pengaturan kotak centang (Checkbox) */
       .editor-content input[type="checkbox"] {
         margin-right: 10px;
-        margin-top: 6px; /* PERBAIKAN: Menyesuaikan posisi kotak agar sejajar huruf */
+        margin-top: 6px;
         width: 18px;
         height: 18px;
         accent-color: #2563eb;
         cursor: pointer;
-        flex-shrink: 0; /* Mencegah kotak centang gepeng saat teks panjang */
-      }
-
-      /* PERBAIKAN: Gaya ketika To-Do sudah selesai (Dicentang) */
-      .editor-content .todo-item.completed {
-        text-decoration: line-through; /* Memberi garis coret pada teks */
-        opacity: 0.6; /* Membuat teks agak transparan */
-        color: #6b7280; /* Mengubah warna menjadi abu-abu */
-      }
-
-      /* Mengatur ukuran kotak centang */
-      .editor-content input[type="checkbox"] {
-        margin-right: 8px;
-        width: 16px;
-        height: 16px;
-        accent-color: #2563eb;
-        cursor: pointer;
+        flex-shrink: 0; /* Menjaga kotak tidak gepeng saat teks panjang */
+        display: inline-block;
       }
 
       /* Memastikan kotak centang itu sendiri TIDAK ikut tercoret garis */
