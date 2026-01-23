@@ -50,6 +50,14 @@ export default function App() {
     setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
   };
 
+  const handleUndo = () => {
+    document.execCommand('undo', false);
+  };
+
+  const handleRedo = () => {
+    document.execCommand('redo', false);
+  };
+
   const handleCreateNote = async (title: string): Promise<string> => {
     const newNote: Note = {
       id: Date.now().toString(),
@@ -156,6 +164,8 @@ export default function App() {
         title={viewMode === 'EDITOR' ? currentNote?.title : 'Graph View'}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(prev => !prev)}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
 
       <div className="flex-1 overflow-hidden relative flex flex-col">
