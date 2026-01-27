@@ -421,6 +421,22 @@ export default function App() {
     );
   }
 
+  // --- FUNGSI IMPORT DATA (PINDAHKAN KE SINI) ---
+  const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
+    if (!user) return;
+    try {
+        const promises = [
+            ...data.notes.map(x => setDoc(doc(db, "notes", x.id), { ...x, userId: user.uid })),
+            ...data.folders.map(x => setDoc(doc(db, "folders", x.id), { ...x, userId: user.uid }))
+        ];
+        await Promise.all(promises);
+        alert("Import berhasil! Data telah dipulihkan.");
+    } catch (err) {
+        console.error("Import error:", err);
+        alert("Gagal mengimpor data.");
+    }
+  };
+
   // --- RENDER CONTENT ---
   const renderContent = () => {
     if (dbError) {
@@ -444,21 +460,25 @@ export default function App() {
     if (!isReady) return <div className="flex h-full items-center justify-center text-gray-400 font-medium">Memuat data...</div>;
 
     switch (viewMode) {
-        {currentView === 'settings' && (
-        <SettingsView 
-          isAutoSync={isAutoSync}
-          onToggleAutoSync={setIsAutoSync}
-          syncInterval={syncInterval}
-          onChangeInterval={setSyncInterval}
-          onLogout={handleLogout}
-          userEmail={user?.email}
-          isAnonymous={user?.isAnonymous}
-          // Props tambahan agar fitur Backup bekerja di halaman Settings:
-          notes={notes}
-          folders={folders}
-          onImportData={handleImportData}
-        />
-      )}
+        case 'SETTINGS':
+            return (
+                <SettingsView 
+                  isAutoSync={isAutoSync}
+                  onToggleAutoSync={setIsAutoSync}
+                  syncInterval={syncInterval}
+                  onChangeInterval={setSyncInterval}
+                  onLogout={handleLogout}
+                  userEmail={user?.email}
+                  isAnonymous={user?.isAnonymous}
+                  // DATA PENTING AGAR EXPORT TIDAK KOSONG:
+                  notes={notes}
+                  folders={folders}
+                  onImportData={handleImportData}
+                />
+            );
+            
+        case 'GRAPH':
+           // ... (kode graph view tetap sama)
         
         case 'GRAPH': 
             // PERBAIKAN: Pakai navigateTo saat klik node
