@@ -5,7 +5,6 @@ import {
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
   ChevronLeft, FolderInput, Pencil, Download // Tambahkan icon Download
 } from 'lucide-react';
-import BackupManager from './BackupManager';
 
 interface HomeViewProps {
   notes: Note[];
@@ -223,15 +222,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Main Content Area */}
       <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar">
-        
-        {/* TAMPILKAN BACKUP MANAGER (Hanya jika TIDAK dalam mode seleksi) */}
-        {!selectionMode && onImportData && (
-          <BackupManager 
-             notes={notes}
-             folders={folders}
-             onImport={onImportData}
-          />
-        )}
         
         {/* Breadcrumb / Navigation Header */}
         {!selectionMode && (
