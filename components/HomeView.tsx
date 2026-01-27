@@ -3,7 +3,8 @@ import { Note, Folder } from '../types';
 import { 
   Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, 
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
-  ChevronLeft, FolderInput, Pencil, Download // Tambahkan icon Download
+  ChevronLeft, FolderInput, Pencil, Download, 
+  Search, ArrowUpDown, Calendar, ArrowDownAz, ArrowUpAz // Icon baru ditambahkan
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -41,19 +42,74 @@ export const HomeView: React.FC<HomeViewProps> = ({
   
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Search & Sort State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>('updated');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
   // Computed Data
   const currentFolder = folders.find(f => f.id === currentFolderId);
-  
-  const visibleNotes = useMemo(() => 
-    notes.filter(n => {
-      if (!currentFolderId) return !n.folderId; 
-      return n.folderId === currentFolderId;
-    }).sort((a, b) => b.updatedAt - a.updatedAt),
-  [notes, currentFolderId]);
-  
-  const visibleFolders = useMemo(() => 
-    currentFolderId ? [] : folders.sort((a, b) => b.createdAt - a.createdAt), 
-  [folders, currentFolderId]);
+
+  // LOGIKA UTAMA: Filter & Sort
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    let filteredNotes = notes;
+    let filteredFolders = folders;
+
+    // 1. Filtering (Search vs Folder View)
+    if (query) {
+      // Jika mencari, cari di SEMUA folder (Global Search)
+      filteredNotes = notes.filter(n => 
+        (n.title && n.title.toLowerCase().includes(query)) || 
+        (n.content && n.content.toLowerCase().includes(query))
+      );
+      filteredFolders = folders.filter(f => 
+        f.name.toLowerCase().includes(query)
+      );
+    } else {
+      // Jika tidak mencari, filter berdasarkan folder saat ini
+      filteredNotes = notes.filter(n => {
+        if (!currentFolderId) return !n.folderId; 
+        return n.folderId === currentFolderId;
+      });
+      filteredFolders = currentFolderId ? [] : folders; 
+    }
+
+    // 2. Sorting Function
+    const sorter = (a: any, b: any, type: 'note' | 'folder') => {
+      let valA, valB;
+
+      switch (sortOption) {
+        case 'alphabet':
+          valA = type === 'note' ? (a as Note).title : (a as Folder).name;
+          valB = type === 'note' ? (b as Note).title : (b as Folder).name;
+          return sortDirection === 'asc' 
+            ? valA.localeCompare(valB) 
+            : valB.localeCompare(valA);
+        
+        case 'created':
+          // Note ID adalah timestamp, Folder punya createdAt
+          valA = type === 'note' ? parseInt((a as Note).id) : (a as Folder).createdAt;
+          valB = type === 'note' ? parseInt((b as Note).id) : (b as Folder).createdAt;
+          return sortDirection === 'asc' ? valA - valB : valB - valA;
+
+        case 'updated':
+        default:
+          valA = type === 'note' ? (a as Note).updatedAt : (a as Folder).createdAt;
+          valB = type === 'note' ? (b as Note).updatedAt : (b as Folder).createdAt;
+          return sortDirection === 'asc' ? valA - valB : valB - valA;
+      }
+    };
+
+    return {
+      visibleNotes: filteredNotes.sort((a, b) => sorter(a, b, 'note')),
+      visibleFolders: filteredFolders.sort((a, b) => sorter(a, b, 'folder'))
+    };
+
+  }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection]);
+
+  const { visibleNotes, visibleFolders } = filteredItems;
 
   const getPreview = (html: string) => {
     const tmp = document.createElement("DIV");
@@ -205,7 +261,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const totalSelected = selectedNoteIds.size + selectedFolderIds.size;
 
   return (
-    <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col" onClick={() => setFabExpanded(false)}>
+    <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col" onClick={() => { setFabExpanded(false); setShowSortMenu(false); }}>
       
       {/* Selection Header */}
       {selectionMode && (
@@ -223,36 +279,101 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {/* Main Content Area */}
       <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar">
         
-        {/* Breadcrumb / Navigation Header */}
+        {/* HEADER BARU: Search & Sort (Hanya jika tidak dalam mode seleksi) */}
         {!selectionMode && (
-          <div className="flex items-center gap-2 mb-4">
-             {currentFolderId ? (
-               <button 
-                 onClick={() => setCurrentFolderId(undefined)}
-                 className="flex items-center text-blue-600 dark:text-blue-400 font-medium"
-               >
-                 <ChevronLeft size={20} />
-                 Back
-               </button>
-             ) : (
-                <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">
-                  My Space
-                </h2>
-             )}
-             {currentFolder && (
-               <>
-                 <span className="text-gray-300">/</span>
-                 <span className="font-bold text-gray-800 dark:text-gray-200">{currentFolder.name}</span>
-               </>
-             )}
+          <div className="mb-6 space-y-3">
+            {/* Search Bar */}
+            <div className="relative">
+              <input 
+                type="text" 
+                placeholder="Search notes..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white transition-all"
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Breadcrumb & Sort Row */}
+            <div className="flex items-center justify-between">
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-2 overflow-hidden">
+                {currentFolderId ? (
+                  <button 
+                    onClick={() => { setCurrentFolderId(undefined); setSearchQuery(''); }}
+                    className="flex items-center text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap"
+                  >
+                    <ChevronLeft size={20} />
+                    Back
+                  </button>
+                ) : (
+                    <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">
+                      {searchQuery ? 'Search Results' : 'My Space'}
+                    </h2>
+                )}
+                {currentFolder && !searchQuery && (
+                  <>
+                    <span className="text-gray-300">/</span>
+                    <span className="font-bold text-gray-800 dark:text-gray-200 truncate">{currentFolder.name}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Sort Button & Menu */}
+              <div className="relative">
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}
+                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                 >
+                    {sortOption === 'updated' && <Clock size={14}/>}
+                    {sortOption === 'created' && <Calendar size={14}/>}
+                    {sortOption === 'alphabet' && <ArrowDownAz size={14}/>}
+                    <span>{sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : 'Name'}</span>
+                    <ArrowUpDown size={12} className="ml-1 opacity-50"/>
+                 </button>
+
+                 {/* Dropdown Menu */}
+                 {showSortMenu && (
+                   <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                      <div className="p-1">
+                        <div className="text-[10px] font-semibold text-gray-400 px-3 py-2 uppercase tracking-wider">Sort By</div>
+                        <button onClick={() => { setSortOption('updated'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'updated' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><Clock size={16}/> Edit Terbaru</button>
+                        <button onClick={() => { setSortOption('created'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'created' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><Calendar size={16}/> Tanggal Dibuat</button>
+                        <button onClick={() => { setSortOption('alphabet'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'alphabet' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><ArrowDownAz size={16}/> Alfabet (A-Z)</button>
+                        <div className="my-1 border-t border-gray-100 dark:border-gray-700"></div>
+                        <button onClick={() => { setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); setShowSortMenu(false); }} className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                           <span className="flex items-center gap-2">{sortDirection === 'asc' ? <ArrowUpAz size={16}/> : <ArrowDownAz size={16}/>} {sortDirection === 'asc' ? 'Ascending' : 'Descending'}</span>
+                        </button>
+                      </div>
+                   </div>
+                 )}
+              </div>
+            </div>
           </div>
         )}
         
         {/* ... (Render Notes & Folders - Bagian ini SAMA SEPERTI SEBELUMNYA, tidak perlu diubah) ... */}
         {visibleFolders.length === 0 && visibleNotes.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-gray-600">
-            <FileText size={48} className="mb-4 opacity-50" />
-            <p>Empty folder. Create something!</p>
+            {searchQuery ? (
+               <>
+                 <Search size={48} className="mb-4 opacity-50" />
+                 <p>No results found for "{searchQuery}"</p>
+               </>
+            ) : (
+               <>
+                 <FileText size={48} className="mb-4 opacity-50" />
+                 <p>Empty folder. Create something!</p>
+               </>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
