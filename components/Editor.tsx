@@ -30,7 +30,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   onGoHome
 }, ref) => {
   const editorRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLTextAreaElement>(null); // REF BARU UNTUK JUDUL
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const savedSelection = useRef<Range | null>(null); // Menyimpan posisi seleksi teks
   const [showMentionList, setShowMentionList] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
@@ -369,11 +370,21 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
   // --- COMMANDS ---
 
-  const execCmd = (command: string, value: string = '') => {
+  const execCmd = (command: string, value: string = '', restoreSelection: boolean = false) => {
+    // Kembalikan seleksi jika diinstruksikan (khusus dropdown size)
+    if (restoreSelection && savedSelection.current) {
+        const sel = window.getSelection();
+        if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(savedSelection.current);
+        }
+    }
+    
     document.execCommand(command, false, value);
     editorRef.current?.focus();
     handleInput();
     setActiveMenu('NONE');
+    savedSelection.current = null; // Bersihkan setelah digunakan
   };
 
   const insertCheckbox = () => {
@@ -471,6 +482,13 @@ const handleEditorClick = (e: React.MouseEvent) => {
   };
 
   const toggleMenu = (menu: ToolbarMenu) => {
+    // Jika membuka menu baru, simpan seleksi teks saat ini
+    if (menu !== 'NONE' && menu !== activeMenu) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            savedSelection.current = sel.getRangeAt(0).cloneRange();
+        }
+    }
     setActiveMenu(prev => prev === menu ? 'NONE' : menu);
   };
 
@@ -577,12 +595,12 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('underline')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Underline size={18} /></button>
                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('strikeThrough')} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex justify-center"><Strikethrough size={18} /></button>
                 <div className="w-full flex gap-2 mt-1">
-                     <select onChange={(e) => execCmd('fontSize', e.target.value)} className="bg-gray-100 dark:bg-gray-700 dark:text-white p-2 rounded text-sm flex-1">
-                        <option value="3">Normal Size</option>
-                        <option value="1">Small</option>
-                        <option value="5">Large</option>
-                        <option value="7">Huge</option>
-                     </select>
+                     <select onChange={(e) => execCmd('fontSize', e.target.value, true)} className="bg-gray-100 dark:bg-gray-700 dark:text-white p-2 rounded text-sm flex-1">
+                         <option value="3">Normal Size</option>
+                         <option value="1">Small</option>
+                         <option value="5">Large</option>
+                         <option value="7">Huge</option>
+                      </select>
                 </div>
             </div>
         )}
