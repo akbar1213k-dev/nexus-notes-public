@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, Folder } from '../types';
 import { 
   Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, 
@@ -44,9 +44,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   // Search & Sort State
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>('updated');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  
+  // 1. Ambil dari penyimpanan lokal, jika tidak ada gunakan default 'updated' (Edit Terbaru)
+  const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>(() => {
+    const saved = localStorage.getItem('nexus_sort_option');
+    return (saved as 'updated' | 'created' | 'alphabet') || 'updated';
+  });
+
+  // 2. Ambil dari penyimpanan lokal, jika tidak ada gunakan default 'desc' (Terbaru di atas)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
+    const saved = localStorage.getItem('nexus_sort_direction');
+    return (saved as 'asc' | 'desc') || 'desc';
+  });
+
   const [showSortMenu, setShowSortMenu] = useState(false);
+
+  // 3. Simpan otomatis ke penyimpanan lokal setiap kali opsi berubah
+  useEffect(() => {
+    localStorage.setItem('nexus_sort_option', sortOption);
+  }, [sortOption]);
+
+  useEffect(() => {
+    localStorage.setItem('nexus_sort_direction', sortDirection);
+  }, [sortDirection]);
 
   // Computed Data
   const currentFolder = folders.find(f => f.id === currentFolderId);
