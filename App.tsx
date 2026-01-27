@@ -265,10 +265,33 @@ export default function App() {
   }, [isAutoSync]);
 
   // --- FUNGSI UPDATE NOTE (DENGAN LOGIKA HYBRID) ---
+  // --- FUNGSI UPDATE NOTE (DENGAN LOGIKA HYBRID) ---
   const handleUpdateNote = (updated: Note) => {
     if (!user) return;
-    const noteWithUser = { ...updated, userId: user.uid }; 
+    
+    // PERBAIKAN: Selalu update 'updatedAt' ke waktu sekarang saat diedit
+    const noteWithUser = { ...updated, userId: user.uid, updatedAt: Date.now() }; 
+    
     setNotes(prev => prev.map(n => n.id === updated.id ? noteWithUser : n));
+    
+    // Simpan ke lokal dulu (Mekanisme Hybrid)
+    saveToLocalStorage(noteWithUser);
+    
+    // Kirim ke cloud jika Auto Sync nyala
+    if (isAutoSync) {
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = setTimeout(() => {
+             setDoc(doc(db, "notes", updated.id), noteWithUser, { merge: true })
+                .then(() => { 
+                    removeFromLocalStorage(updated.id); 
+                    setSyncStatus('saved'); 
+                    setTimeout(() => setSyncStatus('idle'), 2000); 
+                });
+        }, syncInterval); 
+    } else {
+        setSyncStatus('unsaved');
+    }
+  };
     
     // Simpan ke lokal dulu (Mekanisme Hybrid)
     saveToLocalStorage(noteWithUser);
