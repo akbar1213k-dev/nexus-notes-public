@@ -4,7 +4,6 @@ import { ViewMode } from '../types';
 
 interface TopBarProps {
   mode: ViewMode;
-  onToggleMode: () => void;
   // Prop 'title' kita biarkan ada di interface agar tidak error di App.tsx, 
   // tapi tidak akan kita render di UI.
   title?: string; 
@@ -12,7 +11,6 @@ interface TopBarProps {
   onToggleTheme: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  
   // Props Sync & Settings
   syncStatus: 'idle' | 'syncing' | 'saved' | 'error' | 'unsaved';
   isAutoSync: boolean;
@@ -21,7 +19,7 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
-  mode, onGoHome,
+  mode, onGoHome, title, 
   isDarkMode, onToggleTheme, onUndo, onRedo,
   syncStatus, isAutoSync, onManualSync, onOpenSettings
 }) => {
