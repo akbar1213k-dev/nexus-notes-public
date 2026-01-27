@@ -1,19 +1,60 @@
-import React, { useState, useRef } from 'react';
-import { Note } from '../types';
-import { Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, Network, FilePlus } from 'lucide-react';
+import React, { useState, useRef, useMemo } from 'react';
+import { Note, Folder } from '../types';
+import { 
+  Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, 
+  Network, FilePlus, Folder as FolderIcon, FolderPlus, 
+  ChevronLeft, FolderInput, Pencil, Download // Tambahkan icon Download
+} from 'lucide-react';
+import BackupManager from './BackupManager';
 
 interface HomeViewProps {
   notes: Note[];
+  folders: Folder[];
   onNoteClick: (id: string) => void;
-  onCreateNew: (type: 'note' | 'mindmap') => void;
-  onDeleteNotes: (ids: string[]) => void;
+  onCreateNote: (type: 'note' | 'mindmap', folderId?: string) => void;
+  onCreateFolder: (name: string) => void;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteItems: (noteIds: string[], folderIds: string[]) => void;
+  onMoveItems: (noteIds: string[], targetFolderId: string | undefined) => void;
+  onImportData?: (data: any) => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreateNew, onDeleteNotes }) => {
+export const HomeView: React.FC<HomeViewProps> = ({ 
+  notes, 
+  folders, 
+  onNoteClick, 
+  onCreateNote, 
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteItems,
+  onMoveItems,
+  onImportData
+}) => {
+  // Navigation State
+  const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
+
+  // Selection & UI State
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [fabExpanded, setFabExpanded] = useState(false); // State untuk menu tambah
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
+  const [fabExpanded, setFabExpanded] = useState(false);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Computed Data
+  const currentFolder = folders.find(f => f.id === currentFolderId);
+  
+  const visibleNotes = useMemo(() => 
+    notes.filter(n => {
+      if (!currentFolderId) return !n.folderId; 
+      return n.folderId === currentFolderId;
+    }).sort((a, b) => b.updatedAt - a.updatedAt),
+  [notes, currentFolderId]);
+  
+  const visibleFolders = useMemo(() => 
+    currentFolderId ? [] : folders.sort((a, b) => b.createdAt - a.createdAt), 
+  [folders, currentFolderId]);
 
   const getPreview = (html: string) => {
     const tmp = document.createElement("DIV");
@@ -22,29 +63,60 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
     return text.substring(0, 100) + (text.length > 100 ? "..." : "");
   };
 
-  const sortedNotes = [...notes].sort((a, b) => b.updatedAt - a.updatedAt);
+  // --- LOGIKA EXPORT SELECTED (BARU) ---
+  const handleExportSelected = () => {
+    // 1. Ambil data yang dipilih
+    const notesToExport = notes.filter(n => selectedNoteIds.has(n.id));
+    const foldersToExport = folders.filter(f => selectedFolderIds.has(f.id));
+
+    if (notesToExport.length === 0 && foldersToExport.length === 0) return;
+
+    // 2. Buat JSON
+    const exportData = { notes: notesToExport, folders: foldersToExport };
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `NexusNotes_Selection_${dateStr}.json`;
+
+    // 3. Download
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // 4. Selesai
+    handleCancelSelection();
+  };
+  // -------------------------------------
 
   // -- Interaction Handlers --
 
-  const handleCardClick = (id: string) => {
+  const handleItemClick = (type: 'note' | 'folder', id: string) => {
     if (selectionMode) {
-      toggleSelection(id);
+      toggleSelection(type, id);
     } else {
-      onNoteClick(id);
+      if (type === 'folder') {
+        setCurrentFolderId(id);
+      } else {
+        onNoteClick(id);
+      }
     }
   };
 
-  const handleCardLongPress = (id: string) => {
+  const handleLongPress = (type: 'note' | 'folder', id: string) => {
     if (!selectionMode) {
       if (navigator.vibrate) navigator.vibrate(50);
       setSelectionMode(true);
-      toggleSelection(id);
+      toggleSelection(type, id);
     }
   };
 
-  const handleTouchStart = (id: string) => {
+  const handleTouchStart = (type: 'note' | 'folder', id: string) => {
     longPressTimer.current = setTimeout(() => {
-      handleCardLongPress(id);
+      handleLongPress(type, id);
     }, 600);
   };
 
@@ -55,75 +127,189 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
     }
   };
 
-  const toggleSelection = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  const toggleSelection = (type: 'note' | 'folder', id: string) => {
+    if (type === 'note') {
+      setSelectedNoteIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    } else {
+      setSelectedFolderIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.size === notes.length) {
-      setSelectedIds(new Set());
+    const allSelected = selectedNoteIds.size === visibleNotes.length && selectedFolderIds.size === visibleFolders.length;
+    if (allSelected) {
+      setSelectedNoteIds(new Set());
+      setSelectedFolderIds(new Set());
     } else {
-      const allIds = new Set(notes.map(n => n.id));
-      setSelectedIds(allIds);
+      setSelectedNoteIds(new Set(visibleNotes.map(n => n.id)));
+      setSelectedFolderIds(new Set(visibleFolders.map(f => f.id)));
     }
   };
 
   const handleCancelSelection = () => {
     setSelectionMode(false);
-    setSelectedIds(new Set());
+    setSelectedNoteIds(new Set());
+    setSelectedFolderIds(new Set());
   };
 
   const handleBulkDelete = () => {
-    if (selectedIds.size === 0) return;
-    if (window.confirm(`Delete ${selectedIds.size} note(s)?`)) {
-      onDeleteNotes(Array.from(selectedIds));
+    const total = selectedNoteIds.size + selectedFolderIds.size;
+    if (total === 0) return;
+    
+    const msg = selectedFolderIds.size > 0 
+      ? `Delete ${selectedFolderIds.size} folder(s) and ${selectedNoteIds.size} note(s)? Notes inside deleted folders will be deleted.`
+      : `Delete ${total} item(s)?`;
+
+    if (window.confirm(msg)) {
+      onDeleteItems(Array.from(selectedNoteIds), Array.from(selectedFolderIds));
       handleCancelSelection();
     }
   };
 
+  const handleRename = () => {
+    if (selectedFolderIds.size !== 1) return;
+    const folderId = Array.from(selectedFolderIds)[0];
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return;
+
+    const newName = prompt("Rename Folder:", folder.name);
+    if (newName && newName.trim() !== "") {
+      onRenameFolder(folderId, newName.trim());
+      handleCancelSelection();
+    }
+  };
+
+  const triggerCreateFolder = () => {
+    const name = prompt("Enter folder name:");
+    if (name && name.trim()) {
+      onCreateFolder(name.trim());
+    }
+    setFabExpanded(false);
+  };
+
+  const handleMoveAction = (targetId: string | undefined) => {
+    onMoveItems(Array.from(selectedNoteIds), targetId);
+    setShowMoveDialog(false);
+    handleCancelSelection();
+  };
+
+  const totalSelected = selectedNoteIds.size + selectedFolderIds.size;
+
   return (
     <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col" onClick={() => setFabExpanded(false)}>
       
-      {/* Selection Mode Header Overlay */}
+      {/* Selection Header */}
       {selectionMode && (
         <div className="bg-blue-600 text-white px-4 py-3 flex justify-between items-center shadow-md z-30 animate-in slide-in-from-top-5">
           <div className="flex items-center gap-3">
             <button onClick={handleCancelSelection}><X size={24} /></button>
-            <span className="font-bold text-lg">{selectedIds.size} Selected</span>
+            <span className="font-bold text-lg">{totalSelected} Selected</span>
           </div>
-          <button 
-            onClick={handleSelectAll} 
-            className="text-sm font-semibold uppercase tracking-wide"
-          >
-            {selectedIds.size === notes.length ? 'Deselect All' : 'Select All'}
+          <button onClick={handleSelectAll} className="text-sm font-semibold uppercase tracking-wide">
+            {selectedNoteIds.size === visibleNotes.length && selectedFolderIds.size === visibleFolders.length ? 'Deselect All' : 'Select All'}
           </button>
         </div>
       )}
 
+      {/* Main Content Area */}
       <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar">
-        {!selectionMode && (
-           <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4 ml-1">
-             Recent Notes
-           </h2>
+        
+        {/* TAMPILKAN BACKUP MANAGER (Hanya jika TIDAK dalam mode seleksi) */}
+        {!selectionMode && onImportData && (
+          <BackupManager 
+             notes={notes}
+             folders={folders}
+             onImport={onImportData}
+          />
         )}
         
-        {sortedNotes.length === 0 ? (
+        {/* Breadcrumb / Navigation Header */}
+        {!selectionMode && (
+          <div className="flex items-center gap-2 mb-4">
+             {currentFolderId ? (
+               <button 
+                 onClick={() => setCurrentFolderId(undefined)}
+                 className="flex items-center text-blue-600 dark:text-blue-400 font-medium"
+               >
+                 <ChevronLeft size={20} />
+                 Back
+               </button>
+             ) : (
+                <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">
+                  My Space
+                </h2>
+             )}
+             {currentFolder && (
+               <>
+                 <span className="text-gray-300">/</span>
+                 <span className="font-bold text-gray-800 dark:text-gray-200">{currentFolder.name}</span>
+               </>
+             )}
+          </div>
+        )}
+        
+        {/* ... (Render Notes & Folders - Bagian ini SAMA SEPERTI SEBELUMNYA, tidak perlu diubah) ... */}
+        {visibleFolders.length === 0 && visibleNotes.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-gray-600">
             <FileText size={48} className="mb-4 opacity-50" />
-            <p>No notes yet. Create one!</p>
+            <p>Empty folder. Create something!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
-            {sortedNotes.map((note) => {
-              const isSelected = selectedIds.has(note.id);
+             {/* RENDER FOLDERS */}
+            {visibleFolders.map((folder) => {
+              const isSelected = selectedFolderIds.has(folder.id);
+              return (
+                <div 
+                  key={folder.id}
+                  className={`
+                    p-4 rounded-xl shadow-sm border relative overflow-hidden flex items-center gap-4
+                    transition-all active:scale-[0.99] cursor-pointer 
+                    ${isSelected 
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                        : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                    }
+                  `}
+                  onClick={() => handleItemClick('folder', folder.id)}
+                  onTouchStart={() => handleTouchStart('folder', folder.id)}
+                  onTouchEnd={handleTouchEnd}
+                  onTouchMove={handleTouchEnd}
+                >
+                    {selectionMode && (
+                        <div className="absolute right-4 text-blue-600 dark:text-blue-400">
+                             {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
+                        </div>
+                    )}
+
+                    <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                        <FolderIcon size={24} fill="currentColor" className="opacity-80"/>
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100 truncate">
+                            {folder.name}
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Folder
+                        </p>
+                    </div>
+                </div>
+              );
+            })}
+
+            {/* RENDER NOTES */}
+            {visibleNotes.map((note) => {
+              const isSelected = selectedNoteIds.has(note.id);
               const isMindMap = note.type === 'mindmap';
               
               return (
@@ -139,8 +325,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
                             : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
                     }
                   `}
-                  onClick={() => handleCardClick(note.id)}
-                  onTouchStart={() => handleTouchStart(note.id)}
+                  onClick={() => handleItemClick('note', note.id)}
+                  onTouchStart={() => handleTouchStart('note', note.id)}
                   onTouchEnd={handleTouchEnd}
                   onTouchMove={handleTouchEnd}
                 >
@@ -178,28 +364,72 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
         )}
       </div>
 
-      {/* Footer / FAB */}
+      {/* Footer / Action Bar (Selection Mode) */}
       {selectionMode ? (
         <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-30">
-           <span className="text-gray-500 text-sm">
-             {selectedIds.size} items
-           </span>
-           <button 
-             onClick={handleBulkDelete}
-             disabled={selectedIds.size === 0}
-             className={`flex items-center gap-2 px-6 py-3 rounded-full font-bold transition-all ${selectedIds.size > 0 ? 'bg-red-600 text-white shadow-lg active:scale-95' : 'bg-gray-200 text-gray-400'}`}
-           >
-             <Trash2 size={20} />
-             Delete
-           </button>
+           
+           <div className="flex gap-6 mx-auto">
+              {/* Rename (Only if 1 folder selected and no notes) */}
+              {selectedFolderIds.size === 1 && selectedNoteIds.size === 0 && (
+                 <button 
+                   onClick={handleRename}
+                   className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors"
+                 >
+                   <Pencil size={20} />
+                   <span className="text-[10px] font-medium">Rename</span>
+                 </button>
+              )}
+
+              {/* Move (Only if notes selected) */}
+              {selectedNoteIds.size > 0 && (
+                <button 
+                  onClick={() => setShowMoveDialog(true)}
+                  className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors"
+                >
+                  <FolderInput size={20} />
+                  <span className="text-[10px] font-medium">Move</span>
+                </button>
+              )}
+
+              {/* TOMBOL BARU: EXPORT SELECTED */}
+              <button 
+                onClick={handleExportSelected}
+                className="flex flex-col items-center gap-1 text-gray-500 hover:text-green-600 transition-colors"
+              >
+                <Download size={20} />
+                <span className="text-[10px] font-medium">Export</span>
+              </button>
+
+              {/* Delete Button */}
+               <button 
+                 onClick={handleBulkDelete}
+                 className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors"
+               >
+                 <Trash2 size={20} />
+                 <span className="text-[10px] font-medium">Delete</span>
+               </button>
+           </div>
         </div>
       ) : (
+        /* FAB - Add Button (TETAP SAMA) */
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
             {fabExpanded && (
                 <>
+                     {!currentFolderId && (
+                      <button 
+                          onClick={(e) => { e.stopPropagation(); triggerCreateFolder(); }}
+                          className="flex items-center gap-2 pr-4 pl-2 py-2 bg-amber-500 text-white rounded-full shadow-lg hover:bg-amber-600 animate-in slide-in-from-bottom-5 fade-in duration-200"
+                      >
+                          <div className="w-10 h-10 rounded-full bg-amber-600 flex items-center justify-center">
+                              <FolderPlus size={20} />
+                          </div>
+                          <span className="font-medium whitespace-nowrap">Folder</span>
+                      </button>
+                     )}
+
                     <button 
-                        onClick={(e) => { e.stopPropagation(); onCreateNew('mindmap'); }}
-                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 animate-in slide-in-from-bottom-5 fade-in duration-200"
+                        onClick={(e) => { e.stopPropagation(); onCreateNote('mindmap', currentFolderId); }}
+                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 animate-in slide-in-from-bottom-5 fade-in duration-200 delay-75"
                     >
                         <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center">
                             <Network size={20} />
@@ -208,8 +438,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
                     </button>
 
                     <button 
-                        onClick={(e) => { e.stopPropagation(); onCreateNew('note'); }}
-                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 animate-in slide-in-from-bottom-5 fade-in duration-200 delay-75"
+                        onClick={(e) => { e.stopPropagation(); onCreateNote('note', currentFolderId); }}
+                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 animate-in slide-in-from-bottom-5 fade-in duration-200 delay-100"
                     >
                          <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
                             <FilePlus size={20} />
@@ -227,6 +457,43 @@ export const HomeView: React.FC<HomeViewProps> = ({ notes, onNoteClick, onCreate
             </button>
         </div>
       )}
+
+      {/* Move Dialog Modal (TETAP SAMA) */}
+      {showMoveDialog && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
+              <h3 className="font-bold text-lg dark:text-white">Move to...</h3>
+              <button onClick={() => setShowMoveDialog(false)}><X size={20} className="text-gray-500"/></button>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+               {currentFolderId && (
+                   <button 
+                    onClick={() => handleMoveAction(undefined)}
+                    className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
+                   >
+                     <FolderIcon size={20} className="text-gray-400" />
+                     Home (Root)
+                   </button>
+               )}
+               {folders.filter(f => f.id !== currentFolderId).map(f => (
+                 <button 
+                   key={f.id}
+                   onClick={() => handleMoveAction(f.id)}
+                   className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
+                 >
+                   <FolderIcon size={20} className="text-amber-500" />
+                   {f.name}
+                 </button>
+               ))}
+               {folders.length <= (currentFolderId ? 1 : 0) && (
+                 <div className="p-4 text-center text-gray-400 text-sm">No other folders available</div>
+               )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

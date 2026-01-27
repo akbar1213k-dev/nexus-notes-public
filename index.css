@@ -1,0 +1,77 @@
+/* index.css */
+.mention-chip {
+    color: #2563eb; /* Warna biru */
+    background-color: #dbeafe; /* Latar biru muda */
+    border-radius: 4px;
+    padding: 0 4px;
+    margin: 0 2px;
+    cursor: pointer; /* PENTING: Mengubah kursor jadi jari tunjuk */
+    font-weight: 500;
+    user-select: none; /* Supaya tidak terblok saat di-klik double */
+    transition: all 0.2s;
+}
+
+.mention-chip:hover {
+    background-color: #bfdbfe;
+    text-decoration: underline;
+}
+
+/* ... kode css sebelumnya ... */
+
+/* TAMBAHAN: Memunculkan Bullet dan Numbering */
+.editor-content ul {
+    list-style-type: disc !important;
+    padding-left: 1.5rem !important;
+    margin: 0.5rem 0;
+}
+
+.editor-content ol {
+    list-style-type: decimal !important;
+    padding-left: 1.5rem !important;
+    margin: 0.5rem 0;
+}
+
+.editor-content li {
+    margin-bottom: 0.25rem;
+}
+
+/* Pastikan todo-item tampil sebagai blok flex yang rapi */
+.todo-item {
+    display: flex;
+    align-items: center;
+    margin: 0.25rem 0;
+}
+
+/* ... kode CSS yang sudah ada sebelumnya ... */
+
+/* --- LOGIKA CHECKBOX TERCORET --- */
+
+/* Saat parent (.todo-item) memiliki class 'completed', coret teks di dalamnya */
+.todo-item.completed span {
+    text-decoration: line-through; /* Garis coret */
+    color: #9ca3af; /* Ubah warna jadi abu-abu (opsional) */
+    opacity: 0.8;
+    transition: all 0.2s ease;
+}
+
+/* Tambahan: Styling agar checkbox dan teks lebih rapi */
+.todo-item {
+    display: flex;
+    align-items: flex-start; /* Supaya checkbox tetap di atas jika teks panjang */
+    margin: 4px 0;
+}
+
+.todo-item input[type="checkbox"] {
+    margin-right: 8px;
+    margin-top: 6px; /* Menyesuaikan posisi checkbox dengan baris pertama teks */
+    cursor: pointer;
+    flex-shrink: 0; /* Mencegah checkbox mengecil */
+    width: 16px;
+    height: 16px;
+}
+
+.todo-item span {
+    flex: 1; /* Teks mengambil sisa ruang */
+    word-break: break-word; /* Agar teks panjang turun ke bawah */
+    line-height: 1.6;
+}

@@ -1,5 +1,15 @@
+import { Buffer } from 'buffer';
+
+// PENTING: Inisialisasi Buffer secara global untuk browser
+// Ini mengatasi error "Buffer is not defined" secara permanen
+if (typeof window !== 'undefined') {
+  window.Buffer = Buffer;
+  (window as any).global = window;
+}
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './index.css'; // Import CSS file explicitly
 import App from './App';
 
 const rootElement = document.getElementById('root');

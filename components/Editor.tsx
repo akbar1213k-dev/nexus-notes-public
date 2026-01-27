@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle, useLayoutEffect } from 'react';
 import { Note, EditorHandle } from '../types';
 import { 
   Image as ImageIcon, Table, AtSign, 
@@ -30,6 +30,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   onGoHome
 }, ref) => {
   const editorRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null); // REF BARU UNTUK JUDUL
   const [showMentionList, setShowMentionList] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
@@ -50,13 +51,37 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   }));
 
-  // Sync content
+  // Sync content awal perubahan
   useEffect(() => {
+    // Cek apakah konten berbeda
     if (editorRef.current && editorRef.current.innerHTML !== note.content) {
+      
+      // --- PERUBAHAN DI SINI ---
+      // Kita HAPUS pengecekan 'document.activeElement'
+      // Agar perubahan dari HP langsung muncul di Laptop walau sedang dibuka
+      const isFocused = document.activeElement === editorRef.current;
+      
       editorRef.current.innerHTML = note.content;
+
+      // Opsional: Jika sedang fokus, kembalikan kursor ke akhir teks
+      // agar tidak hilang total saat update masuk
+      if (isFocused) {
+          try {
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.selectNodeContents(editorRef.current);
+            range.collapse(false); // Pindahkan kursor ke paling akhir
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+          } catch (e) {
+            // Abaikan error seleksi jika terjadi
+          }
+      }
     }
     addCheckboxListeners();
-  }, [note.id]); // Only re-sync if ID changes (switching notes)
+  }, [note.id, note.content]);
+
+  // akhir perubahan
 
   const addCheckboxListeners = () => {
     if (!editorRef.current) return;
@@ -79,6 +104,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     });
   };
 
+  // Di dalam komponen Editor, sejajar dengan ref lain:
+  const isIgnoringClick = useRef(false); // Tambahan untuk mencegah klik tidak sengaja
+  
   // --- KEYBOARD HANDLING ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const selection = window.getSelection();
@@ -89,7 +117,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         node = node.parentNode;
     }
 
-    // 1. Handle List Outdent on Enter/Backspace for empty items
+    // 1. Handle List Outdent on Enter/Backspace for empty items (Bullet/Numbering)
     const li = (node as HTMLElement).closest('li');
     if (li && (e.key === 'Enter' || e.key === 'Backspace')) {
         const isEmpty = li.textContent?.trim() === '';
@@ -100,18 +128,84 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         }
     }
 
-    // 2. Handle Auto-creation of Todo items on Enter
+    // 2. Handle Todo Items (LOGIKA BARU)
     const todoItem = (node as HTMLElement).closest('.todo-item');
-    if (todoItem && e.key === 'Enter') {
-        e.preventDefault(); 
-        const newTodoHtml = `<div class="todo-item"><input type="checkbox"><span>&nbsp;</span></div>`;
-        document.execCommand('insertHTML', false, newTodoHtml);
-        setTimeout(addCheckboxListeners, 0);
-        return;
+    if (todoItem) {
+        const textContent = todoItem.textContent?.trim() || '';
+        // Cek apakah baris benar-benar kosong
+        const isEmpty = textContent === '';
+
+        // A. BACKSPACE pada Todo Kosong -> Hapus Checkbox (Jadi teks biasa)
+        if (e.key === 'Backspace' && isEmpty) {
+            e.preventDefault();
+            // Ganti dengan div standar
+            const newDiv = document.createElement('div');
+            newDiv.innerHTML = '<br>'; // Placeholder agar baris tidak hilang
+            if (todoItem.parentNode) {
+                todoItem.parentNode.replaceChild(newDiv, todoItem);
+                
+                // Pindahkan fokus ke baris teks baru
+                const range = document.createRange();
+                range.setStart(newDiv, 0);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            handleInput();
+            return;
+        }
+
+        // B. ENTER pada Todo Kosong -> Hapus Checkbox (Keluar dari mode Todo)
+        if (e.key === 'Enter' && isEmpty) {
+            e.preventDefault();
+            const newDiv = document.createElement('div');
+            newDiv.innerHTML = '<br>';
+            if (todoItem.parentNode) {
+                todoItem.parentNode.replaceChild(newDiv, todoItem);
+                
+                // Pindahkan fokus ke baris teks baru
+                const range = document.createRange();
+                range.setStart(newDiv, 0);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            handleInput();
+            return;
+        }
+
+        // C. ENTER pada Todo yang ADA ISINYA -> Buat Todo Baru di Bawahnya
+        if (e.key === 'Enter' && !isEmpty) {
+            e.preventDefault(); 
+            
+            const currentItem = todoItem as HTMLElement;
+            const newItem = document.createElement('div');
+            newItem.className = 'todo-item';
+            newItem.innerHTML = '<input type="checkbox"><span>\u00A0</span>'; 
+            
+            if (currentItem.nextSibling) {
+                currentItem.parentNode?.insertBefore(newItem, currentItem.nextSibling);
+            } else {
+                currentItem.parentNode?.appendChild(newItem);
+            }
+
+            const newSpan = newItem.querySelector('span');
+            if (newSpan) {
+                const range = document.createRange();
+                range.setStart(newSpan, 0);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            
+            setTimeout(addCheckboxListeners, 0);
+            handleInput(); 
+            return;
+        }
     }
   };
 
-  const handleInput = () => {
+    const handleInput = () => {
     if (!editorRef.current) return;
     checkSelectionContext();
 
@@ -162,6 +256,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   const insertMention = async (targetNoteId: string, targetTitle: string) => {
     if (!cursorRange || !editorRef.current) return;
+
+    // Aktifkan pemblokir klik sementara agar link tidak langsung terpicu saat dibuat
+    isIgnoringClick.current = true;
+    setTimeout(() => { isIgnoringClick.current = false; }, 500);
+
     const selection = window.getSelection();
     if (selection) {
       selection.removeAllRanges();
@@ -171,6 +270,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const textNode = cursorRange.startContainer;
     if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
         const text = textNode.textContent;
+        // Cari posisi '@' terakhir sebelum kursor
         const atIndex = text.lastIndexOf('@', cursorRange.startOffset - 1);
         if (atIndex >= 0) {
             cursorRange.setStart(textNode, atIndex);
@@ -178,16 +278,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         }
     }
 
+    // Buat elemen Chip
     const chip = document.createElement('span');
     chip.className = 'mention-chip';
     chip.contentEditable = 'false';
-    chip.dataset.id = targetNoteId;
+    chip.dataset.id = targetNoteId; // ID catatan tujuan disimpan di sini
     chip.textContent = `@${targetTitle}`;
     
     cursorRange.insertNode(chip);
     cursorRange.setStartAfter(chip);
     cursorRange.setEndAfter(chip);
     
+    // Tambahkan spasi setelah chip agar tidak "terjebak"
     const space = document.createTextNode('\u00A0');
     cursorRange.insertNode(space);
     cursorRange.setStartAfter(space);
@@ -209,16 +311,41 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   };
 
-  const handleEditorClick = (e: React.MouseEvent) => {
-    checkSelectionContext();
-    setActiveMenu('NONE');
+  // Di dalam components/Editor.tsx
+
+const handleEditorClick = (e: React.MouseEvent) => {
+    // 1. Cek blocker (mencegah klik hantu saat baru dibuat)
+    if (isIgnoringClick.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+    }
 
     const target = e.target as HTMLElement;
-    if (target.classList.contains('mention-chip')) {
-        const id = target.dataset.id;
-        if (id) onLinkClick(id);
+
+    // --- PERBAIKAN UTAMA DI SINI ---
+    // Jangan cuma cek elemen yang diklik (target), tapi cek juga bapak-nya (parent).
+    // .closest() akan mencari elemen '.mention-chip' terdekat dari titik klik ke atas.
+    const chip = target.closest('.mention-chip') as HTMLElement;
+
+    if (chip) {
+        const id = chip.dataset.id;
+        if (id) {
+            // PENTING: Mencegah browser menaruh kursor teks di dalam chip
+            e.preventDefault(); 
+            e.stopPropagation();
+            
+            // Jalankan navigasi
+            onLinkClick(id);
+            return; // Stop, jangan jalankan kode di bawah
+        }
     }
-  };
+    // -------------------------------
+
+    // Logic standar editor (jika yang diklik BUKAN chip)
+    checkSelectionContext();
+    setActiveMenu('NONE');
+};
 
   const touchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -250,9 +377,32 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   };
 
   const insertCheckbox = () => {
-    const html = `<div class="todo-item"><input type="checkbox"><span>&nbsp;</span></div>`;
-    execCmd('insertHTML', html);
-    addCheckboxListeners();
+    const selection = window.getSelection();
+    
+    // 1. Cek apakah ada teks yang diblok (Selected)
+    if (selection && !selection.isCollapsed) {
+        const text = selection.toString();
+        
+        // Pecah teks berdasarkan baris baru (Enter)
+        // Regex /\r?\n/ menangani enter di Windows/Mac/Linux
+        const lines = text.split(/\r?\n/);
+        
+        // Buat HTML untuk setiap baris menjadi checkbox terpisah
+        const html = lines.map(line => {
+            // Jika baris kosong, isi dengan spasi non-breaking agar baris tetap muncul
+            const content = line.trim() === '' ? '\u00A0' : line; 
+            return `<div class="todo-item"><input type="checkbox"><span>${content}</span></div>`;
+        }).join('');
+        
+        // Masukkan HTML baru menggantikan teks yang diblok
+        execCmd('insertHTML', html);
+        addCheckboxListeners();
+    } else {
+        // 2. Perilaku Lama: Jika tidak ada blok (hanya kursor), buat 1 checkbox kosong
+        const html = `<div class="todo-item"><input type="checkbox"><span>\u00A0</span></div>`;
+        execCmd('insertHTML', html);
+        addCheckboxListeners();
+    }
   };
 
   const insertTable = () => {
@@ -325,7 +475,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   };
 
   const filteredNotes = allNotes.filter(n => 
-    n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && n.id !== note.id
+    n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && 
+    n.id !== note.id // Mencegah catatan nge-link ke dirinya sendiri
   );
 
   const preventFocusLoss = (e: React.MouseEvent) => {
@@ -335,17 +486,37 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Mind map visual helpers
   const isMindMap = note.type === 'mindmap';
 
+  // --- FUNGSI AUTO-RESIZE JUDUL (LETAKKAN DI SINI) ---
+  const adjustTitleHeight = () => {
+    if (titleRef.current) {
+        titleRef.current.style.height = 'auto';
+        titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
+    }
+  };
+
+  // Jalankan saat judul berubah (agar tinggi menyesuaikan saat load)
+  useLayoutEffect(() => {
+      adjustTitleHeight();
+  }, [note.title]);
+
   return (
     <div className="flex flex-col h-full relative">
         <div className="flex-1 overflow-y-auto p-4 no-scrollbar pb-32">
             <div className="flex items-center gap-2 mb-4">
                 {isMindMap && <Network className="text-indigo-500" size={28} />}
-                <input 
-                    value={note.title}
-                    onChange={(e) => onUpdate({...note, title: e.target.value})}
-                    placeholder={isMindMap ? "Konsep Utama" : "Judul Halaman"}
-                    className={`text-3xl font-bold w-full bg-transparent border-none outline-none placeholder-gray-300 dark:placeholder-gray-700 dark:text-gray-100 ${isMindMap ? 'text-indigo-900 dark:text-indigo-200' : ''}`}
-                />
+                {/* PERBAIKAN: Menggunakan Textarea agar judul bisa multi-baris dan font lebih kecil */}
+            <textarea
+                ref={titleRef}
+                rows={1}
+                value={note.title}
+                onChange={(e) => {
+                    onUpdate({...note, title: e.target.value});
+                    adjustTitleHeight(); // Resize saat mengetik
+                }}
+                placeholder={isMindMap ? "Konsep Utama" : "Judul Halaman"}
+                className={`text-2xl font-bold w-full bg-transparent border-none outline-none resize-none overflow-hidden placeholder-gray-300 dark:placeholder-gray-700 dark:text-gray-100 ${isMindMap ? 'text-indigo-900 dark:text-indigo-200' : ''}`}
+                style={{ minHeight: '40px' }}
+            />
             </div>
             
             <div 

@@ -21,178 +21,21 @@
         }
       }
     </script>
-    <style>
-      /* Hide scrollbar for cleaner mobile UI */
-      .no-scrollbar::-webkit-scrollbar {
-        display: none;
-      }
-      .no-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-      
-      /* --- EDITOR CONTENT STYLES --- */
-      
-      .editor-content:empty:before {
-        content: attr(data-placeholder);
-        color: #9ca3af;
-        pointer-events: none;
-        display: block; 
-      }
-
-      /* Dark Mode Placeholder */
-      .dark .editor-content:empty:before {
-        color: #6b7280;
-      }
-
-      /* Headings */
-      .editor-content h1 { font-size: 2.25em; font-weight: 800; margin: 0.5em 0; line-height: 1.2; }
-      .editor-content h2 { font-size: 1.75em; font-weight: 700; margin: 1em 0 0.5em; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.2em; }
-      .dark .editor-content h2 { border-color: #374151; }
-      .editor-content h3 { font-size: 1.5em; font-weight: 600; margin: 1em 0 0.5em; }
-
-      /* Lists - Default Note Mode */
-      .editor-content:not(.mindmap-mode) ul { display: block; list-style-type: disc; margin: 1em 0; padding-left: 2em; }
-      .editor-content:not(.mindmap-mode) ol { display: block; list-style-type: decimal; margin: 1em 0; padding-left: 2em; }
-      .editor-content:not(.mindmap-mode) li { display: list-item; margin-bottom: 0.25em; }
-
-      /* --- MIND MAP MODE (Tree View Styles) --- */
-      .mindmap-mode ul {
-        padding-left: 20px;
-        position: relative;
-        list-style: none; /* Hapus bullet default */
-      }
-      
-      .mindmap-mode ul li {
-        position: relative;
-        padding-left: 10px;
-        margin-bottom: 8px;
-        border-left: 2px solid #cbd5e1; /* Garis vertikal utama */
-      }
-      .dark .mindmap-mode ul li {
-        border-color: #475569;
-      }
-
-      /* Garis horizontal penghubung */
-      .mindmap-mode ul li::before {
-        content: "";
-        position: absolute;
-        top: 12px; /* Setengah tinggi baris pertama */
-        left: 0;
-        width: 10px;
-        height: 2px;
-        background: #cbd5e1;
-      }
-      .dark .mindmap-mode ul li::before {
-        background: #475569;
-      }
-
-      /* Bullet node kustom */
-      .mindmap-mode ul li::after {
-        content: "";
-        position: absolute;
-        top: 8px;
-        left: -4px; /* Menutupi garis vertikal */
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #3b82f6;
-        border: 2px solid white;
-      }
-      .dark .mindmap-mode ul li::after {
-        border-color: #1e293b;
-      }
-
-      /* Styling teks node mindmap */
-      .mindmap-mode li > div, 
-      .mindmap-mode li > span,
-      .mindmap-mode li {
-         /* Membungkus teks agar terlihat seperti blok/kartu minimalis */
-      }
-
-      /* Hapus garis vertikal untuk item terakhir agar tidak 'menggantung' berlebih */
-      .mindmap-mode ul li:last-child {
-        border-left-color: transparent;
-      }
-      /* Tapi kita butuh garis vertikal parsial untuk menghubungkan ke bullet item terakhir */
-      .mindmap-mode ul li:last-child::before {
-        background: #cbd5e1; /* Kembalikan warna garis horizontal */
-        height: 2px;
-        top: 12px;
-      }
-      /* Hack untuk membuat garis vertikal pendek ke atas bagi item terakhir */
-      .mindmap-mode ul li:last-child > .connector-fix {
-         position: absolute;
-         left: -2px;
-         top: 0;
-         height: 12px;
-         width: 2px;
-         background: #cbd5e1;
-      }
-      .dark .mindmap-mode ul li:last-child > .connector-fix {
-          background: #475569;
-      }
-
-      /* --------------------------- */
-
-      /* Gaya untuk baris To-Do secara umum */
-      .editor-content .todo-item {
-        display: flex;
-        align-items: flex-start; 
-        margin-bottom: 8px; 
-        line-height: 1.5;
-      }
-
-      .editor-content input[type="checkbox"] {
-        margin-right: 10px;
-        margin-top: 6px;
-        width: 18px;
-        height: 18px;
-        accent-color: #2563eb;
-        cursor: pointer;
-        flex-shrink: 0; 
-        display: inline-block;
-      }
-
-      .editor-content .todo-item.completed input[type="checkbox"] {
-        text-decoration: none;
-        display: inline-block;
-      }
-
-      /* Table Styles */
-      .editor-content table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-      .editor-content td, .editor-content th { border: 1px solid #d1d5db; padding: 8px; }
-      .dark .editor-content td, .dark .editor-content th { border-color: #4b5563; }
-
-      /* Mentions */
-      .mention-chip {
-        background-color: #e0f2fe;
-        color: #0369a1;
-        padding: 2px 6px;
-        border-radius: 6px;
-        font-weight: 500;
-        display: inline-block;
-        margin: 0 2px;
-        text-decoration: none;
-        user-select: none;
-      }
-      .dark .mention-chip {
-        background-color: #1e3a8a;
-        color: #bfdbfe;
-      }
-    </style>
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
+    "buffer": "https://esm.sh/buffer@^6.0.3",
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "@isomorphic-git/lightning-fs": "https://esm.sh/@isomorphic-git/lightning-fs@^4.6.2",
+    "isomorphic-git": "https://esm.sh/isomorphic-git@^1.36.3",
+    "isomorphic-git/": "https://esm.sh/isomorphic-git@^1.36.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
     "d3": "https://esm.sh/d3@^7.9.0",
-    "path": "https://esm.sh/path@^0.12.7",
+    "firebase/": "https://esm.sh/firebase@^12.8.0/",
     "vite": "https://esm.sh/vite@^7.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "url": "https://esm.sh/url@^0.11.4"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
 </script>
