@@ -507,14 +507,14 @@ export default function App() {
                 <HomeView 
                     notes={notes} 
                     folders={folders} 
-                    // PERBAIKAN: Pakai navigateTo saat klik catatan
                     onNoteClick={(id) => navigateTo('EDITOR', id)} 
                     onCreateNote={(type, folderId) => handleCreateNote('', type, folderId, true)} 
                     onCreateFolder={async (n) => setDoc(doc(db, "folders", 'f_' + Date.now()), { id: 'f_' + Date.now(), name: n, createdAt: Date.now(), userId: user?.uid })} 
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
                     onDeleteItems={(nIds, fIds) => { nIds.forEach(id => deleteDoc(doc(db, "notes", id))); fIds.forEach(id => deleteDoc(doc(db, "folders", id))) }} 
                     onMoveItems={(nIds, tId) => nIds.forEach(id => updateDoc(doc(db, "notes", id), { folderId: tId || "", updatedAt: Date.now() }))} 
-                    onImportData={(d) => { d.notes.forEach(x => setDoc(doc(db, "notes", x.id), { ...x, userId: user?.uid })); d.folders.forEach(x => setDoc(doc(db, "folders", x.id), { ...x, userId: user?.uid })) }} 
+                    // GUNAKAN FUNGSI YANG BARU DIBUAT:
+                    onImportData={handleImportData} 
                 />
             );
     }
