@@ -444,8 +444,21 @@ export default function App() {
     if (!isReady) return <div className="flex h-full items-center justify-center text-gray-400 font-medium">Memuat data...</div>;
 
     switch (viewMode) {
-        case 'SETTINGS': 
-            return <SettingsView isAutoSync={isAutoSync} onToggleAutoSync={setIsAutoSync} syncInterval={syncInterval} onChangeInterval={setSyncInterval} onLogout={handleLogout} userEmail={user?.email || ''} isAnonymous={user?.isAnonymous || false} />;
+        {currentView === 'settings' && (
+        <SettingsView 
+          isAutoSync={isAutoSync}
+          onToggleAutoSync={setIsAutoSync}
+          syncInterval={syncInterval}
+          onChangeInterval={setSyncInterval}
+          onLogout={handleLogout}
+          userEmail={user?.email}
+          isAnonymous={user?.isAnonymous}
+          // Props tambahan agar fitur Backup bekerja di halaman Settings:
+          notes={notes}
+          folders={folders}
+          onImportData={handleImportData}
+        />
+      )}
         
         case 'GRAPH': 
             // PERBAIKAN: Pakai navigateTo saat klik node
