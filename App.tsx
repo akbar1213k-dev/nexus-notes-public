@@ -526,7 +526,6 @@ export default function App() {
     <div className="h-full flex flex-col bg-white dark:bg-gray-900 transition-colors">
       <TopBar 
         mode={viewMode} 
-        // PERBAIKAN: Toggle Mode pakai navigateTo agar bisa di-Back
         onToggleMode={() => navigateTo(viewMode === 'GRAPH' ? 'EDITOR' : 'GRAPH', currentNoteId)} 
         title={getTopBarTitle()} 
         isDarkMode={isDarkMode} 
@@ -536,8 +535,9 @@ export default function App() {
         syncStatus={syncStatus} 
         isAutoSync={isAutoSync} 
         onManualSync={handleManualSync} 
-        // PERBAIKAN: Buka Settings pakai navigateTo
-        onOpenSettings={() => navigateTo('SETTINGS')} 
+        onOpenSettings={() => navigateTo('SETTINGS')}
+        // TAMBAHKAN BARIS INI:
+        onGoHome={() => navigateTo('HOME')} 
       />
       
       <div className="flex-1 overflow-hidden relative flex flex-col">
