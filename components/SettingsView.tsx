@@ -1,5 +1,7 @@
 import React from 'react';
 import { LogOut, Cloud, User, Clock } from 'lucide-react';
+import BackupManager from './BackupManager'; // <--- Tambahkan ini
+import { Note, Folder } from '../types';     // <--- Tambahkan ini
 
 interface SettingsViewProps {
   isAutoSync: boolean;
@@ -9,6 +11,10 @@ interface SettingsViewProps {
   onLogout: () => void;
   userEmail?: string | null;
   isAnonymous?: boolean;
+  // Props baru untuk Backup
+  notes: Note[];
+  folders: Folder[];
+  onImportData: (data: any) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -18,7 +24,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onChangeInterval,
   onLogout,
   userEmail,
-  isAnonymous
+  isAnonymous,
+  notes,        // Baru
+  folders,      // Baru
+  onImportData  // Baru
 }) => {
   return (
     <div className="h-full overflow-y-auto p-6 max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-20 pb-32">
@@ -48,7 +57,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <section className="space-y-4">
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Sync Configuration</h3>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-            
+
             {/* Auto Sync Toggle */}
             <div className="p-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-700">
                 <div className="flex items-center gap-3">
@@ -74,7 +83,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    {/* Input Angka Bebas Tanpa Batas */}
                     <input 
                         type="number" 
                         value={syncInterval} 
@@ -86,6 +94,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
             </div>
         </div>
+      </section>
+
+      {/* Backup Section (DITAMBAHKAN DI SINI) */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Data Management</h3>
+        <BackupManager 
+            notes={notes}
+            folders={folders}
+            onImport={onImportData}
+        />
       </section>
 
       {/* Danger Zone */}
