@@ -71,15 +71,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Computed Data
   const currentFolder = folders.find(f => f.id === currentFolderId);
 
+
+
   // LOGIKA UTAMA: Filter & Sort
+	// LOGIKA UTAMA: Filter & Sort (DIPERBAIKI)
   const filteredItems = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
-    let filteredNotes = notes;
-    let filteredFolders = folders;
+    let filteredNotes = [...notes]; // Buat copy array agar aman
+    let filteredFolders = [...folders];
 
-    // 1. Filtering (Search vs Folder View)
+    // 1. Filtering
     if (query) {
-      // Jika mencari, cari di SEMUA folder (Global Search)
       filteredNotes = notes.filter(n => 
         (n.title && n.title.toLowerCase().includes(query)) || 
         (n.content && n.content.toLowerCase().includes(query))
@@ -88,7 +90,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         f.name.toLowerCase().includes(query)
       );
     } else {
-      // Jika tidak mencari, filter berdasarkan folder saat ini
       filteredNotes = notes.filter(n => {
         if (!currentFolderId) return !n.folderId; 
         return n.folderId === currentFolderId;
@@ -96,7 +97,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       filteredFolders = currentFolderId ? [] : folders; 
     }
 
-    // 2. Sorting Function
+    // 2. Sorting Function (Perbaikan Logika Waktu)
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
       let valA, valB;
 
@@ -109,13 +110,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
             : valB.localeCompare(valA);
         
         case 'created':
-          // Note ID adalah timestamp, Folder punya createdAt
+          // Note ID adalah timestamp pembuatan
           valA = type === 'note' ? parseInt((a as Note).id) : (a as Folder).createdAt;
           valB = type === 'note' ? parseInt((b as Note).id) : (b as Folder).createdAt;
           return sortDirection === 'asc' ? valA - valB : valB - valA;
 
         case 'updated':
         default:
+          // PRIORITASKAN EDIT TERBARU
+          // Jika folder, gunakan createdAt. Jika note, PASTIKAN pakai updatedAt
           valA = type === 'note' ? (a as Note).updatedAt : (a as Folder).createdAt;
           valB = type === 'note' ? (b as Note).updatedAt : (b as Folder).createdAt;
           return sortDirection === 'asc' ? valA - valB : valB - valA;
@@ -128,6 +131,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     };
 
   }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection]);
+
+
+
+
 
   const { visibleNotes, visibleFolders } = filteredItems;
 
@@ -479,13 +486,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
                             {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
                         </p>
 
-                        <div className={`flex items-center text-xs ${isMindMap ? 'text-indigo-400 dark:text-indigo-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                            <Clock size={12} className="mr-1" />
-                            <span>
-                                {new Date(note.updatedAt).toLocaleDateString('id-ID', { 
-                                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                                })}
-                            </span>
+                        {/* FOOTER WAKTU: Dibuat (Kiri) & Diedit (Kanan) */}
+                        <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
+                            
+                            {/* Waktu Dibuat */}
+                            <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
+                                <Calendar size={10} className="mr-1" />
+                                <span>
+                                    {new Date(parseInt(note.id)).toLocaleDateString('id-ID', { 
+                                        day: 'numeric', month: 'short'
+                                    })}
+                                </span>
+                            </div>
+
+                            {/* Waktu Diedit */}
+                            <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                <span className="mr-1 opacity-70">Update:</span>
+                                <span>
+                                    {new Date(note.updatedAt).toLocaleTimeString('id-ID', { 
+                                        hour: '2-digit', minute: '2-digit'
+                                    })}
+                                </span>
+                                <Clock size={10} className="ml-1" />
+                            </div>
                         </div>
                     </div>
                 </div>
