@@ -5,10 +5,9 @@ import { ViewMode } from '../types';
 interface TopBarProps {
   mode: ViewMode;
   onToggleMode: () => void;
-  canGoBack: boolean;
-  onBack: () => void;
-  onGoHome: () => void;
-  title?: string;
+  // Prop 'title' kita biarkan ada di interface agar tidak error di App.tsx, 
+  // tapi tidak akan kita render di UI.
+  title?: string; 
   isDarkMode: boolean;
   onToggleTheme: () => void;
   onUndo: () => void;
@@ -22,7 +21,7 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
-  mode, canGoBack, onBack, onGoHome, title, 
+  mode, onGoHome,
   isDarkMode, onToggleTheme, onUndo, onRedo,
   syncStatus, isAutoSync, onManualSync, onOpenSettings
 }) => {
@@ -45,15 +44,13 @@ export const TopBar: React.FC<TopBarProps> = ({
     return <Cloud size={20} className="text-gray-300 dark:text-gray-600" />;
   };
 
-  const isMainBrand = !title || title === 'Nexus Notes';
-
   return (
     <div className="h-16 border-b bg-white/80 dark:bg-gray-900/80 backdrop-blur-md dark:border-gray-800 flex items-center justify-between px-4 shrink-0 transition-colors z-50 sticky top-0 shadow-sm">
       
-      {/* Left: Navigation & BRAND (Logo Kiri untuk Home) */}
-      <div className={`flex items-center gap-2 ${mode === 'HOME' ? 'flex-1' : 'w-1/3'}`}>
+      {/* --- BAGIAN KIRI (Navigasi / Brand) --- */}
+      <div className="flex items-center gap-2">
         
-        {/* LOGIKA BARU: Jika Home, Tampilkan Logo & Teks di Kiri */}
+        {/* A. Tampilan Halaman HOME */}
         {mode === 'HOME' ? (
             <div className="flex items-center gap-3 cursor-pointer animate-in fade-in slide-in-from-left-2 duration-300">
                 <div className="relative w-8 h-8 flex items-center justify-center bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-lg shadow-md hover:rotate-12 transition-transform">
@@ -66,55 +63,47 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </span>
             </div>
         ) : (
-            /* Jika BUKAN Home, Tampilkan Tombol Back/Home seperti biasa */
-            <>
-                {canGoBack ? (
-                  <button onClick={onBack} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors group">
-                    <ChevronLeft size={24} className="text-gray-700 dark:text-gray-200 group-hover:-translate-x-0.5 transition-transform" />
-                  </button>
-                ) : (
-                   <div className="w-10"></div>
-                )}
+            /* B. Tampilan Halaman EDITOR / SETTINGS / DLL */
+            /* Kita hapus judul di tengah, fokuskan navigasi di kiri */
+            <div className="flex items-center gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
+                {/* Tombol Back Browser (Untuk Android logic sudah dihandle di App.tsx history) 
+                    tapi di sini kita sediakan tombol visual Home sebagai 'Back' utama */}
                 
-                <button onClick={onGoHome} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
-                    <Home size={20} className="text-gray-700 dark:text-gray-200" />
+                {/* Tombol Kembali ke Home */}
+                <button 
+                    onClick={onGoHome} 
+                    className="flex items-center gap-1 pr-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                >
+                    <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-full">
+                        <ChevronLeft size={20} />
+                    </div>
+                    <span className="font-semibold text-sm">Kembali</span>
                 </button>
-            </>
-        )}
-      </div>
-
-      {/* Center: Title (Hanya muncul saat Editor/Bukan Home) */}
-      <div className="flex items-center justify-center w-1/3 min-w-0">
-        {mode !== 'HOME' && (
-            <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
-                <span className="font-bold text-lg truncate text-gray-800 dark:text-gray-100 max-w-[200px] sm:max-w-xs text-center">
-                  {title}
-                </span>
-                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-widest">
-                  Editing
-                </span>
             </div>
         )}
       </div>
 
-      {/* Right: Actions */}
-      <div className={`flex items-center justify-end gap-1 ${mode === 'HOME' ? 'flex-none' : 'w-1/3'}`}>
+      {/* --- BAGIAN KANAN (Aksi) --- */}
+      <div className="flex items-center justify-end gap-2">
         
-        <div className="mr-3 flex items-center justify-end min-w-[30px]">
+        {/* Status Sync */}
+        <div className="mr-1 flex items-center justify-end min-w-[24px]">
             {renderSyncIcon()}
         </div>
 
+        {/* Undo / Redo (Hanya di Laptop/Tablet) */}
         {mode === 'EDITOR' && (
-          <div className="hidden sm:flex">
-            <button onClick={onUndo} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+          <div className="hidden md:flex gap-1 border-r border-gray-200 dark:border-gray-700 pr-2 mr-2">
+            <button onClick={onUndo} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" title="Undo">
               <Undo size={18} className="text-gray-700 dark:text-gray-200" />
             </button>
-            <button onClick={onRedo} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+            <button onClick={onRedo} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" title="Redo">
               <Redo size={18} className="text-gray-700 dark:text-gray-200" />
             </button>
           </div>
         )}
 
+        {/* Settings */}
         <button 
             onClick={onOpenSettings} 
             className={`p-2 rounded-full transition-colors ${mode === 'SETTINGS' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'}`}
@@ -122,6 +111,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <Settings size={20} />
         </button>
 
+        {/* Theme Toggle */}
         <button onClick={onToggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
           {isDarkMode ? <Sun size={20} className="text-amber-400" /> : <Moon size={20} className="text-gray-600" />}
         </button>
