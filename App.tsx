@@ -265,7 +265,6 @@ export default function App() {
   }, [isAutoSync]);
 
   // --- FUNGSI UPDATE NOTE (DENGAN LOGIKA HYBRID) ---
-  // --- FUNGSI UPDATE NOTE (DENGAN LOGIKA HYBRID) ---
   const handleUpdateNote = (updated: Note) => {
     if (!user) return;
     
@@ -273,25 +272,6 @@ export default function App() {
     const noteWithUser = { ...updated, userId: user.uid, updatedAt: Date.now() }; 
     
     setNotes(prev => prev.map(n => n.id === updated.id ? noteWithUser : n));
-    
-    // Simpan ke lokal dulu (Mekanisme Hybrid)
-    saveToLocalStorage(noteWithUser);
-    
-    // Kirim ke cloud jika Auto Sync nyala
-    if (isAutoSync) {
-        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = setTimeout(() => {
-             setDoc(doc(db, "notes", updated.id), noteWithUser, { merge: true })
-                .then(() => { 
-                    removeFromLocalStorage(updated.id); 
-                    setSyncStatus('saved'); 
-                    setTimeout(() => setSyncStatus('idle'), 2000); 
-                });
-        }, syncInterval); 
-    } else {
-        setSyncStatus('unsaved');
-    }
-  };
     
     // Simpan ke lokal dulu (Mekanisme Hybrid)
     saveToLocalStorage(noteWithUser);
@@ -500,9 +480,6 @@ export default function App() {
                 />
             );
             
-        case 'GRAPH':
-           // ... (kode graph view tetap sama)
-        
         case 'GRAPH': 
             // PERBAIKAN: Pakai navigateTo saat klik node
             return <GraphView notes={notes} onNodeClick={(id) => navigateTo('EDITOR', id)} isDarkMode={isDarkMode} />;
