@@ -21,7 +21,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   isAnonymous
 }) => {
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-20">
+    <div className="h-full overflow-y-auto p-6 max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-20 pb-32">
       <h2 className="text-3xl font-bold text-gray-800 dark:text-white">Settings</h2>
 
       {/* Account Section */}
