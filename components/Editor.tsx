@@ -5,7 +5,7 @@ import {
   Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, CheckSquare, 
   Indent, Outdent, MoreHorizontal,
-  Plus, Trash2, Home, Network
+  Plus, Trash2, Home, Network, Copy
 } from 'lucide-react';
 
 interface EditorProps {
@@ -504,6 +504,21 @@ const handleEditorClick = (e: React.MouseEvent) => {
   // Mind map visual helpers
   const isMindMap = note.type === 'mindmap';
 
+  // --- FUNGSI COPY CONTENT ---
+  const handleCopyContent = async () => {
+    if (editorRef.current) {
+        try {
+            // Mengambil teks dari editor (gunakan innerText untuk teks polos)
+            const textToCopy = editorRef.current.innerText;
+            await navigator.clipboard.writeText(textToCopy);
+            alert("Isi catatan berhasil disalin ke clipboard!"); 
+        } catch (err) {
+            console.error("Gagal menyalin:", err);
+            alert("Gagal menyalin konten.");
+        }
+    }
+  };
+
   // --- FUNGSI AUTO-RESIZE JUDUL (LETAKKAN DI SINI) ---
   const adjustTitleHeight = () => {
     if (titleRef.current) {
@@ -579,6 +594,15 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 </div>
             </div>
         )}
+
+      {/* Tombol Copy (Posisi di atas tombol Home - bottom-36) */}
+        <button 
+            onClick={handleCopyContent}
+            className="fixed bottom-36 right-4 w-12 h-12 bg-gray-800 dark:bg-gray-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-black z-30 opacity-90 transition-opacity"
+            title="Salin Isi Catatan"
+        >
+            <Copy size={20} />
+        </button>
 
         <button 
             onClick={onGoHome}
