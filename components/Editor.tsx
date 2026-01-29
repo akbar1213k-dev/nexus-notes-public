@@ -7,7 +7,7 @@ import {
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
-  Undo, Redo // <--- Tambahkan 2 ikon ini (Undo & Redo)
+  Undo, Redo // <--- Pastikan Undo & Redo diimport
 } from 'lucide-react';
 
 interface EditorProps {
@@ -775,16 +775,6 @@ const handleEditorClick = (e: React.MouseEvent) => {
         <div className="h-14 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-2 shadow-lg sticky bottom-0 w-full z-40">
             <div className="flex space-x-1 overflow-x-auto no-scrollbar w-full items-center">
                 
-                {/* --- TOMBOL UNDO & REDO BARU (Mobile Friendly) --- */}
-                <button onMouseDown={preventFocusLoss} onClick={performUndo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Undo">
-                    <Undo size={18} />
-                </button>
-                <button onMouseDown={preventFocusLoss} onClick={performRedo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Redo">
-                    <Redo size={18} />
-                </button>
-
-                <div className="w-[1px] h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
-
                 <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('FORMAT')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'FORMAT' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <Bold size={20} />
                 </button>
@@ -800,6 +790,15 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 </div>
 
                 <div className="w-[1px] h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+
+                {/* --- TOMBOL UNDO & REDO BARU (Mobile Friendly) --- */}
+                {/* Dipindahkan ke sini, SEBELUM tombol @ */}
+                <button onMouseDown={preventFocusLoss} onClick={performUndo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Undo">
+                    <Undo size={18} />
+                </button>
+                <button onMouseDown={preventFocusLoss} onClick={performRedo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Redo">
+                    <Redo size={18} />
+                </button>
 
                 <button onMouseDown={preventFocusLoss} onClick={() => {
                    const text = document.createTextNode('@');
