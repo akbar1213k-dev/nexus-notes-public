@@ -37,8 +37,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const [cursorRange, setCursorRange] = useState<Range | null>(null);
-  // --- STATE BARU UNTUK NOTIFIKASI COPY ---
+  // --- STATE BARU UNTUK NOTIFIKASI COPY & CUT ---
   const [showCopyToast, setShowCopyToast] = useState(false);
+  const [showCutToast, setShowCutToast] = useState(false); // <--- Tambahkan ini
 
   // --- STATE BARU UNTUK TOOLS ---
   const [showTools, setShowTools] = useState(false);
@@ -57,9 +58,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             // 3. Simpan perubahan (Update note)
             onUpdate({ ...note, content: '<p><br/></p>' });
             
-            // 4. Notifikasi / Feedback
+            // 4. Notifikasi / Feedback (YANG DIUBAH)
             setShowTools(false); // Tutup menu
-            alert("Konten berhasil dipotong (Cut)!"); // Atau gunakan Toast jika mau lebih rapi
+            
+            // Tampilkan notifikasi toast
+            setShowCutToast(true);
+            setTimeout(() => {
+                setShowCutToast(false);
+            }, 2000);
+
         } catch (err) {
             console.error("Gagal memotong:", err);
         }
@@ -645,11 +652,19 @@ const handleEditorClick = (e: React.MouseEvent) => {
             </div>
         )}
 
-      {/* --- TOAST NOTIFICATION (PEMBERITAHUAN KECIL) --- */}
+      {/* --- TOAST NOTIFICATION (COPY) --- */}
         {showCopyToast && (
             <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
                 <Check size={16} className="text-green-400 dark:text-green-600" />
                 <span className="text-sm font-semibold">Berhasil disalin!</span>
+            </div>
+        )}
+
+      {/* --- TOAST NOTIFICATION (CUT) - TAMBAHKAN INI --- */}
+        {showCutToast && (
+            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                <Scissors size={16} className="text-red-400 dark:text-red-600" />
+                <span className="text-sm font-semibold">Berhasil dipotong!</span>
             </div>
         )}
 
