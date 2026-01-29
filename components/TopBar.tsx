@@ -1,27 +1,27 @@
 import React from 'react';
-import { ChevronLeft, Home, Moon, Sun, Undo, Redo, Cloud, Check, WifiOff, Settings, Save } from 'lucide-react';
+import { ChevronLeft, Home, Moon, Sun, Undo, Redo, Cloud, Check, WifiOff, Settings, Save, Network } from 'lucide-react';
 import { ViewMode } from '../types';
 
 interface TopBarProps {
   mode: ViewMode;
-  // Prop 'title' kita biarkan ada di interface agar tidak error di App.tsx, 
-  // tapi tidak akan kita render di UI.
   title?: string; 
   isDarkMode: boolean;
   onToggleTheme: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  // Props Sync & Settings
   syncStatus: 'idle' | 'syncing' | 'saved' | 'error' | 'unsaved';
   isAutoSync: boolean;
   onManualSync: () => void;
   onOpenSettings: () => void;
+  onGoHome: () => void;      // Pastikan ini ada
+  onToggleMode: () => void;  // Props baru untuk Graph View
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
   mode, onGoHome, title, 
   isDarkMode, onToggleTheme, onUndo, onRedo,
-  syncStatus, isAutoSync, onManualSync, onOpenSettings
+  syncStatus, isAutoSync, onManualSync, onOpenSettings,
+  onToggleMode // Destructure props baru ini
 }) => {
   
   const renderSyncIcon = () => {
@@ -112,6 +112,15 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Theme Toggle */}
         <button onClick={onToggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
           {isDarkMode ? <Sun size={20} className="text-amber-400" /> : <Moon size={20} className="text-gray-600" />}
+        </button>
+
+        {/* Graph View Toggle (BARU) */}
+        <button 
+            onClick={onToggleMode} 
+            className={`p-2 rounded-full transition-colors ml-1 ${mode === 'GRAPH' ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'}`}
+            title="Graph View"
+        >
+          <Network size={20} />
         </button>
       </div>
     </div>
