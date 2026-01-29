@@ -111,18 +111,26 @@ export default function App() {
 
   const [isReady, setIsReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error' | 'unsaved'>('idle');
-   
+
   const editorRef = useRef<EditorHandle>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
 
-  // --- EFEK TEMA GELAP ---
+  // --- PERBAIKAN: INISIALISASI TEMA DENGAN LOCALSTORAGE ---
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_theme');
+      return saved !== null ? JSON.parse(saved) : false; 
+    } catch { return false; }
+  });
+
+  // --- PERBAIKAN: EFEK TEMA GELAP & SIMPAN KE STORAGE ---
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+    localStorage.setItem('nexus_theme', JSON.stringify(isDarkMode));
   }, [isDarkMode]);
 
   // --- LOGIKA TOMBOL BACK ANDROID ---
