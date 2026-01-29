@@ -655,29 +655,33 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
       {/* --- MENU TOOLS (CUT & SELECT ALL) --- */}
         
-        {/* Sub-tombol: Select All (Muncul jika showTools true) */}
+        {/* Sub-tombol: Select All (Paling Atas) */}
         {showTools && (
             <button 
                 onClick={handleSelectAll}
-                className="fixed bottom-84 right-4 w-12 h-12 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 z-30 animate-in slide-in-from-bottom-4 fade-in duration-200"
+                // HAPUS 'bottom-84', GANTI DENGAN style={{ bottom: '21rem' }}
+                className="fixed right-4 w-12 h-12 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 z-30 animate-in slide-in-from-bottom-4 fade-in duration-200"
+                style={{ bottom: '21rem' }} 
                 title="Pilih Semua"
             >
                 <Scan size={20} />
             </button>
         )}
 
-        {/* Sub-tombol: Cut (Muncul jika showTools true) */}
+        {/* Sub-tombol: Cut (Di tengah antara Tools dan Select All) */}
         {showTools && (
             <button 
                 onClick={handleCutContent}
-                className="fixed bottom-68 right-4 w-12 h-12 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 z-30 animate-in slide-in-from-bottom-2 fade-in duration-200"
+                // HAPUS 'bottom-68', GANTI DENGAN style={{ bottom: '17rem' }}
+                className="fixed right-4 w-12 h-12 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 z-30 animate-in slide-in-from-bottom-2 fade-in duration-200"
+                style={{ bottom: '17rem' }}
                 title="Potong (Cut)"
             >
                 <Scissors size={20} />
             </button>
         )}
 
-        {/* Tombol Utama Tools (Posisi di atas tombol Copy - bottom-52) */}
+        {/* Tombol Utama Tools (Posisi di atas tombol Copy - bottom-52 tetap aman karena standar) */}
         <button 
             onClick={() => setShowTools(!showTools)}
             className={`fixed bottom-52 right-4 w-12 h-12 rounded-full shadow-lg flex items-center justify-center z-30 transition-all duration-300 ${showTools ? 'bg-gray-600 text-white rotate-90' : 'bg-gray-800 dark:bg-gray-700 text-white hover:bg-black'}`}
