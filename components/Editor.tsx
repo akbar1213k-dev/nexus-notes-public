@@ -5,7 +5,8 @@ import {
   Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, CheckSquare, 
   Indent, Outdent, MoreHorizontal,
-  Plus, Trash2, Home, Network, Copy, Check // <--- Tambahkan Check
+  Plus, Trash2, Home, Network, Copy, Check,
+  Scissors, Scan, MoreVertical // <--- Tambahkan 3 ikon ini
 } from 'lucide-react';
 
 interface EditorProps {
@@ -38,6 +39,46 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [cursorRange, setCursorRange] = useState<Range | null>(null);
   // --- STATE BARU UNTUK NOTIFIKASI COPY ---
   const [showCopyToast, setShowCopyToast] = useState(false);
+
+  // --- STATE BARU UNTUK TOOLS ---
+  const [showTools, setShowTools] = useState(false);
+
+  // --- FUNGSI CUT (POTONG) ---
+  const handleCutContent = async () => {
+    if (editorRef.current) {
+        try {
+            // 1. Copy isi ke clipboard
+            const textToCopy = editorRef.current.innerText;
+            await navigator.clipboard.writeText(textToCopy);
+
+            // 2. Hapus isi konten
+            editorRef.current.innerHTML = '<p><br/></p>'; // Reset ke paragraf kosong
+            
+            // 3. Simpan perubahan (Update note)
+            onUpdate({ ...note, content: '<p><br/></p>' });
+            
+            // 4. Notifikasi / Feedback
+            setShowTools(false); // Tutup menu
+            alert("Konten berhasil dipotong (Cut)!"); // Atau gunakan Toast jika mau lebih rapi
+        } catch (err) {
+            console.error("Gagal memotong:", err);
+        }
+    }
+  };
+
+  // --- FUNGSI SELECT ALL (PILIH SEMUA) ---
+  const handleSelectAll = () => {
+    if (editorRef.current) {
+        const range = document.createRange();
+        range.selectNodeContents(editorRef.current);
+        const selection = window.getSelection();
+        if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+        setShowTools(false); // Tutup menu
+    }
+  };
   
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
   const [isTableContext, setIsTableContext] = useState(false);
@@ -611,6 +652,39 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 <span className="text-sm font-semibold">Berhasil disalin!</span>
             </div>
         )}
+
+      {/* --- MENU TOOLS (CUT & SELECT ALL) --- */}
+        
+        {/* Sub-tombol: Select All (Muncul jika showTools true) */}
+        {showTools && (
+            <button 
+                onClick={handleSelectAll}
+                className="fixed bottom-84 right-4 w-12 h-12 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 z-30 animate-in slide-in-from-bottom-4 fade-in duration-200"
+                title="Pilih Semua"
+            >
+                <Scan size={20} />
+            </button>
+        )}
+
+        {/* Sub-tombol: Cut (Muncul jika showTools true) */}
+        {showTools && (
+            <button 
+                onClick={handleCutContent}
+                className="fixed bottom-68 right-4 w-12 h-12 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 z-30 animate-in slide-in-from-bottom-2 fade-in duration-200"
+                title="Potong (Cut)"
+            >
+                <Scissors size={20} />
+            </button>
+        )}
+
+        {/* Tombol Utama Tools (Posisi di atas tombol Copy - bottom-52) */}
+        <button 
+            onClick={() => setShowTools(!showTools)}
+            className={`fixed bottom-52 right-4 w-12 h-12 rounded-full shadow-lg flex items-center justify-center z-30 transition-all duration-300 ${showTools ? 'bg-gray-600 text-white rotate-90' : 'bg-gray-800 dark:bg-gray-700 text-white hover:bg-black'}`}
+            title="Alat Lainnya"
+        >
+            <MoreVertical size={20} />
+        </button>
 
       {/* Tombol Copy (Posisi di atas tombol Home - bottom-36) */}
         <button 
