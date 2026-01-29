@@ -1,3 +1,4 @@
+import { X, Folder as FolderIcon } from 'lucide-react'; 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, Folder, ViewMode, EditorHandle } from './types';
 import { Editor } from './components/Editor';
@@ -21,7 +22,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth'; 
 
-// --- HELPER: LOCAL STORAGE bagaimana cara nya---
+// --- HELPER: LOCAL STORAGE ---
 const getLocalNotes = (): Note[] => {
   try { return JSON.parse(localStorage.getItem('nexus_backup_notes') || '[]'); } catch { return []; }
 };
@@ -41,17 +42,20 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
-  
+   
   // Auth State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isLoadingAuth, setIsLoadingAuth] = useState(false); 
-  
-  // --- STATE BARU: Reset Password ---
+   
   const [isResetting, setIsResetting] = useState(false); 
   const [resetMessage, setResetMessage] = useState('');
+
+  // --- STATE MENU EDITOR (DIPINDAHKAN KE ATAS) ---
+  // Fix Error #310: State ini harus dideklarasikan di sini, sebelum return if(!user)
+  const [showEditorMoveDialog, setShowEditorMoveDialog] = useState(false);
 
   // --- FUNGSI RESET PASSWORD ---
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -77,26 +81,26 @@ export default function App() {
     }
   };
 
-  // Database Error
   const [dbError, setDbError] = useState<string>('');
-
   const [viewMode, setViewMode] = useState<ViewMode>('HOME');
   const [currentNoteId, setCurrentNoteId] = useState<string>(''); 
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
-  const [history, setHistory] = useState<ViewMode[]>([]);
 
-  // --- STATE SETTINGS (DENGAN PERSISTENCE) ---
+  // --- STATE SETTINGS (DENGAN TRY-CATCH AGAR LEBIH AMAN) ---
   const [isAutoSync, setIsAutoSync] = useState(() => {
-    const saved = localStorage.getItem('nexus_auto_sync');
-    return saved !== null ? JSON.parse(saved) : true; 
+    try {
+        const saved = localStorage.getItem('nexus_auto_sync');
+        return saved !== null ? JSON.parse(saved) : true; 
+    } catch { return true; }
   });
-  
+   
   const [syncInterval, setSyncInterval] = useState(() => {
-     const saved = localStorage.getItem('nexus_sync_interval');
-     return saved ? Number(saved) : 1500;
+     try {
+        const saved = localStorage.getItem('nexus_sync_interval');
+        return saved ? Number(saved) : 1500;
+     } catch { return 1500; }
   });
 
-  // Effect untuk menyimpan perubahan setting ke LocalStorage
   useEffect(() => {
     localStorage.setItem('nexus_auto_sync', JSON.stringify(isAutoSync));
   }, [isAutoSync]);
@@ -107,13 +111,12 @@ export default function App() {
 
   const [isReady, setIsReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error' | 'unsaved'>('idle');
-  
+   
   const editorRef = useRef<EditorHandle>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  // --- PERBAIKAN: EFEK TEMA GELAP ---
-  // Ini akan menambahkan class 'dark' ke tag <html> agar Tailwind bekerja
+  // --- EFEK TEMA GELAP ---
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -122,14 +125,11 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // --- 1. LOGIKA TOMBOL BACK ANDROID (TAMBAHKAN INI) ---
+  // --- LOGIKA TOMBOL BACK ANDROID ---
   useEffect(() => {
-    // Set state awal agar history tidak kosong
     window.history.replaceState({ mode: 'HOME', noteId: '' }, '', '');
-
     const handlePopState = (event: PopStateEvent) => {
       if (event.state) {
-        // Jika tombol Back ditekan, kembalikan tampilan dari history
         setViewMode(event.state.mode);
         setCurrentNoteId(event.state.noteId || '');
       } else {
@@ -137,20 +137,16 @@ export default function App() {
         setCurrentNoteId('');
       }
     };
-
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Fungsi khusus untuk pindah halaman agar tercatat di history
   const navigateTo = (mode: ViewMode, noteId: string = '') => {
     if (viewMode === mode && currentNoteId === noteId) return;
-    
     setViewMode(mode);
     setCurrentNoteId(noteId);
     window.history.pushState({ mode, noteId }, '', '');
   };
-  // ----------------------------------------------------
 
   // --- AUTH LISTENER ---
   useEffect(() => {
@@ -168,7 +164,6 @@ export default function App() {
     if (!user) return;
     setDbError('');
 
-    // Query Notes
     const qNotes = query(
       collection(db, "notes"), 
       where("userId", "==", user.uid), 
@@ -178,7 +173,7 @@ export default function App() {
     const unsubNotes = onSnapshot(qNotes, (snap) => {
       const serverNotes = snap.docs.map(d => d.data() as Note);
       const localNotes = getLocalNotes();
-      
+       
       const mergedNotes = serverNotes.map(sNote => {
         const lNote = localNotes.find(l => l.id === sNote.id);
         return (lNote && lNote.updatedAt > sNote.updatedAt) ? lNote : sNote;
@@ -197,7 +192,6 @@ export default function App() {
       setDbError(`Gagal memuat Catatan: ${err.message}`);
     });
 
-    // Query Folders
     const qFolders = query(
       collection(db, "folders"), 
       where("userId", "==", user.uid), 
@@ -232,7 +226,6 @@ export default function App() {
       await signOut(auth); clearLocalStorage(); setViewMode('HOME');
   };
 
-  // --- FUNGSI MANUAL SYNC (HYBRID SYNC) ---
   const handleManualSync = async () => {
       if (!user) return;
       setSyncStatus('syncing');
@@ -257,34 +250,26 @@ export default function App() {
       }
   };
 
-  // --- AUTO SYNC TRIGGER ---
   useEffect(() => {
       if (isAutoSync) {
           handleManualSync();
       }
   }, [isAutoSync]);
 
-  // --- FUNGSI UPDATE NOTE (DENGAN LOGIKA HYBRID) ---
   const handleUpdateNote = (updated: Note) => {
     if (!user) return;
-    
-    // PERBAIKAN: Selalu update 'updatedAt' ke waktu sekarang saat diedit
     const noteWithUser = { ...updated, userId: user.uid, updatedAt: Date.now() }; 
-    
     setNotes(prev => prev.map(n => n.id === updated.id ? noteWithUser : n));
-    
-    // Simpan ke lokal dulu (Mekanisme Hybrid)
     saveToLocalStorage(noteWithUser);
     
-    // Kirim ke cloud jika Auto Sync nyala
     if (isAutoSync) {
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
         syncTimerRef.current = setTimeout(() => {
              setDoc(doc(db, "notes", updated.id), noteWithUser, { merge: true })
                 .then(() => { 
-                    removeFromLocalStorage(updated.id); 
-                    setSyncStatus('saved'); 
-                    setTimeout(() => setSyncStatus('idle'), 2000); 
+                   removeFromLocalStorage(updated.id); 
+                   setSyncStatus('saved'); 
+                   setTimeout(() => setSyncStatus('idle'), 2000); 
                 });
         }, syncInterval); 
     } else {
@@ -292,7 +277,6 @@ export default function App() {
     }
   };
 
-  // --- FUNGSI CREATE NOTE (DENGAN LOGIKA HYBRID) ---
   const handleCreateNote = async (
     title: string, 
     type: 'note' | 'mindmap' = 'note', 
@@ -300,36 +284,15 @@ export default function App() {
     shouldNavigate: boolean = false 
   ): Promise<string> => {
     if (!user) return '';
-    
     const id = Date.now().toString();
     const finalTitle = title.trim() || 'Untitled';
-
     const newNote: Note = { 
-      id, 
-      userId: user.uid, 
-      title: finalTitle, 
-      content: '', 
-      updatedAt: Date.now(), 
-      type, 
-      folderId: folderId || "" 
+      id, userId: user.uid, title: finalTitle, content: '', updatedAt: Date.now(), type, folderId: folderId || "" 
     };
-
-    // Update State Lokal
     setNotes(p => [newNote, ...p]);
-
-    // Simpan ke Local Storage segera agar tidak hilang saat refresh
     saveToLocalStorage(newNote); 
-    
-    // Update Firebase jika sync ON
-    if (isAutoSync) {
-      setDoc(doc(db, "notes", id), newNote, { merge: true });
-    }
-
-    if (shouldNavigate) {
-      // Gunakan navigateTo agar tercatat di history
-      navigateTo('EDITOR', id);
-    }
-
+    if (isAutoSync) setDoc(doc(db, "notes", id), newNote, { merge: true });
+    if (shouldNavigate) navigateTo('EDITOR', id);
     return id;
   };
 
@@ -341,7 +304,54 @@ export default function App() {
     return 'Nexus Notes';
   };
 
-  // --- RENDER LOGIN SCREEN (Jika User Belum Login) ---
+  const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
+    if (!user) return;
+    try {
+        const promises = [
+            ...data.notes.map(x => setDoc(doc(db, "notes", x.id), { ...x, userId: user.uid })),
+            ...data.folders.map(x => setDoc(doc(db, "folders", x.id), { ...x, userId: user.uid }))
+        ];
+        await Promise.all(promises);
+        alert("Import berhasil! Data telah dipulihkan.");
+    } catch (err) {
+        console.error("Import error:", err);
+        alert("Gagal mengimpor data.");
+    }
+  };
+
+  // --- FUNGSI MENU EDITOR (HAPUS & PINDAH) ---
+  const handleDeleteCurrentNote = async () => {
+    if (!currentNoteId || !user) return;
+    if (confirm("Apakah Anda yakin ingin menghapus catatan ini secara permanen?")) {
+      try {
+        await deleteDoc(doc(db, "notes", currentNoteId));
+        removeFromLocalStorage(currentNoteId);
+        navigateTo('HOME');
+      } catch (err: any) {
+        alert("Gagal menghapus: " + err.message);
+      }
+    }
+  };
+
+  const handleMoveCurrentNote = async (targetFolderId: string | undefined) => {
+    if (!currentNoteId || !user) return;
+    try {
+      await updateDoc(doc(db, "notes", currentNoteId), { 
+        folderId: targetFolderId || "", updatedAt: Date.now() 
+      });
+      setNotes(prev => prev.map(n => 
+        n.id === currentNoteId 
+          ? { ...n, folderId: targetFolderId || "", updatedAt: Date.now() } 
+          : n
+      ));
+      setShowEditorMoveDialog(false);
+      alert("Catatan berhasil dipindahkan!");
+    } catch (err: any) {
+      alert("Gagal memindahkan: " + err.message);
+    }
+  };
+
+  // --- RENDER LOGIN SCREEN (Condition Check) ---
   if (!user) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900 px-4 transition-colors">
@@ -424,22 +434,6 @@ export default function App() {
     );
   }
 
-  // --- FUNGSI IMPORT DATA (PINDAHKAN KE SINI) ---
-  const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
-    if (!user) return;
-    try {
-        const promises = [
-            ...data.notes.map(x => setDoc(doc(db, "notes", x.id), { ...x, userId: user.uid })),
-            ...data.folders.map(x => setDoc(doc(db, "folders", x.id), { ...x, userId: user.uid }))
-        ];
-        await Promise.all(promises);
-        alert("Import berhasil! Data telah dipulihkan.");
-    } catch (err) {
-        console.error("Import error:", err);
-        alert("Gagal mengimpor data.");
-    }
-  };
-
   // --- RENDER CONTENT ---
   const renderContent = () => {
     if (dbError) {
@@ -451,10 +445,10 @@ export default function App() {
                     {dbError}
                  </div>
                  {dbError.includes('index') && (
-                     <div className="space-y-2">
-                        <p className="text-sm text-gray-600">Anda perlu membuat Index di Firebase.</p>
-                        <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold">Buka Firebase Console</a>
-                     </div>
+                      <div className="space-y-2">
+                         <p className="text-sm text-gray-600">Anda perlu membuat Index di Firebase.</p>
+                         <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold">Buka Firebase Console</a>
+                      </div>
                  )}
             </div>
         );
@@ -473,7 +467,6 @@ export default function App() {
                   onLogout={handleLogout}
                   userEmail={user?.email}
                   isAnonymous={user?.isAnonymous}
-                  // DATA PENTING AGAR EXPORT TIDAK KOSONG:
                   notes={notes}
                   folders={folders}
                   onImportData={handleImportData}
@@ -481,7 +474,6 @@ export default function App() {
             );
             
         case 'GRAPH': 
-            // PERBAIKAN: Pakai navigateTo saat klik node
             return <GraphView notes={notes} onNodeClick={(id) => navigateTo('EDITOR', id)} isDarkMode={isDarkMode} />;
         
         case 'EDITOR': 
@@ -494,10 +486,8 @@ export default function App() {
                     allNotes={notes} 
                     onUpdate={handleUpdateNote} 
                     onCreateNewNote={(title) => handleCreateNote(title, 'note', n.folderId, false)} 
-                    // PERBAIKAN: Pakai navigateTo saat klik link
                     onLinkClick={(id) => navigateTo('EDITOR', id)} 
                     onLinkLongPress={setPreviewNoteId} 
-                    // PERBAIKAN: Pakai navigateTo saat kembali ke Home
                     onGoHome={() => navigateTo('HOME')} 
                 />
             );
@@ -513,15 +503,13 @@ export default function App() {
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
                     onDeleteItems={(nIds, fIds) => { nIds.forEach(id => deleteDoc(doc(db, "notes", id))); fIds.forEach(id => deleteDoc(doc(db, "folders", id))) }} 
                     onMoveItems={(nIds, tId) => nIds.forEach(id => updateDoc(doc(db, "notes", id), { folderId: tId || "", updatedAt: Date.now() }))} 
-                    // GUNAKAN FUNGSI YANG BARU DIBUAT:
                     onImportData={handleImportData} 
                 />
             );
     }
   };
-
-  // --- RETURN AKHIR (LAYOUT UTAMA) ---
   
+  // --- RETURN AKHIR (LAYOUT UTAMA) ---
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900 transition-colors">
       <TopBar 
@@ -536,18 +524,56 @@ export default function App() {
         isAutoSync={isAutoSync} 
         onManualSync={handleManualSync} 
         onOpenSettings={() => navigateTo('SETTINGS')}
-        // TAMBAHKAN BARIS INI:
         onGoHome={() => navigateTo('HOME')} 
+        onDeleteNote={handleDeleteCurrentNote}
+        onMoveNote={() => setShowEditorMoveDialog(true)}
       />
       
       <div className="flex-1 overflow-hidden relative flex flex-col">
         {renderContent()}
       </div>
       
+      {/* --- DIALOG PINDAH FOLDER (EDITOR MODE) --- */}
+      {showEditorMoveDialog && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
+              <h3 className="font-bold text-lg dark:text-white">Pindahkan ke...</h3>
+              <button onClick={() => setShowEditorMoveDialog(false)}><X size={20} className="text-gray-500"/></button>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+               {/* Pilihan Root / Home */}
+               <button 
+                onClick={() => handleMoveCurrentNote(undefined)}
+                className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
+               >
+                 <FolderIcon size={20} className="text-gray-400" />
+                 <span>Home (Tanpa Folder)</span>
+               </button>
+
+               {/* Daftar Folder */}
+               {folders.map(f => (
+                 <button 
+                   key={f.id}
+                   onClick={() => handleMoveCurrentNote(f.id)}
+                   className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
+                 >
+                   <FolderIcon size={20} className="text-amber-500" />
+                   <span>{f.name}</span>
+                 </button>
+               ))}
+
+               {folders.length === 0 && (
+                 <div className="p-4 text-center text-gray-400 text-sm">Belum ada folder lain.</div>
+               )}
+            </div>
+          </div>
+        </div>
+      )}
+      
       <PreviewSheet 
         note={notes.find(n => n.id === previewNoteId) || null} 
         onClose={() => setPreviewNoteId(null)} 
-        // PERBAIKAN: Buka Full dari Preview pakai navigateTo
         onOpenFull={() => previewNoteId && navigateTo('EDITOR', previewNoteId)} 
       />
     </div>
