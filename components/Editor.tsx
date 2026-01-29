@@ -6,7 +6,8 @@ import {
   List, ListOrdered, CheckSquare, 
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
-  Scissors, Scan, MoreVertical // <--- Tambahkan 3 ikon ini
+  Scissors, Scan, MoreVertical,
+  Undo, Redo // <--- Tambahkan 2 ikon ini (Undo & Redo)
 } from 'lucide-react';
 
 interface EditorProps {
@@ -90,16 +91,29 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
   const [isTableContext, setIsTableContext] = useState(false);
 
+  // --- PERBAIKAN LOGIKA UNDO/REDO ---
+  // Fungsi dipisahkan agar bisa dipanggil oleh tombol TopBar (via ref) 
+  // DAN tombol Toolbar Bawah (onClick)
+  const performUndo = () => {
+      if (editorRef.current) {
+          editorRef.current.focus(); // Pastikan fokus kembali ke editor (Fix Desktop)
+          document.execCommand('undo');
+          handleInput();
+      }
+  };
+
+  const performRedo = () => {
+      if (editorRef.current) {
+          editorRef.current.focus(); // Pastikan fokus kembali ke editor (Fix Desktop)
+          document.execCommand('redo');
+          handleInput();
+      }
+  };
+
   // Expose undo/redo to parent via Ref
   useImperativeHandle(ref, () => ({
-    undo: () => {
-      document.execCommand('undo');
-      handleInput();
-    },
-    redo: () => {
-      document.execCommand('redo');
-      handleInput();
-    }
+    undo: performUndo,
+    redo: performRedo
   }));
 
   // Sync content awal perubahan
@@ -761,6 +775,16 @@ const handleEditorClick = (e: React.MouseEvent) => {
         <div className="h-14 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-2 shadow-lg sticky bottom-0 w-full z-40">
             <div className="flex space-x-1 overflow-x-auto no-scrollbar w-full items-center">
                 
+                {/* --- TOMBOL UNDO & REDO BARU (Mobile Friendly) --- */}
+                <button onMouseDown={preventFocusLoss} onClick={performUndo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Undo">
+                    <Undo size={18} />
+                </button>
+                <button onMouseDown={preventFocusLoss} onClick={performRedo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Redo">
+                    <Redo size={18} />
+                </button>
+
+                <div className="w-[1px] h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+
                 <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('FORMAT')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'FORMAT' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <Bold size={20} />
                 </button>
