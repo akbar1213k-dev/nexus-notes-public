@@ -1,5 +1,8 @@
-import React from 'react';
-import { ChevronLeft, Home, Moon, Sun, Undo, Redo, Cloud, Check, WifiOff, Settings, Save, Network } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  ChevronLeft, Moon, Sun, Undo, Redo, Cloud, Check, WifiOff, Settings, Save, Network,
+  MoreVertical, Trash2, FolderInput 
+} from 'lucide-react';
 import { ViewMode } from '../types';
 
 interface TopBarProps {
@@ -13,17 +16,23 @@ interface TopBarProps {
   isAutoSync: boolean;
   onManualSync: () => void;
   onOpenSettings: () => void;
-  onGoHome: () => void;      // Pastikan ini ada
-  onToggleMode: () => void;  // Props baru untuk Graph View
+  onGoHome: () => void;      
+  onToggleMode: () => void; 
+  // --- PROPS BARU ---
+  onDeleteNote?: () => void;
+  onMoveNote?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
-  mode, onGoHome, title, 
+  mode, onGoHome,
   isDarkMode, onToggleTheme, onUndo, onRedo,
   syncStatus, isAutoSync, onManualSync, onOpenSettings,
-  onToggleMode // Destructure props baru ini
+  onToggleMode,
+  onDeleteNote,
+  onMoveNote
 }) => {
-  
+  const [showMenu, setShowMenu] = useState(false);
+
   const renderSyncIcon = () => {
     if (syncStatus === 'syncing') return <Cloud size={20} className="text-blue-500 animate-pulse" />;
     if (syncStatus === 'error') return <WifiOff size={20} className="text-red-500" />;
@@ -45,10 +54,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <div className="h-16 border-b bg-white/80 dark:bg-gray-900/80 backdrop-blur-md dark:border-gray-800 flex items-center justify-between px-4 shrink-0 transition-colors z-50 sticky top-0 shadow-sm">
       
-      {/* --- BAGIAN KIRI (Navigasi / Brand) --- */}
+      {/* --- BAGIAN KIRI --- */}
       <div className="flex items-center gap-2">
-        
-        {/* A. Tampilan Halaman HOME */}
         {mode === 'HOME' ? (
             <div className="flex items-center gap-3 cursor-pointer animate-in fade-in slide-in-from-left-2 duration-300">
                 <div className="relative w-8 h-8 flex items-center justify-center bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-lg shadow-md hover:rotate-12 transition-transform">
@@ -61,13 +68,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </span>
             </div>
         ) : (
-            /* B. Tampilan Halaman EDITOR / SETTINGS / DLL */
-            /* Kita hapus judul di tengah, fokuskan navigasi di kiri */
             <div className="flex items-center gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
-                {/* Tombol Back Browser (Untuk Android logic sudah dihandle di App.tsx history) 
-                    tapi di sini kita sediakan tombol visual Home sebagai 'Back' utama */}
-                
-                {/* Tombol Kembali ke Home */}
                 <button 
                     onClick={onGoHome} 
                     className="flex items-center gap-1 pr-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
@@ -81,15 +82,15 @@ export const TopBar: React.FC<TopBarProps> = ({
         )}
       </div>
 
-      {/* --- BAGIAN KANAN (Aksi) --- */}
+      {/* --- BAGIAN KANAN --- */}
       <div className="flex items-center justify-end gap-2">
         
-        {/* Status Sync */}
+        {/* Sync Status */}
         <div className="mr-1 flex items-center justify-end min-w-[24px]">
             {renderSyncIcon()}
         </div>
 
-        {/* Undo / Redo (Hanya di Laptop/Tablet) */}
+        {/* Undo / Redo */}
         {mode === 'EDITOR' && (
           <div className="hidden md:flex gap-1 border-r border-gray-200 dark:border-gray-700 pr-2 mr-2">
             <button onClick={onUndo} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" title="Undo">
@@ -114,7 +115,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {isDarkMode ? <Sun size={20} className="text-amber-400" /> : <Moon size={20} className="text-gray-600" />}
         </button>
 
-        {/* Graph View Toggle (BARU) */}
+        {/* Graph Toggle */}
         <button 
             onClick={onToggleMode} 
             className={`p-2 rounded-full transition-colors ml-1 ${mode === 'GRAPH' ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'}`}
@@ -122,6 +123,44 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           <Network size={20} />
         </button>
+
+        {/* --- TITIK TIGA (DROPDOWN MENU) --- */}
+        {mode === 'EDITOR' && (
+          <div className="relative ml-1">
+            <button 
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200 transition-colors"
+            >
+              <MoreVertical size={20} />
+            </button>
+
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  <div className="p-1">
+                    <button 
+                      onClick={() => { setShowMenu(false); onMoveNote && onMoveNote(); }}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400"
+                    >
+                      <FolderInput size={16} />
+                      <span>Pindahkan</span>
+                    </button>
+                    
+                    <button 
+                      onClick={() => { setShowMenu(false); onDeleteNote && onDeleteNote(); }}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      <Trash2 size={16} />
+                      <span>Hapus Catatan</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   );
