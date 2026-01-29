@@ -21,7 +21,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth'; 
 
-// --- HELPER: LOCAL STORAGE ---
+// --- HELPER: LOCAL STORAGE bagaimana cara nya---
 const getLocalNotes = (): Note[] => {
   try { return JSON.parse(localStorage.getItem('nexus_backup_notes') || '[]'); } catch { return []; }
 };
