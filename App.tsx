@@ -22,7 +22,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth'; 
 
-// --- HELPER: LOCAL STORAGE ---
+// --- HELPER: LOCAL STORAGE --
 const getLocalNotes = (): Note[] => {
   try { return JSON.parse(localStorage.getItem('nexus_backup_notes') || '[]'); } catch { return []; }
 };
