@@ -42,6 +42,60 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
+
+  // --- LOGIKA SAMPAH (AUTO DELETE 24 JAM) ---
+  useEffect(() => {
+    if (!notes.length && !folders.length) return;
+    
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000; // 24 Jam
+    const now = Date.now();
+
+    const cleanupTrash = async () => {
+      // Cari notes yang sudah expired
+      const expiredNotes = notes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
+      expiredNotes.forEach(async (n) => {
+        await deleteDoc(doc(db, "notes", n.id));
+        removeFromLocalStorage(n.id);
+      });
+
+      // Cari folders yang sudah expired
+      const expiredFolders = folders.filter(f => f.deletedAt && (now - f.deletedAt > ONE_DAY_MS));
+      expiredFolders.forEach(async (f) => {
+        await deleteDoc(doc(db, "folders", f.id));
+      });
+    };
+
+    const timer = setInterval(cleanupTrash, 60000); // Cek setiap 1 menit
+    cleanupTrash(); // Cek saat load
+    return () => clearInterval(timer);
+  }, [notes, folders]);
+
+  // Fungsi Soft Delete (Pindah ke Sampah)
+  const handleSoftDelete = async (noteIds: string[], folderIds: string[]) => {
+    const time = Date.now();
+    const batchPromises = [
+      ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })),
+      ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: time }))
+    ];
+    await Promise.all(batchPromises);
+    alert("Item dipindahkan ke Sampah. Akan dihapus permanen dalam 24 jam.");
+  };
+
+  // Fungsi Restore (Kembalikan dari Sampah)
+  const handleRestore = async (noteIds: string[], folderIds: string[]) => {
+    const batchPromises = [
+      ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: null })),
+      ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: null }))
+    ];
+    await Promise.all(batchPromises);
+  };
+
+  // Fungsi Hard Delete (Hapus Permanen Manual)
+  const handleHardDelete = async (noteIds: string[], folderIds: string[]) => {
+    if(!confirm("Hapus permanen? Data tidak bisa dikembalikan.")) return;
+    noteIds.forEach(id => { deleteDoc(doc(db, "notes", id)); removeFromLocalStorage(id); });
+    folderIds.forEach(id => deleteDoc(doc(db, "folders", id)));
+  };
    
   // Auth State
   const [email, setEmail] = useState('');
@@ -509,7 +563,10 @@ export default function App() {
                     onCreateNote={(type, folderId) => handleCreateNote('', type, folderId, true)} 
                     onCreateFolder={async (n) => setDoc(doc(db, "folders", 'f_' + Date.now()), { id: 'f_' + Date.now(), name: n, createdAt: Date.now(), userId: user?.uid })} 
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
-                    onDeleteItems={(nIds, fIds) => { nIds.forEach(id => deleteDoc(doc(db, "notes", id))); fIds.forEach(id => deleteDoc(doc(db, "folders", id))) }} 
+                    // UBAH DISINI: Gunakan handleSoftDelete, dan tambahkan props baru
+                    onDeleteItems={handleSoftDelete} 
+                    onRestoreItems={handleRestore}
+                    onPermanentDelete={handleHardDelete}
                     onMoveItems={(nIds, tId) => nIds.forEach(id => updateDoc(doc(db, "notes", id), { folderId: tId || "", updatedAt: Date.now() }))} 
                     onImportData={handleImportData} 
                 />
