@@ -4,7 +4,8 @@ import {
   Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, 
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
   ChevronLeft, FolderInput, Pencil, Download, 
-  Search, ArrowUpDown, Calendar, ArrowDownAz, ArrowUpAz // Icon baru ditambahkan
+  Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
+  RefreshCcw, AlertTriangle // Pastikan icon baru ada di sini
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -17,6 +18,9 @@ interface HomeViewProps {
   onDeleteItems: (noteIds: string[], folderIds: string[]) => void;
   onMoveItems: (noteIds: string[], targetFolderId: string | undefined) => void;
   onImportData?: (data: any) => void;
+  // Props Baru:
+  onRestoreItems: (noteIds: string[], folderIds: string[]) => void;
+  onPermanentDelete: (noteIds: string[], folderIds: string[]) => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({ 
@@ -32,6 +36,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   // Navigation State
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
+
+	// Trash Mode State
+  const [isTrashMode, setIsTrashMode] = useState(false);
 
   // Selection & UI State
   const [selectionMode, setSelectionMode] = useState(false);
@@ -71,54 +78,57 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Computed Data
   const currentFolder = folders.find(f => f.id === currentFolderId);
 
-
-
-  // LOGIKA UTAMA: Filter & Sort
-	// LOGIKA UTAMA: Filter & Sort (DIPERBAIKI)
+	// LOGIKA UTAMA: Filter & Sort (DENGAN TRASH MODE)
   const filteredItems = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
-    let filteredNotes = [...notes]; // Buat copy array agar aman
-    let filteredFolders = [...folders];
+    
+    // 1. Pisahkan Item Sampah vs Aktif
+    // Jika Trash Mode: Ambil yang deletedAt != null
+    // Jika Normal Mode: Ambil yang deletedAt == null
+    const baseNotes = notes.filter(n => isTrashMode ? n.deletedAt : !n.deletedAt);
+    const baseFolders = folders.filter(f => isTrashMode ? f.deletedAt : !f.deletedAt);
 
-    // 1. Filtering
+    let filteredNotes = [...baseNotes];
+    let filteredFolders = [...baseFolders];
+
+    // 2. Filtering berdasarkan Folder / Search
     if (query) {
-      filteredNotes = notes.filter(n => 
+      filteredNotes = baseNotes.filter(n => 
         (n.title && n.title.toLowerCase().includes(query)) || 
         (n.content && n.content.toLowerCase().includes(query))
       );
-      filteredFolders = folders.filter(f => 
+      filteredFolders = baseFolders.filter(f => 
         f.name.toLowerCase().includes(query)
       );
     } else {
-      filteredNotes = notes.filter(n => {
-        if (!currentFolderId) return !n.folderId; 
-        return n.folderId === currentFolderId;
-      });
-      filteredFolders = currentFolderId ? [] : folders; 
+      // Jika mode sampah, tampilkan semua sampah (flat list) tanpa hirarki folder
+      if (isTrashMode) {
+         // Tampilkan semua yg terhapus
+      } else {
+         // Mode normal: Ikuti folder
+         filteredNotes = baseNotes.filter(n => {
+           if (!currentFolderId) return !n.folderId; 
+           return n.folderId === currentFolderId;
+         });
+         filteredFolders = currentFolderId ? [] : baseFolders; 
+      }
     }
 
-    // 2. Sorting Function (Perbaikan Logika Waktu)
+    // 3. Sorting (Sama seperti sebelumnya)
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
-      let valA, valB;
-
-      switch (sortOption) {
+      // ... (Gunakan logika sort yang sama atau copy dari kode lama Anda) ...
+       let valA, valB;
+       switch (sortOption) {
         case 'alphabet':
           valA = type === 'note' ? (a as Note).title : (a as Folder).name;
           valB = type === 'note' ? (b as Note).title : (b as Folder).name;
-          return sortDirection === 'asc' 
-            ? valA.localeCompare(valB) 
-            : valB.localeCompare(valA);
-        
+          return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
         case 'created':
-          // Note ID adalah timestamp pembuatan
           valA = type === 'note' ? parseInt((a as Note).id) : (a as Folder).createdAt;
           valB = type === 'note' ? parseInt((b as Note).id) : (b as Folder).createdAt;
           return sortDirection === 'asc' ? valA - valB : valB - valA;
-
         case 'updated':
         default:
-          // PRIORITASKAN EDIT TERBARU
-          // Jika folder, gunakan createdAt. Jika note, PASTIKAN pakai updatedAt
           valA = type === 'note' ? (a as Note).updatedAt : (a as Folder).createdAt;
           valB = type === 'note' ? (b as Note).updatedAt : (b as Folder).createdAt;
           return sortDirection === 'asc' ? valA - valB : valB - valA;
@@ -130,10 +140,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       visibleFolders: filteredFolders.sort((a, b) => sorter(a, b, 'folder'))
     };
 
-  }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection]);
-
-
-
+  }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection, isTrashMode]);
 
 
   const { visibleNotes, visibleFolders } = filteredItems;
@@ -333,7 +340,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="flex items-center justify-between">
               {/* Breadcrumb */}
               <div className="flex items-center gap-2 overflow-hidden">
-                {currentFolderId ? (
+                {isTrashMode ? (
+                  <button 
+                    onClick={() => { setIsTrashMode(false); setSearchQuery(''); }}
+                    className="flex items-center text-red-600 dark:text-red-400 font-medium whitespace-nowrap"
+                  >
+                    <ChevronLeft size={20} />
+                    Keluar dari Sampah
+                  </button>
+                ) : currentFolderId ? (
                   <button 
                     onClick={() => { setCurrentFolderId(undefined); setSearchQuery(''); }}
                     className="flex items-center text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap"
@@ -346,7 +361,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       {searchQuery ? 'Search Results' : 'My Space'}
                     </h2>
                 )}
-                {currentFolder && !searchQuery && (
+                
+                {currentFolder && !searchQuery && !isTrashMode && (
                   <>
                     <span className="text-gray-300">/</span>
                     <span className="font-bold text-gray-800 dark:text-gray-200 truncate">{currentFolder.name}</span>
@@ -405,7 +421,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
         ) : (
           <div className="grid grid-cols-1 gap-3">
              {/* RENDER FOLDERS */}
-            {visibleFolders.map((folder) => {
+			{/* FOLDER KHUSUS SAMPAH (Hanya di Root & Bukan mode Search/Trash) */}
+            {!currentFolderId && !searchQuery && !isTrashMode && (
+                <div 
+                  className="p-4 rounded-xl shadow-sm border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 relative overflow-hidden flex items-center gap-4 transition-all active:scale-[0.99] cursor-pointer group hover:bg-red-100 dark:hover:bg-red-900/30"
+                  onClick={() => { setIsTrashMode(true); }}
+                >
+                    <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0 group-hover:scale-110 transition-transform">
+                        <Trash2 size={24} fill="currentColor" className="opacity-80"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-lg text-red-800 dark:text-red-200 truncate">Sampah</h3>
+                        <p className="text-xs text-red-500 dark:text-red-400">
+                           Hapus otomatis dalam 24 jam
+                        </p>
+                    </div>
+                </div>
+            )}
+
+			  {visibleFolders.map((folder) => {
               const isSelected = selectedFolderIds.has(folder.id);
               return (
                 <div 
@@ -520,51 +554,66 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Footer / Action Bar (Selection Mode) */}
       {selectionMode ? (
-        <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-30">
-           
-           <div className="flex gap-6 mx-auto">
-              {/* Rename (Only if 1 folder selected and no notes) */}
-              {selectedFolderIds.size === 1 && selectedNoteIds.size === 0 && (
-                 <button 
-                   onClick={handleRename}
-                   className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors"
-                 >
-                   <Pencil size={20} />
-                   <span className="text-[10px] font-medium">Rename</span>
-                 </button>
+        <div className="flex gap-6 mx-auto">
+              
+              {/* --- LOGIKA TOMBOL BERUBAH SESUAI MODE --- */}
+              {isTrashMode ? (
+                /* TOMBOL KHUSUS MODE SAMPAH */
+                <>
+                  <button 
+                    onClick={() => {
+                       onRestoreItems(Array.from(selectedNoteIds), Array.from(selectedFolderIds));
+                       handleCancelSelection();
+                    }}
+                    className="flex flex-col items-center gap-1 text-gray-500 hover:text-green-600 transition-colors"
+                  >
+                    <RefreshCcw size={20} />
+                    <span className="text-[10px] font-medium">Restore</span>
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                       onPermanentDelete(Array.from(selectedNoteIds), Array.from(selectedFolderIds));
+                       handleCancelSelection();
+                    }}
+                    className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors"
+                  >
+                    <AlertTriangle size={20} />
+                    <span className="text-[10px] font-medium">Hapus Permanen</span>
+                  </button>
+                </>
+              ) : (
+                /* TOMBOL MODE NORMAL (YANG ANDA BUAT SEBELUMNYA) */
+                <>
+                  {/* Rename */}
+                  {selectedFolderIds.size === 1 && selectedNoteIds.size === 0 && (
+                     <button onClick={handleRename} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
+                       <Pencil size={20} /> <span className="text-[10px] font-medium">Rename</span>
+                     </button>
+                  )}
+
+                  {/* Move */}
+                  {selectedNoteIds.size > 0 && (
+                    <button onClick={() => setShowMoveDialog(true)} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
+                      <FolderInput size={20} /> <span className="text-[10px] font-medium">Move</span>
+                    </button>
+                  )}
+
+                  {/* Export */}
+                  <button onClick={handleExportSelected} className="flex flex-col items-center gap-1 text-gray-500 hover:text-green-600 transition-colors">
+                    <Download size={20} /> <span className="text-[10px] font-medium">Export</span>
+                  </button>
+
+                  {/* Delete (Soft Delete) */}
+                  <button onClick={handleBulkDelete} className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors">
+                     <Trash2 size={20} /> <span className="text-[10px] font-medium">Delete</span>
+                  </button>
+                </>
               )}
-
-              {/* Move (Only if notes selected) */}
-              {selectedNoteIds.size > 0 && (
-                <button 
-                  onClick={() => setShowMoveDialog(true)}
-                  className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors"
-                >
-                  <FolderInput size={20} />
-                  <span className="text-[10px] font-medium">Move</span>
-                </button>
-              )}
-
-              {/* TOMBOL BARU: EXPORT SELECTED */}
-              <button 
-                onClick={handleExportSelected}
-                className="flex flex-col items-center gap-1 text-gray-500 hover:text-green-600 transition-colors"
-              >
-                <Download size={20} />
-                <span className="text-[10px] font-medium">Export</span>
-              </button>
-
-              {/* Delete Button */}
-               <button 
-                 onClick={handleBulkDelete}
-                 className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors"
-               >
-                 <Trash2 size={20} />
-                 <span className="text-[10px] font-medium">Delete</span>
-               </button>
            </div>
-        </div>
-      ) : (
+		
+		
+      ) : !isTrashMode && ( // Tambahkan pengecekan !isTrashMode
         /* FAB - Add Button (TETAP SAMA) */
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
             {fabExpanded && (
