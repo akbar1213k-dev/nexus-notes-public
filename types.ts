@@ -6,16 +6,18 @@ export type ViewMode = 'HOME' | 'EDITOR' | 'GRAPH' | 'SETTINGS';
 export interface Note {
   id: string;
   title: string;
-  content: string; // HTML content
+  content: string;
   updatedAt: number;
-  type: 'note' | 'mindmap'; // Wajib ada type
-  folderId?: string; // Reference to parent folder (undefined/null means root)
+  type: 'note' | 'mindmap';
+  folderId?: string;
+  deletedAt?: number | null; // Penanda waktu dihapus
 }
 
 export interface Folder {
   id: string;
   name: string;
   createdAt: number;
+  deletedAt?: number | null; // Penanda waktu dihapus
 }
 
 // Interface untuk D3 Graph
