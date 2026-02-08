@@ -5,7 +5,7 @@ import {
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
-  RefreshCcw, AlertTriangle // Pastikan icon baru ada di sini
+  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight // Menambahkan icon Chevron
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -32,13 +32,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onRenameFolder,
   onDeleteItems,
   onMoveItems,
-  onImportData
+  onImportData,
+  onRestoreItems,
+  onPermanentDelete
 }) => {
   // Navigation State
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
 
-	// Trash Mode State
+  // Trash Mode State
   const [isTrashMode, setIsTrashMode] = useState(false);
+
+  // --- STATE BARU: Kontrol Dropdown Folder ---
+  const [isFoldersOpen, setIsFoldersOpen] = useState(true);
 
   // Selection & UI State
   const [selectionMode, setSelectionMode] = useState(false);
@@ -46,12 +51,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [fabExpanded, setFabExpanded] = useState(false);
   const [showMoveDialog, setShowMoveDialog] = useState(false);
-  
+   
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Search & Sort State
   const [searchQuery, setSearchQuery] = useState('');
-  
+   
   // 1. Ambil dari penyimpanan lokal, jika tidak ada gunakan default 'updated' (Edit Terbaru)
   const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>(() => {
     const saved = localStorage.getItem('nexus_sort_option');
@@ -78,7 +83,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Computed Data
   const currentFolder = folders.find(f => f.id === currentFolderId);
 
-	// LOGIKA UTAMA: Filter & Sort (DENGAN TRASH MODE)
+  // LOGIKA UTAMA: Filter & Sort (DENGAN TRASH MODE)
   const filteredItems = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
     
@@ -294,6 +299,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const totalSelected = selectedNoteIds.size + selectedFolderIds.size;
 
+  // Helper untuk cek apakah folder harus ditampilkan (termasuk folder sampah)
+  const showTrashFolder = !currentFolderId && !searchQuery && !isTrashMode;
+  const hasVisibleFolders = visibleFolders.length > 0 || showTrashFolder;
+
   return (
     <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col" onClick={() => { setFabExpanded(false); setShowSortMenu(false); }}>
       
@@ -311,11 +320,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
       )}
 
       {/* Main Content Area */}
-      <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar">
+      <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar space-y-4">
         
         {/* HEADER BARU: Search & Sort (Hanya jika tidak dalam mode seleksi) */}
         {!selectionMode && (
-          <div className="mb-6 space-y-3">
+          <div className="space-y-3">
             {/* Search Bar */}
             <div className="relative">
               <input 
@@ -372,20 +381,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
               {/* Sort Button & Menu */}
               <div className="relative">
-                 <button 
-                   onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}
-                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                 >
-                    {sortOption === 'updated' && <Clock size={14}/>}
-                    {sortOption === 'created' && <Calendar size={14}/>}
-                    {sortOption === 'alphabet' && <ArrowDownAz size={14}/>}
-                    <span>{sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : 'Name'}</span>
-                    <ArrowUpDown size={12} className="ml-1 opacity-50"/>
-                 </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  >
+                     {sortOption === 'updated' && <Clock size={14}/>}
+                     {sortOption === 'created' && <Calendar size={14}/>}
+                     {sortOption === 'alphabet' && <ArrowDownAz size={14}/>}
+                     <span>{sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : 'Name'}</span>
+                     <ArrowUpDown size={12} className="ml-1 opacity-50"/>
+                  </button>
 
-                 {/* Dropdown Menu */}
-                 {showSortMenu && (
-                   <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  {/* Dropdown Menu */}
+                  {showSortMenu && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                       <div className="p-1">
                         <div className="text-[10px] font-semibold text-gray-400 px-3 py-2 uppercase tracking-wider">Sort By</div>
                         <button onClick={() => { setSortOption('updated'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'updated' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><Clock size={16}/> Edit Terbaru</button>
@@ -396,15 +405,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                            <span className="flex items-center gap-2">{sortDirection === 'asc' ? <ArrowUpAz size={16}/> : <ArrowDownAz size={16}/>} {sortDirection === 'asc' ? 'Ascending' : 'Descending'}</span>
                         </button>
                       </div>
-                   </div>
-                 )}
+                    </div>
+                  )}
               </div>
             </div>
           </div>
         )}
         
-        {/* ... (Render Notes & Folders - Bagian ini SAMA SEPERTI SEBELUMNYA, tidak perlu diubah) ... */}
-        {visibleFolders.length === 0 && visibleNotes.length === 0 ? (
+        {/* ... (Render Notes & Folders) ... */}
+        {visibleFolders.length === 0 && visibleNotes.length === 0 && !showTrashFolder ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-gray-600">
             {searchQuery ? (
                <>
@@ -419,142 +428,169 @@ export const HomeView: React.FC<HomeViewProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3">
-             {/* RENDER FOLDERS */}
-			{/* FOLDER KHUSUS SAMPAH (Hanya di Root & Bukan mode Search/Trash) */}
-            {!currentFolderId && !searchQuery && !isTrashMode && (
-                <div 
-                  className="p-4 rounded-xl shadow-sm border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 relative overflow-hidden flex items-center gap-4 transition-all active:scale-[0.99] cursor-pointer group hover:bg-red-100 dark:hover:bg-red-900/30"
-                  onClick={() => { setIsTrashMode(true); }}
+          /* PENGGANTIAN STRUKTUR: Dibuat lebih terorganisir dengan Dropdown Folder */
+          <>
+             {/* --- SECTION: FOLDERS (COLLAPSIBLE / DROPDOWN VIEW) --- */}
+             {hasVisibleFolders && (
+              <div className="space-y-2">
+                {/* Folder Header / Toggle */}
+                <button 
+                  onClick={() => setIsFoldersOpen(!isFoldersOpen)}
+                  className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                 >
-                    <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0 group-hover:scale-110 transition-transform">
-                        <Trash2 size={24} fill="currentColor" className="opacity-80"/>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-lg text-red-800 dark:text-red-200 truncate">Sampah</h3>
-                        <p className="text-xs text-red-500 dark:text-red-400">
-                           Hapus otomatis dalam 24 jam
-                        </p>
-                    </div>
-                </div>
+                   {isFoldersOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+                   Folders
+                </button>
+
+                {/* Folder List (Collapsible Content) */}
+                {isFoldersOpen && (
+                  <div className="grid grid-cols-1 gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                      {/* RENDER FOLDERS (Termasuk Sampah) */}
+                      
+                      {/* FOLDER KHUSUS SAMPAH (Hanya di Root & Bukan mode Search/Trash) */}
+                      {showTrashFolder && (
+                          <div 
+                            className="p-4 rounded-xl shadow-sm border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 relative overflow-hidden flex items-center gap-4 transition-all active:scale-[0.99] cursor-pointer group hover:bg-red-100 dark:hover:bg-red-900/30"
+                            onClick={() => { setIsTrashMode(true); }}
+                          >
+                              <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0 group-hover:scale-110 transition-transform">
+                                  <Trash2 size={24} fill="currentColor" className="opacity-80"/>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                  <h3 className="font-bold text-lg text-red-800 dark:text-red-200 truncate">Sampah</h3>
+                                  <p className="text-xs text-red-500 dark:text-red-400">
+                                    Hapus otomatis dalam 24 jam
+                                  </p>
+                              </div>
+                          </div>
+                      )}
+
+                      {visibleFolders.map((folder) => {
+                        const isSelected = selectedFolderIds.has(folder.id);
+                        return (
+                          <div 
+                            key={folder.id}
+                            className={`
+                              p-4 rounded-xl shadow-sm border relative overflow-hidden flex items-center gap-4
+                              transition-all active:scale-[0.99] cursor-pointer 
+                              ${isSelected 
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                                  : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                              }
+                            `}
+                            onClick={() => handleItemClick('folder', folder.id)}
+                            onTouchStart={() => handleTouchStart('folder', folder.id)}
+                            onTouchEnd={handleTouchEnd}
+                            onTouchMove={handleTouchEnd}
+                          >
+                              {selectionMode && (
+                                  <div className="absolute right-4 text-blue-600 dark:text-blue-400">
+                                        {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
+                                  </div>
+                              )}
+
+                              <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                                  <FolderIcon size={24} fill="currentColor" className="opacity-80"/>
+                              </div>
+                              
+                              <div className="flex-1 min-w-0">
+                                  <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100 truncate">
+                                      {folder.name}
+                                  </h3>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                      Folder
+                                  </p>
+                              </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
             )}
 
-			  {visibleFolders.map((folder) => {
-              const isSelected = selectedFolderIds.has(folder.id);
-              return (
-                <div 
-                  key={folder.id}
-                  className={`
-                    p-4 rounded-xl shadow-sm border relative overflow-hidden flex items-center gap-4
-                    transition-all active:scale-[0.99] cursor-pointer 
-                    ${isSelected 
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                        : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
-                    }
-                  `}
-                  onClick={() => handleItemClick('folder', folder.id)}
-                  onTouchStart={() => handleTouchStart('folder', folder.id)}
-                  onTouchEnd={handleTouchEnd}
-                  onTouchMove={handleTouchEnd}
-                >
-                    {selectionMode && (
-                        <div className="absolute right-4 text-blue-600 dark:text-blue-400">
-                             {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
-                        </div>
-                    )}
-
-                    <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
-                        <FolderIcon size={24} fill="currentColor" className="opacity-80"/>
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100 truncate">
-                            {folder.name}
-                        </h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Folder
-                        </p>
-                    </div>
-                </div>
-              );
-            })}
-
             {/* RENDER NOTES */}
-            {visibleNotes.map((note) => {
-              const isSelected = selectedNoteIds.has(note.id);
-              const isMindMap = note.type === 'mindmap';
-              
-              return (
-                <div 
-                  key={note.id}
-                  className={`
-                    p-4 rounded-xl shadow-sm border relative overflow-hidden
-                    transition-all active:scale-[0.99] cursor-pointer 
-                    ${isSelected 
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                        : isMindMap 
-                            ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800' 
-                            : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
-                    }
-                  `}
-                  onClick={() => handleItemClick('note', note.id)}
-                  onTouchStart={() => handleTouchStart('note', note.id)}
-                  onTouchEnd={handleTouchEnd}
-                  onTouchMove={handleTouchEnd}
-                >
-                    {selectionMode && (
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400">
-                             {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
-                        </div>
-                    )}
+            {/* Wrapper div grid lama diganti dengan struktur baru jika ada folders, 
+                tapi tetap menjaga grid untuk notes */}
+            <div className="grid grid-cols-1 gap-3">
+              {visibleNotes.map((note) => {
+                const isSelected = selectedNoteIds.has(note.id);
+                const isMindMap = note.type === 'mindmap';
+                
+                return (
+                  <div 
+                    key={note.id}
+                    className={`
+                      p-4 rounded-xl shadow-sm border relative overflow-hidden
+                      transition-all active:scale-[0.99] cursor-pointer 
+                      ${isSelected 
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                          : isMindMap 
+                              ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800' 
+                              : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
+                      }
+                    `}
+                    onClick={() => handleItemClick('note', note.id)}
+                    onTouchStart={() => handleTouchStart('note', note.id)}
+                    onTouchEnd={handleTouchEnd}
+                    onTouchMove={handleTouchEnd}
+                  >
+                      {selectionMode && (
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400">
+                                {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
+                          </div>
+                      )}
 
-                    <div className={selectionMode ? "pr-10" : ""}>
-                        <div className="flex justify-between items-start mb-2">
-                            <h3 className={`font-bold text-lg line-clamp-1 flex items-center gap-2 ${isSelected ? 'text-blue-700 dark:text-blue-300' : (isMindMap ? 'text-indigo-800 dark:text-indigo-200' : 'text-gray-800 dark:text-gray-100')}`}>
-                                {isMindMap && <Network size={16} className="shrink-0" />}
-                                {note.title || "Untitled"}
-                            </h3>
-                        </div>
-                        
-                        <p className={`text-sm line-clamp-2 mb-3 h-10 ${isMindMap ? 'text-indigo-600/70 dark:text-indigo-300/70' : 'text-gray-500 dark:text-gray-400'}`}>
-                            {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
-                        </p>
+                      <div className={selectionMode ? "pr-10" : ""}>
+                          <div className="flex justify-between items-start mb-2">
+                              <h3 className={`font-bold text-lg line-clamp-1 flex items-center gap-2 ${isSelected ? 'text-blue-700 dark:text-blue-300' : (isMindMap ? 'text-indigo-800 dark:text-indigo-200' : 'text-gray-800 dark:text-gray-100')}`}>
+                                  {isMindMap && <Network size={16} className="shrink-0" />}
+                                  {note.title || "Untitled"}
+                              </h3>
+                          </div>
+                          
+                          <p className={`text-sm line-clamp-2 mb-3 h-10 ${isMindMap ? 'text-indigo-600/70 dark:text-indigo-300/70' : 'text-gray-500 dark:text-gray-400'}`}>
+                              {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
+                          </p>
 
-                        {/* FOOTER WAKTU: Dibuat (Kiri) & Diedit (Kanan) */}
-                        <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
-                            
-                            {/* Waktu Dibuat */}
-                            <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
-                                <Calendar size={10} className="mr-1" />
-                                <span>
-                                    {new Date(parseInt(note.id)).toLocaleDateString('id-ID', { 
-                                        day: 'numeric', month: 'short'
-                                    })}
-                                </span>
-                            </div>
+                          {/* FOOTER WAKTU: Dibuat (Kiri) & Diedit (Kanan) */}
+                          <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
+                              
+                              {/* Waktu Dibuat */}
+                              <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
+                                  <Calendar size={10} className="mr-1" />
+                                  <span>
+                                      {new Date(parseInt(note.id)).toLocaleDateString('id-ID', { 
+                                          day: 'numeric', month: 'short'
+                                      })}
+                                  </span>
+                              </div>
 
-                            {/* Waktu Diedit */}
-                            <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                                <span className="mr-1 opacity-70">Update:</span>
-                                <span>
-                                    {new Date(note.updatedAt).toLocaleTimeString('id-ID', { 
-                                        hour: '2-digit', minute: '2-digit'
-                                    })}
-                                </span>
-                                <Clock size={10} className="ml-1" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-              );
-            })}
-          </div>
+                              {/* Waktu Diedit */}
+                              <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                  <span className="mr-1 opacity-70">Update:</span>
+                                  <span>
+                                      {new Date(note.updatedAt).toLocaleTimeString('id-ID', { 
+                                          hour: '2-digit', minute: '2-digit'
+                                      })}
+                                  </span>
+                                  <Clock size={10} className="ml-1" />
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 
       {/* Footer / Action Bar (Selection Mode) */}
       {selectionMode ? (
-        <div className="flex gap-6 mx-auto">
+        <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-30">
+           
+           <div className="flex gap-6 mx-auto">
               
               {/* --- LOGIKA TOMBOL BERUBAH SESUAI MODE --- */}
               {isTrashMode ? (
@@ -562,6 +598,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <>
                   <button 
                     onClick={() => {
+                       // @ts-ignore
                        onRestoreItems(Array.from(selectedNoteIds), Array.from(selectedFolderIds));
                        handleCancelSelection();
                     }}
@@ -573,6 +610,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
                   <button 
                     onClick={() => {
+                       // @ts-ignore
                        onPermanentDelete(Array.from(selectedNoteIds), Array.from(selectedFolderIds));
                        handleCancelSelection();
                     }}
@@ -611,8 +649,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </>
               )}
            </div>
-		
-		
+        </div>
       ) : !isTrashMode && ( // Tambahkan pengecekan !isTrashMode
         /* FAB - Add Button (TETAP SAMA) */
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
