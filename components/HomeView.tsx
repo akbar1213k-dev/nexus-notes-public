@@ -5,7 +5,7 @@ import {
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
-  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home // Icon Home ditambahkan
+  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock // <--- Tambahkan Lock
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -229,13 +229,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
   };
 
   const handleSelectAll = () => {
-    const allSelected = selectedNoteIds.size === visibleNotes.length && selectedFolderIds.size === visibleFolders.length;
+    // Filter folder biasa saja (kecuali Keterhubungan)
+    const selectableFolders = visibleFolders.filter(f => f.name !== "Keterhubungan");
+    
+    const allSelected = selectedNoteIds.size === visibleNotes.length && 
+                        selectedFolderIds.size === selectableFolders.length;
+
     if (allSelected) {
       setSelectedNoteIds(new Set());
       setSelectedFolderIds(new Set());
     } else {
       setSelectedNoteIds(new Set(visibleNotes.map(n => n.id)));
-      setSelectedFolderIds(new Set(visibleFolders.map(f => f.id)));
+      // Hanya pilih folder yang bukan sistem
+      setSelectedFolderIds(new Set(selectableFolders.map(f => f.id)));
     }
   };
 
@@ -442,41 +448,76 @@ export const HomeView: React.FC<HomeViewProps> = ({
                           </div>
                       </div>
                   )}
-
-                  {/* LIST SEMUA FOLDER (Gunakan navigationFolders agar semua folder tampil untuk pindah) */}
+                
+                  {/* LIST SEMUA FOLDER */}
                   {navigationFolders.map((folder) => {
                     const isCurrent = currentFolderId === folder.id;
                     const isSelected = selectedFolderIds.has(folder.id);
                     
-                    // Jangan tampilkan folder yang sedang aktif di list (opsional, tapi bagus untuk UX)
+                    // --- DETEKSI FOLDER SPESIAL ---
+                    const isLinkedFolder = folder.name === "Keterhubungan"; 
+
                     if (isCurrent) return null;
 
                     return (
                       <div 
                         key={folder.id}
                         className={`
-                          p-3 rounded-lg flex items-center gap-3 cursor-pointer transition-all
-                          ${isSelected 
+                          p-3 rounded-lg flex items-center gap-3 transition-all relative overflow-hidden
+                          ${isLinkedFolder 
+                            // STYLE KHUSUS: Gradient & Border Ungu
+                            ? 'bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/40 dark:to-purple-900/40 border border-indigo-100 dark:border-indigo-800' 
+                            // STYLE BIASA
+                            : isSelected 
                               ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600' 
                               : 'hover:bg-amber-50 dark:hover:bg-amber-900/20 text-gray-700 dark:text-gray-300'
                           }
+                          ${!isLinkedFolder ? 'cursor-pointer' : selectionMode ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}
                         `}
-                        onClick={() => handleItemClick('folder', folder.id)}
-                        onTouchStart={() => handleTouchStart('folder', folder.id)}
+                        onClick={() => {
+                            // PROTEKSI: Jangan bisa diklik jika sedang mode select & ini folder spesial
+                            if (selectionMode && isLinkedFolder) return;
+                            handleItemClick('folder', folder.id);
+                        }}
+                        onTouchStart={() => {
+                            if (isLinkedFolder) return; // Disable long press selection
+                            handleTouchStart('folder', folder.id);
+                        }}
                         onTouchEnd={handleTouchEnd}
                         onTouchMove={handleTouchEnd}
                       >
-                          <FolderIcon size={20} className={isSelected ? "fill-blue-200" : "text-amber-500"} />
+                          {/* ICON: Gunakan Network untuk folder spesial */}
+                          {isLinkedFolder ? (
+                             <div className="p-1.5 bg-indigo-100 dark:bg-indigo-800 rounded-md text-indigo-600 dark:text-indigo-300">
+                                <Network size={18} />
+                             </div>
+                          ) : (
+                             <FolderIcon size={20} className={isSelected ? "fill-blue-200" : "text-amber-500"} />
+                          )}
                           
-                          <div className="flex-1 min-w-0">
-                              <h3 className="font-medium truncate">
+                          <div className="flex-1 min-w-0 flex flex-col">
+                              <h3 className={`font-medium truncate ${isLinkedFolder ? 'text-indigo-900 dark:text-indigo-200 font-bold' : ''}`}>
                                   {folder.name}
                               </h3>
+                              {isLinkedFolder && (
+                                <span className="text-[10px] text-indigo-400 dark:text-indigo-500 uppercase tracking-wider font-semibold">
+                                  System Folder
+                                </span>
+                              )}
                           </div>
 
+                          {/* SELECTION INDICATOR */}
                           {selectionMode && (
-                              <div className="text-blue-600 dark:text-blue-400">
-                                    {isSelected ? <CheckCircle2 size={18} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={18} className="text-gray-300 dark:text-gray-600" />}
+                              <div className="text-blue-600 dark:text-blue-400 pl-2">
+                                    {isLinkedFolder ? (
+                                        // Tampilkan Gembok jika folder spesial
+                                        <Lock size={18} className="text-gray-400 dark:text-gray-600" />
+                                    ) : (
+                                        // Tampilkan Checkbox untuk folder biasa
+                                        isSelected 
+                                          ? <CheckCircle2 size={18} fill="currentColor" className="text-white dark:text-gray-900" /> 
+                                          : <Circle size={18} className="text-gray-300 dark:text-gray-600" />
+                                    )}
                               </div>
                           )}
                       </div>
