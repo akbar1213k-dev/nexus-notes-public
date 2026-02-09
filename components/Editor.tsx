@@ -371,8 +371,17 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (existingNote) {
       insertMention(existingNote.id, existingNote.title);
     } else {
-      const newId = await onCreateNewNote(mentionQuery);
-      insertMention(newId, mentionQuery);
+      // Perubahan: onCreateNewNote sekarang bisa mengembalikan object Note lengkap atau ID string
+      // Kita asumsikan implementasi di App.tsx mengembalikan ID (string)
+      const newNoteResult = await onCreateNewNote(mentionQuery); 
+      
+      // Jika hasil kembalian adalah string (ID), gunakan langsung
+      // Jika hasil kembalian object Note, ambil .id-nya
+      const newNoteId = typeof newNoteResult === 'string' ? newNoteResult : (newNoteResult as any).id;
+      
+      if (newNoteId) {
+          insertMention(newNoteId, mentionQuery);
+      }
     }
   };
 
