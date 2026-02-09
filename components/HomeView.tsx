@@ -5,7 +5,7 @@ import {
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
-  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight // Menambahkan icon Chevron
+  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home // Icon Home ditambahkan
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -18,7 +18,6 @@ interface HomeViewProps {
   onDeleteItems: (noteIds: string[], folderIds: string[]) => void;
   onMoveItems: (noteIds: string[], targetFolderId: string | undefined) => void;
   onImportData?: (data: any) => void;
-  // Props Baru:
   onRestoreItems: (noteIds: string[], folderIds: string[]) => void;
   onPermanentDelete: (noteIds: string[], folderIds: string[]) => void;
 }
@@ -43,7 +42,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [isTrashMode, setIsTrashMode] = useState(false);
 
   // --- STATE BARU: Kontrol Dropdown Folder ---
-  const [isFoldersOpen, setIsFoldersOpen] = useState(true);
+  // UBAH 1: Default state menjadi false (Tertutup)
+  const [isFoldersOpen, setIsFoldersOpen] = useState(false);
 
   // Selection & UI State
   const [selectionMode, setSelectionMode] = useState(false);
@@ -57,13 +57,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Search & Sort State
   const [searchQuery, setSearchQuery] = useState('');
    
-  // 1. Ambil dari penyimpanan lokal, jika tidak ada gunakan default 'updated' (Edit Terbaru)
   const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>(() => {
     const saved = localStorage.getItem('nexus_sort_option');
     return (saved as 'updated' | 'created' | 'alphabet') || 'updated';
   });
 
-  // 2. Ambil dari penyimpanan lokal, jika tidak ada gunakan default 'desc' (Terbaru di atas)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
     const saved = localStorage.getItem('nexus_sort_direction');
     return (saved as 'asc' | 'desc') || 'desc';
@@ -71,7 +69,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const [showSortMenu, setShowSortMenu] = useState(false);
 
-  // 3. Simpan otomatis ke penyimpanan lokal setiap kali opsi berubah
   useEffect(() => {
     localStorage.setItem('nexus_sort_option', sortOption);
   }, [sortOption]);
@@ -88,8 +85,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
     const query = searchQuery.toLowerCase().trim();
     
     // 1. Pisahkan Item Sampah vs Aktif
-    // Jika Trash Mode: Ambil yang deletedAt != null
-    // Jika Normal Mode: Ambil yang deletedAt == null
     const baseNotes = notes.filter(n => isTrashMode ? n.deletedAt : !n.deletedAt);
     const baseFolders = folders.filter(f => isTrashMode ? f.deletedAt : !f.deletedAt);
 
@@ -106,7 +101,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         f.name.toLowerCase().includes(query)
       );
     } else {
-      // Jika mode sampah, tampilkan semua sampah (flat list) tanpa hirarki folder
       if (isTrashMode) {
          // Tampilkan semua yg terhapus
       } else {
@@ -115,13 +109,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
            if (!currentFolderId) return !n.folderId; 
            return n.folderId === currentFolderId;
          });
+         // Catatan: filteredFolders dibuat kosong saat masuk folder agar tidak duplikat di list utama,
+         // tapi kita akan menggunakan 'baseFolders' untuk navigasi dropdown.
          filteredFolders = currentFolderId ? [] : baseFolders; 
       }
     }
 
-    // 3. Sorting (Sama seperti sebelumnya)
+    // 3. Sorting
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
-      // ... (Gunakan logika sort yang sama atau copy dari kode lama Anda) ...
        let valA, valB;
        switch (sortOption) {
         case 'alphabet':
@@ -142,13 +137,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
     return {
       visibleNotes: filteredNotes.sort((a, b) => sorter(a, b, 'note')),
-      visibleFolders: filteredFolders.sort((a, b) => sorter(a, b, 'folder'))
+      visibleFolders: filteredFolders.sort((a, b) => sorter(a, b, 'folder')),
+      // Kita kembalikan juga baseFolders untuk keperluan navigasi Dropdown
+      navigationFolders: baseFolders.sort((a, b) => sorter(a, b, 'folder')) 
     };
 
   }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection, isTrashMode]);
 
-
-  const { visibleNotes, visibleFolders } = filteredItems;
+  const { visibleNotes, visibleFolders, navigationFolders } = filteredItems;
 
   const getPreview = (html: string) => {
     const tmp = document.createElement("DIV");
@@ -157,20 +153,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return text.substring(0, 100) + (text.length > 100 ? "..." : "");
   };
 
-  // --- LOGIKA EXPORT SELECTED (BARU) ---
   const handleExportSelected = () => {
-    // 1. Ambil data yang dipilih
     const notesToExport = notes.filter(n => selectedNoteIds.has(n.id));
     const foldersToExport = folders.filter(f => selectedFolderIds.has(f.id));
 
     if (notesToExport.length === 0 && foldersToExport.length === 0) return;
 
-    // 2. Buat JSON
     const exportData = { notes: notesToExport, folders: foldersToExport };
     const dateStr = new Date().toISOString().slice(0, 10);
     const fileName = `NexusNotes_Selection_${dateStr}.json`;
 
-    // 3. Download
     const jsonString = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonString], { type: "application/json" });
     const href = URL.createObjectURL(blob);
@@ -181,12 +173,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
     link.click();
     document.body.removeChild(link);
 
-    // 4. Selesai
     handleCancelSelection();
   };
-  // -------------------------------------
-
-  // -- Interaction Handlers --
 
   const handleItemClick = (type: 'note' | 'folder', id: string) => {
     if (selectionMode) {
@@ -194,6 +182,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     } else {
       if (type === 'folder') {
         setCurrentFolderId(id);
+        setIsFoldersOpen(false); // Opsional: tutup dropdown saat masuk folder baru
       } else {
         onNoteClick(id);
       }
@@ -299,9 +288,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const totalSelected = selectedNoteIds.size + selectedFolderIds.size;
 
-  // Helper untuk cek apakah folder harus ditampilkan (termasuk folder sampah)
   const showTrashFolder = !currentFolderId && !searchQuery && !isTrashMode;
-  const hasVisibleFolders = visibleFolders.length > 0 || showTrashFolder;
+  
+  // UBAH 2: Helper ini kita abaikan untuk header, karena header sekarang selalu muncul
+  // const hasVisibleFolders = visibleFolders.length > 0 || showTrashFolder;
 
   return (
     <div className="flex-1 h-full relative bg-gray-50 dark:bg-gray-950 transition-colors flex flex-col" onClick={() => { setFabExpanded(false); setShowSortMenu(false); }}>
@@ -322,7 +312,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {/* Main Content Area */}
       <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar space-y-4">
         
-        {/* HEADER BARU: Search & Sort (Hanya jika tidak dalam mode seleksi) */}
+        {/* HEADER: Search & Sort */}
         {!selectionMode && (
           <div className="space-y-3">
             {/* Search Bar */}
@@ -345,11 +335,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
               )}
             </div>
 
-            {/* Breadcrumb & Sort Row */}
+            {/* Sort Button & Breadcrumb (Jika Diperlukan) */}
             <div className="flex items-center justify-between">
-              {/* Breadcrumb */}
+              
+              {/* Breadcrumb Sederhana (Hanya back button jika di folder) */}
               <div className="flex items-center gap-2 overflow-hidden">
-                {isTrashMode ? (
+                {isTrashMode && (
                   <button 
                     onClick={() => { setIsTrashMode(false); setSearchQuery(''); }}
                     className="flex items-center text-red-600 dark:text-red-400 font-medium whitespace-nowrap"
@@ -357,30 +348,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <ChevronLeft size={20} />
                     Keluar dari Sampah
                   </button>
-                ) : currentFolderId ? (
-                  <button 
-                    onClick={() => { setCurrentFolderId(undefined); setSearchQuery(''); }}
-                    className="flex items-center text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap"
-                  >
-                    <ChevronLeft size={20} />
-                    Back
-                  </button>
-                ) : (
-                    <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">
-                      {searchQuery ? 'Search Results' : 'My Space'}
-                    </h2>
-                )}
-                
-                {currentFolder && !searchQuery && !isTrashMode && (
-                  <>
-                    <span className="text-gray-300">/</span>
-                    <span className="font-bold text-gray-800 dark:text-gray-200 truncate">{currentFolder.name}</span>
-                  </>
                 )}
               </div>
 
               {/* Sort Button & Menu */}
-              <div className="relative">
+              <div className="relative ml-auto">
                   <button 
                     onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
@@ -392,7 +364,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                      <ArrowUpDown size={12} className="ml-1 opacity-50"/>
                   </button>
 
-                  {/* Dropdown Menu */}
+                  {/* Dropdown Menu (Isi sama) */}
                   {showSortMenu && (
                     <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                       <div className="p-1">
@@ -412,108 +384,123 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         )}
         
-        {/* ... (Render Notes & Folders) ... */}
-        {visibleFolders.length === 0 && visibleNotes.length === 0 && !showTrashFolder ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-gray-600">
-            {searchQuery ? (
-               <>
-                 <Search size={48} className="mb-4 opacity-50" />
-                 <p>No results found for "{searchQuery}"</p>
-               </>
-            ) : (
-               <>
-                 <FileText size={48} className="mb-4 opacity-50" />
-                 <p>Empty folder. Create something!</p>
-               </>
-            )}
-          </div>
-        ) : (
-          /* PENGGANTIAN STRUKTUR: Dibuat lebih terorganisir dengan Dropdown Folder */
-          <>
-             {/* --- SECTION: FOLDERS (COLLAPSIBLE / DROPDOWN VIEW) --- */}
-             {hasVisibleFolders && (
-              <div className="space-y-2">
-                {/* Folder Header / Toggle */}
-                <button 
-                  onClick={() => setIsFoldersOpen(!isFoldersOpen)}
-                  className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                >
-                   {isFoldersOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
-                   Folders
-                </button>
+        {/* --- SECTION: FOLDERS (COLLAPSIBLE / DROPDOWN VIEW) --- */}
+        {/* UBAH 3: Render dropdown selalu ada (jika tidak search), untuk navigasi */}
+        {!searchQuery && (
+          <div className="space-y-2">
+            {/* Folder Header / Toggle (TAMPILAN LEBIH BESAR & KONTEKSTUAL) */}
+            <button 
+              onClick={() => setIsFoldersOpen(!isFoldersOpen)}
+              className="w-full flex items-center justify-between p-3 bg-white dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm transition-all hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+               <div className="flex items-center gap-3">
+                   {/* Icon Berubah tergantung state */}
+                   <div className="text-gray-400 dark:text-gray-500">
+                     {isFoldersOpen ? <ChevronDown size={20}/> : <ChevronRight size={20}/>}
+                   </div>
+                   
+                   {/* TEXT HEADER: Tampilkan Nama Folder Saat Ini atau 'FOLDERS' */}
+                   <span className="text-base font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">
+                      {currentFolder ? currentFolder.name : "FOLDERS"}
+                   </span>
+               </div>
+               
+               {/* Indikator jumlah folder (Opsional) */}
+               <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+                  {navigationFolders.length + (showTrashFolder ? 1 : 0)}
+               </span>
+            </button>
 
-                {/* Folder List (Collapsible Content) */}
-                {isFoldersOpen && (
-                  <div className="grid grid-cols-1 gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                      {/* RENDER FOLDERS (Termasuk Sampah) */}
-                      
-                      {/* FOLDER KHUSUS SAMPAH (Hanya di Root & Bukan mode Search/Trash) */}
-                      {showTrashFolder && (
-                          <div 
-                            className="p-4 rounded-xl shadow-sm border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 relative overflow-hidden flex items-center gap-4 transition-all active:scale-[0.99] cursor-pointer group hover:bg-red-100 dark:hover:bg-red-900/30"
-                            onClick={() => { setIsTrashMode(true); }}
-                          >
-                              <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0 group-hover:scale-110 transition-transform">
-                                  <Trash2 size={24} fill="currentColor" className="opacity-80"/>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                  <h3 className="font-bold text-lg text-red-800 dark:text-red-200 truncate">Sampah</h3>
-                                  <p className="text-xs text-red-500 dark:text-red-400">
-                                    Hapus otomatis dalam 24 jam
-                                  </p>
-                              </div>
+            {/* Folder List (Collapsible Content) */}
+            {isFoldersOpen && (
+              <div className="grid grid-cols-1 gap-3 animate-in fade-in slide-in-from-top-2 duration-200 pl-2 border-l-2 border-gray-100 dark:border-gray-800 ml-4">
+                  
+                  {/* TOMBOL NAVIGASI 'KEMBALI KE UTAMA' (Hanya jika di dalam folder) */}
+                  {currentFolderId && (
+                      <div 
+                        className="p-3 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 text-blue-600 dark:text-blue-400 transition-colors"
+                        onClick={() => { setCurrentFolderId(undefined); setIsFoldersOpen(false); }}
+                      >
+                          <Home size={20} />
+                          <span className="font-medium">Kembali ke Utama</span>
+                      </div>
+                  )}
+
+                  {/* FOLDER KHUSUS SAMPAH */}
+                  {showTrashFolder && (
+                      <div 
+                        className="p-3 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                        onClick={() => { setIsTrashMode(true); setIsFoldersOpen(false); }}
+                      >
+                          <Trash2 size={20} />
+                          <div className="flex flex-col">
+                             <span className="font-medium">Sampah</span>
                           </div>
-                      )}
+                      </div>
+                  )}
 
-                      {visibleFolders.map((folder) => {
-                        const isSelected = selectedFolderIds.has(folder.id);
-                        return (
-                          <div 
-                            key={folder.id}
-                            className={`
-                              p-4 rounded-xl shadow-sm border relative overflow-hidden flex items-center gap-4
-                              transition-all active:scale-[0.99] cursor-pointer 
-                              ${isSelected 
-                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                                  : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
-                              }
-                            `}
-                            onClick={() => handleItemClick('folder', folder.id)}
-                            onTouchStart={() => handleTouchStart('folder', folder.id)}
-                            onTouchEnd={handleTouchEnd}
-                            onTouchMove={handleTouchEnd}
-                          >
-                              {selectionMode && (
-                                  <div className="absolute right-4 text-blue-600 dark:text-blue-400">
-                                        {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
-                                  </div>
-                              )}
+                  {/* LIST SEMUA FOLDER (Gunakan navigationFolders agar semua folder tampil untuk pindah) */}
+                  {navigationFolders.map((folder) => {
+                    const isCurrent = currentFolderId === folder.id;
+                    const isSelected = selectedFolderIds.has(folder.id);
+                    
+                    // Jangan tampilkan folder yang sedang aktif di list (opsional, tapi bagus untuk UX)
+                    if (isCurrent) return null;
 
-                              <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
-                                  <FolderIcon size={24} fill="currentColor" className="opacity-80"/>
-                              </div>
-                              
-                              <div className="flex-1 min-w-0">
-                                  <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100 truncate">
-                                      {folder.name}
-                                  </h3>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                      Folder
-                                  </p>
-                              </div>
+                    return (
+                      <div 
+                        key={folder.id}
+                        className={`
+                          p-3 rounded-lg flex items-center gap-3 cursor-pointer transition-all
+                          ${isSelected 
+                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600' 
+                              : 'hover:bg-amber-50 dark:hover:bg-amber-900/20 text-gray-700 dark:text-gray-300'
+                          }
+                        `}
+                        onClick={() => handleItemClick('folder', folder.id)}
+                        onTouchStart={() => handleTouchStart('folder', folder.id)}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchMove={handleTouchEnd}
+                      >
+                          <FolderIcon size={20} className={isSelected ? "fill-blue-200" : "text-amber-500"} />
+                          
+                          <div className="flex-1 min-w-0">
+                              <h3 className="font-medium truncate">
+                                  {folder.name}
+                              </h3>
                           </div>
-                        );
-                      })}
-                  </div>
-                )}
+
+                          {selectionMode && (
+                              <div className="text-blue-600 dark:text-blue-400">
+                                    {isSelected ? <CheckCircle2 size={18} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={18} className="text-gray-300 dark:text-gray-600" />}
+                              </div>
+                          )}
+                      </div>
+                    );
+                  })}
               </div>
             )}
+          </div>
+        )}
 
-            {/* RENDER NOTES */}
-            {/* Wrapper div grid lama diganti dengan struktur baru jika ada folders, 
-                tapi tetap menjaga grid untuk notes */}
-            <div className="grid grid-cols-1 gap-3">
-              {visibleNotes.map((note) => {
+        {/* RENDER NOTES */}
+        {/* Menggunakan grid untuk notes */}
+        <div className="grid grid-cols-1 gap-3">
+            {/* Header Notes Kecil */}
+            {visibleNotes.length > 0 && (
+               <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mt-2 mb-1">
+                  Notes
+               </h3>
+            )}
+
+            {visibleNotes.length === 0 && (
+               <div className="flex flex-col items-center justify-center py-10 text-gray-400 opacity-60">
+                  <FileText size={40} className="mb-2"/>
+                  <p className="text-sm">Belum ada catatan di sini</p>
+               </div>
+            )}
+
+            {visibleNotes.map((note) => {
                 const isSelected = selectedNoteIds.has(note.id);
                 const isMindMap = note.type === 'mindmap';
                 
@@ -553,10 +540,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
                           </p>
 
-                          {/* FOOTER WAKTU: Dibuat (Kiri) & Diedit (Kanan) */}
+                          {/* FOOTER WAKTU */}
                           <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
-                              
-                              {/* Waktu Dibuat */}
                               <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
                                   <Calendar size={10} className="mr-1" />
                                   <span>
@@ -565,8 +550,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
                                       })}
                                   </span>
                               </div>
-
-                              {/* Waktu Diedit */}
                               <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
                                   <span className="mr-1 opacity-70">Update:</span>
                                   <span>
@@ -581,9 +564,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </div>
                 );
               })}
-            </div>
-          </>
-        )}
+        </div>
       </div>
 
       {/* Footer / Action Bar (Selection Mode) */}
@@ -592,9 +573,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
            
            <div className="flex gap-6 mx-auto">
               
-              {/* --- LOGIKA TOMBOL BERUBAH SESUAI MODE --- */}
+              {/* --- ACTION KHUSUS TRASH MODE --- */}
               {isTrashMode ? (
-                /* TOMBOL KHUSUS MODE SAMPAH */
                 <>
                   <button 
                     onClick={() => {
@@ -621,28 +601,24 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </button>
                 </>
               ) : (
-                /* TOMBOL MODE NORMAL (YANG ANDA BUAT SEBELUMNYA) */
+                /* --- ACTION MODE NORMAL --- */
                 <>
-                  {/* Rename */}
                   {selectedFolderIds.size === 1 && selectedNoteIds.size === 0 && (
                      <button onClick={handleRename} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
                        <Pencil size={20} /> <span className="text-[10px] font-medium">Rename</span>
                      </button>
                   )}
 
-                  {/* Move */}
                   {selectedNoteIds.size > 0 && (
                     <button onClick={() => setShowMoveDialog(true)} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
                       <FolderInput size={20} /> <span className="text-[10px] font-medium">Move</span>
                     </button>
                   )}
 
-                  {/* Export */}
                   <button onClick={handleExportSelected} className="flex flex-col items-center gap-1 text-gray-500 hover:text-green-600 transition-colors">
                     <Download size={20} /> <span className="text-[10px] font-medium">Export</span>
                   </button>
 
-                  {/* Delete (Soft Delete) */}
                   <button onClick={handleBulkDelete} className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors">
                      <Trash2 size={20} /> <span className="text-[10px] font-medium">Delete</span>
                   </button>
@@ -650,8 +626,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
               )}
            </div>
         </div>
-      ) : !isTrashMode && ( // Tambahkan pengecekan !isTrashMode
-        /* FAB - Add Button (TETAP SAMA) */
+      ) : !isTrashMode && (
+        /* FAB - Add Button */
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
             {fabExpanded && (
                 <>
