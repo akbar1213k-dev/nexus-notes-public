@@ -419,7 +419,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   {currentFolderId && (
                       <div 
                         className="p-3 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 text-blue-600 dark:text-blue-400 transition-colors"
-                        onClick={() => { setCurrentFolderId(undefined); setIsFoldersOpen(false); }}
+                        onClick={() => { 
+                          setCurrentFolderId(undefined); 
+                          setIsFoldersOpen(false);
+                          setSearchQuery('');
+                        }}
                       >
                           <Home size={20} />
                           <span className="font-medium">Kembali ke Utama</span>
