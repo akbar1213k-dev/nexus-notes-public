@@ -317,76 +317,100 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Main Content Area */}
       <div className="p-4 pb-32 overflow-y-auto flex-1 no-scrollbar space-y-4">
+
         
-        {/* HEADER: Search & Sort */}
+        {/* HEADER: Search & Sort Combined */}
         {!selectionMode && (
           <div className="space-y-3">
-            {/* Search Bar */}
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="Search notes..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white transition-all"
-              />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
-
-            {/* Sort Button & Breadcrumb (Jika Diperlukan) */}
-            <div className="flex items-center justify-between">
-              
-              {/* Breadcrumb Sederhana (Hanya back button jika di folder) */}
-              <div className="flex items-center gap-2 overflow-hidden">
-                {isTrashMode && (
-                  <button 
-                    onClick={() => { setIsTrashMode(false); setSearchQuery(''); }}
-                    className="flex items-center text-red-600 dark:text-red-400 font-medium whitespace-nowrap"
-                  >
-                    <ChevronLeft size={20} />
-                    Keluar dari Sampah
-                  </button>
-                )}
-              </div>
-
-              {/* Sort Button & Menu */}
-              <div className="relative ml-auto">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  >
-                     {sortOption === 'updated' && <Clock size={14}/>}
-                     {sortOption === 'created' && <Calendar size={14}/>}
-                     {sortOption === 'alphabet' && <ArrowDownAz size={14}/>}
-                     <span>{sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : 'Name'}</span>
-                     <ArrowUpDown size={12} className="ml-1 opacity-50"/>
-                  </button>
-
-                  {/* Dropdown Menu (Isi sama) */}
-                  {showSortMenu && (
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                      <div className="p-1">
-                        <div className="text-[10px] font-semibold text-gray-400 px-3 py-2 uppercase tracking-wider">Sort By</div>
-                        <button onClick={() => { setSortOption('updated'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'updated' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><Clock size={16}/> Edit Terbaru</button>
-                        <button onClick={() => { setSortOption('created'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'created' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><Calendar size={16}/> Tanggal Dibuat</button>
-                        <button onClick={() => { setSortOption('alphabet'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'alphabet' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}><ArrowDownAz size={16}/> Alfabet (A-Z)</button>
-                        <div className="my-1 border-t border-gray-100 dark:border-gray-700"></div>
-                        <button onClick={() => { setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); setShowSortMenu(false); }} className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
-                           <span className="flex items-center gap-2">{sortDirection === 'asc' ? <ArrowUpAz size={16}/> : <ArrowDownAz size={16}/>} {sortDirection === 'asc' ? 'Ascending' : 'Descending'}</span>
-                        </button>
-                      </div>
-                    </div>
+            
+            {/* ROW 1: Search Bar & Sort Button dalam satu baris */}
+            <div className="flex items-center gap-2">
+                {/* 1. Search Input (Mengisi sisa ruang dengan flex-1) */}
+                <div className="relative flex-1">
+                  <input 
+                    type="text" 
+                    placeholder="Search notes..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-10 py-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white transition-all"
+                  />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  
+                  {/* Tombol Clear Search (X) */}
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
+                    >
+                      <X size={16} />
+                    </button>
                   )}
-              </div>
+                </div>
+
+                {/* 2. Sort Button (Dipindahkan ke Sini) */}
+                <div className="relative">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}
+                      className="flex items-center gap-2 h-[48px] px-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm whitespace-nowrap"
+                    >
+                       {/* Icon berubah sesuai sortOption */}
+                       {sortOption === 'updated' && <Clock size={18}/>}
+                       {sortOption === 'created' && <Calendar size={18}/>}
+                       {sortOption === 'alphabet' && <ArrowDownAz size={18}/>}
+                       
+                       {/* Label Teks (Hidden di HP sangat kecil, Muncul di layar agak lebar) */}
+                       <span className="hidden sm:inline">
+                          {sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : 'Name'}
+                       </span>
+                       
+                       <ArrowUpDown size={14} className="opacity-50 ml-1"/>
+                    </button>
+
+                    {/* Dropdown Menu Sort */}
+                    {showSortMenu && (
+                      <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                        <div className="p-1">
+                          <div className="text-[10px] font-semibold text-gray-400 px-3 py-2 uppercase tracking-wider">Sort By</div>
+                          
+                          <button onClick={() => { setSortOption('updated'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'updated' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                            <Clock size={16}/> Edit Terbaru
+                          </button>
+                          
+                          <button onClick={() => { setSortOption('created'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'created' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                            <Calendar size={16}/> Tanggal Dibuat
+                          </button>
+                          
+                          <button onClick={() => { setSortOption('alphabet'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'alphabet' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                            <ArrowDownAz size={16}/> Alfabet (A-Z)
+                          </button>
+                          
+                          <div className="my-1 border-t border-gray-100 dark:border-gray-700"></div>
+                          
+                          <button onClick={() => { setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); setShowSortMenu(false); }} className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center justify-between text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                             <span className="flex items-center gap-2">
+                               {sortDirection === 'asc' ? <ArrowUpAz size={16}/> : <ArrowDownAz size={16}/>} 
+                               {sortDirection === 'asc' ? 'Urutan Naik' : 'Urutan Turun'}
+                             </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                </div>
             </div>
+
+            {/* ROW 2: Breadcrumb / Trash Indicator (Hanya muncul jika diperlukan) */}
+            {isTrashMode && (
+              <div className="flex items-center pb-2 animate-in slide-in-from-top-2">
+                 <button 
+                    onClick={() => { setIsTrashMode(false); setSearchQuery(''); }}
+                    className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium text-sm px-1 py-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                  >
+                    <ChevronLeft size={18} />
+                    <span>Kembali dari Sampah</span>
+                  </button>
+              </div>
+            )}
+            
           </div>
         )}
         
