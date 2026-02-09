@@ -72,6 +72,24 @@ export default function App() {
 
   // Fungsi Soft Delete (Pindah ke Sampah)
   const handleSoftDelete = async (noteIds: string[], folderIds: string[]) => {
+    // --- MODIFIKASI: PROTEKSI FOLDER KETERHUBUNGAN ---
+    const protectedFolderNames = ["Keterhubungan"];
+    const foldersToDelete = folders.filter(f => folderIds.includes(f.id));
+    const isProtected = foldersToDelete.some(f => protectedFolderNames.includes(f.name));
+
+    if (isProtected) {
+        alert("Folder 'Keterhubungan' adalah folder sistem dan tidak dapat dihapus.");
+        // Filter ID agar folder spesial tidak ikut terhapus
+        folderIds = folderIds.filter(id => {
+            const folder = folders.find(f => f.id === id);
+            return folder && !protectedFolderNames.includes(folder.name);
+        });
+        
+        // Jika tidak ada sisa item yang bisa dihapus, berhenti.
+        if (noteIds.length === 0 && folderIds.length === 0) return;
+    }
+    // ------------------------------------------------
+
     const time = Date.now();
     const batchPromises = [
       ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })),
@@ -80,7 +98,7 @@ export default function App() {
     await Promise.all(batchPromises);
     alert("Item dipindahkan ke Sampah. Akan dihapus permanen dalam 24 jam.");
   };
-
+  
   // Fungsi Restore (Kembalikan dari Sampah)
   const handleRestore = async (noteIds: string[], folderIds: string[]) => {
     const batchPromises = [
@@ -547,7 +565,37 @@ export default function App() {
                     note={n} 
                     allNotes={notes} 
                     onUpdate={handleUpdateNote} 
-                    onCreateNewNote={(title) => handleCreateNote(title, 'note', n.folderId, false)} 
+                    // --- MODIFIKASI: LOGIKA FOLDER KETERHUBUNGAN ---
+                    onCreateNewNote={async (title) => {
+                        const LINKED_FOLDER_NAME = "Keterhubungan";
+                        
+                        // 1. Cek apakah folder "Keterhubungan" sudah ada
+                        let linkedFolder = folders.find(f => f.name === LINKED_FOLDER_NAME);
+                        let targetId = linkedFolder?.id;
+
+                        // 2. Jika belum ada, buat otomatis
+                        if (!targetId) {
+                            targetId = 'f_linked_' + Date.now();
+                            const newFolder: Folder = { 
+                                id: targetId, 
+                                name: LINKED_FOLDER_NAME, 
+                                createdAt: Date.now(), 
+                                userId: user.uid,
+                                deletedAt: null // Pastikan tidak terhapus
+                            };
+                            
+                            // Update State Lokal agar UI langsung responsif
+                            setFolders(prev => [newFolder, ...prev]);
+                            
+                            // Simpan ke Firebase
+                            await setDoc(doc(db, "folders", targetId), newFolder);
+                        }
+
+                        // 3. Buat catatan baru di dalam folder tersebut
+                        // Parameter ke-3 adalah folderId. Kita isi dengan targetId (Folder Keterhubungan)
+                        return handleCreateNote(title, 'note', targetId, false);
+                    }}
+                    // -----------------------------------------------
                     onLinkClick={(id) => navigateTo('EDITOR', id)} 
                     onLinkLongPress={setPreviewNoteId} 
                     onGoHome={() => navigateTo('HOME')} 
