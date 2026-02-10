@@ -994,18 +994,23 @@ const handleEditorClick = (e: React.MouseEvent) => {
                    }
                 }} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400"><AtSign size={18} /></button>
 
-                <label className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center cursor-pointer text-gray-700 dark:text-gray-300">
+                <label 
+                    className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center cursor-pointer text-gray-700 dark:text-gray-300"
+                    // PERBAIKAN: Gunakan onMouseDown pada LABEL, bukan onClick pada INPUT
+                    onMouseDown={(e) => {
+                        e.preventDefault(); // 1. Mencegah editor kehilangan fokus (blur)
+                        const sel = window.getSelection();
+                        // 2. Simpan posisi kursor yang BENAR sebelum dialog muncul
+                        if (sel && sel.rangeCount > 0) {
+                            savedSelection.current = sel.getRangeAt(0).cloneRange();
+                        }
+                    }}
+                >
                     <input 
                         type="file" 
                         accept="image/*" 
                         className="hidden" 
-                        // EVENT BARU: Simpan posisi kursor saat tombol diklik
-                        onClick={() => {
-                            const sel = window.getSelection();
-                            if (sel && sel.rangeCount > 0) {
-                                savedSelection.current = sel.getRangeAt(0).cloneRange();
-                            }
-                        }}
+                        // onClick pada input dihapus karena sudah ditangani di onMouseDown label
                         onChange={insertImage} 
                     />
                     <ImageIcon size={18} />
