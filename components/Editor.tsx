@@ -536,10 +536,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
   };
 
   // --- INSERT IMAGE (RESPONSIVE) ---
-  const insertResponsiveImage = (url: string) => {
-      // Kita gunakan insertHTML agar bisa set class & style default
+  // Tambahkan parameter default 'restore = false'
+  const insertResponsiveImage = (url: string, restore: boolean = false) => {
       const imgHtml = `<img src="${url}" class="max-w-full h-auto rounded-lg shadow-sm my-2 cursor-pointer border-2 border-transparent hover:border-blue-400 transition-all" style="width: 100%;" />`;
-      execCmd('insertHTML', imgHtml);
+      // Oper parameter restore ke execCmd
+      execCmd('insertHTML', imgHtml, restore);
   };
 
   const insertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -548,11 +549,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
       const reader = new FileReader();
       reader.onload = (event) => {
           if (event.target?.result) {
-              insertResponsiveImage(event.target.result as string);
+              // PENTING: Pass 'true' sebagai parameter kedua untuk mengembalikan kursor
+              insertResponsiveImage(event.target.result as string, true);
           }
       };
       reader.readAsDataURL(file);
     }
+    // PENTING: Reset value agar user bisa memilih gambar yang sama jika sebelumnya dihapus
+    e.target.value = '';
   };
 
   // --- PASTE HANDLER (Menangani Ctrl+V Gambar) ---
@@ -991,7 +995,19 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 }} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400"><AtSign size={18} /></button>
 
                 <label className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center cursor-pointer text-gray-700 dark:text-gray-300">
-                    <input type="file" accept="image/*" className="hidden" onChange={insertImage} />
+                    <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        // EVENT BARU: Simpan posisi kursor saat tombol diklik
+                        onClick={() => {
+                            const sel = window.getSelection();
+                            if (sel && sel.rangeCount > 0) {
+                                savedSelection.current = sel.getRangeAt(0).cloneRange();
+                            }
+                        }}
+                        onChange={insertImage} 
+                    />
                     <ImageIcon size={18} />
                 </label>
 
