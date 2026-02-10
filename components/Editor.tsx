@@ -7,7 +7,7 @@ import {
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
-  Undo, Redo // <--- Pastikan Undo & Redo diimport
+  Undo, Redo, Sliders // <--- Tambahkan Sliders
 } from 'lucide-react';
 
 interface EditorProps {
@@ -20,7 +20,7 @@ interface EditorProps {
   onGoHome: () => void;
 }
 
-type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE';
+type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
   note, 
@@ -90,6 +90,26 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
   const [isTableContext, setIsTableContext] = useState(false);
+
+  // --- STATE GAMBAR ---
+  const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
+  const [imageWidth, setImageWidth] = useState<number>(100); // Dalam persen
+
+  // --- HELPER: Base64 to Blob (Untuk Copy Image) ---
+  const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
+    const byteCharacters = atob(b64Data.split(',')[1]);
+    const byteArrays = [];
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    return new Blob(byteArrays, { type: contentType });
+  };
 
   // --- PERBAIKAN LOGIKA UNDO/REDO ---
   // Fungsi dipisahkan agar bisa dipanggil oleh tombol TopBar (via ref) 
@@ -417,6 +437,27 @@ const handleEditorClick = (e: React.MouseEvent) => {
     // -------------------------------
 
     // Logic standar editor (jika yang diklik BUKAN chip)
+    
+    // 2. Cek apakah yang diklik adalah GAMBAR
+    if (target.tagName === 'IMG') {
+        const img = target as HTMLImageElement;
+        setSelectedImage(img);
+        
+        // Ambil width saat ini (dari style atau attribute)
+        let currentWidth = 100;
+        if (img.style.width) {
+            currentWidth = parseInt(img.style.width);
+        }
+        setImageWidth(isNaN(currentWidth) ? 100 : currentWidth);
+        
+        setActiveMenu('IMAGE');
+        e.stopPropagation(); // Stop agar tidak menutup menu image seketika
+        return;
+    } else {
+        // Jika klik tempat lain, reset seleksi gambar
+        setSelectedImage(null);
+    }
+
     checkSelectionContext();
     setActiveMenu('NONE');
 };
@@ -494,12 +535,48 @@ const handleEditorClick = (e: React.MouseEvent) => {
     execCmd('insertHTML', html);
   };
 
+  // --- INSERT IMAGE (RESPONSIVE) ---
+  const insertResponsiveImage = (url: string) => {
+      // Kita gunakan insertHTML agar bisa set class & style default
+      const imgHtml = `<img src="${url}" class="max-w-full h-auto rounded-lg shadow-sm my-2 cursor-pointer border-2 border-transparent hover:border-blue-400 transition-all" style="width: 100%;" />`;
+      execCmd('insertHTML', imgHtml);
+  };
+
   const insertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      execCmd('insertImage', url);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          if (event.target?.result) {
+              insertResponsiveImage(event.target.result as string);
+          }
+      };
+      reader.readAsDataURL(file);
     }
+  };
+
+  // --- PASTE HANDLER (Menangani Ctrl+V Gambar) ---
+  const handlePaste = (e: React.ClipboardEvent) => {
+      const items = e.clipboardData.items;
+      let hasImage = false;
+
+      for (const item of items) {
+          if (item.type.indexOf('image') === 0) {
+              e.preventDefault(); // Mencegah paste default browser
+              hasImage = true;
+              const blob = item.getAsFile();
+              if (blob) {
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                      if (event.target?.result) {
+                          insertResponsiveImage(event.target.result as string);
+                      }
+                  };
+                  reader.readAsDataURL(blob);
+              }
+          }
+      }
+      // Jika bukan gambar, biarkan default behavior (teks)
   };
 
   const handleTableAction = (action: string) => {
@@ -612,6 +689,61 @@ const handleEditorClick = (e: React.MouseEvent) => {
       adjustTitleHeight();
   }, [note.title]);
 
+  // --- IMAGE ACTIONS ---
+  const handleImageResize = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseInt(e.target.value);
+      setImageWidth(val);
+      if (selectedImage) {
+          selectedImage.style.width = `${val}%`;
+          handleInput(); // Simpan perubahan ke note
+      }
+  };
+
+  const handleCopyImage = async () => {
+      if (selectedImage) {
+          try {
+             const src = selectedImage.src;
+             // Cek apakah base64
+             if (src.startsWith('data:image')) {
+                 const type = src.split(';')[0].split(':')[1];
+                 const blob = b64toBlob(src, type);
+                 await navigator.clipboard.write([
+                     new ClipboardItem({ [type]: blob })
+                 ]);
+             } else {
+                 // Jika URL biasa (bukan base64), copy URL-nya saja atau fetch blob (opsional)
+                 await navigator.clipboard.writeText(src);
+             }
+             setShowCopyToast(true);
+             setTimeout(() => setShowCopyToast(false), 2000);
+          } catch (err) {
+              console.error('Failed to copy image', err);
+          }
+      }
+  };
+
+  const handleCutImage = async () => {
+      await handleCopyImage(); // Copy dulu
+      if (selectedImage) {
+          selectedImage.remove(); // Lalu hapus
+          setSelectedImage(null);
+          setActiveMenu('NONE');
+          handleInput();
+          
+          setShowCutToast(true);
+          setTimeout(() => setShowCutToast(false), 2000);
+      }
+  };
+
+  const handleDeleteImage = () => {
+      if (selectedImage) {
+          selectedImage.remove();
+          setSelectedImage(null);
+          setActiveMenu('NONE');
+          handleInput();
+      }
+  };
+
   return (
     <div className="flex flex-col h-full relative">
         <div className="flex-1 overflow-y-auto p-4 no-scrollbar pb-32">
@@ -637,6 +769,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 className={`editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200 ${isMindMap ? 'mindmap-mode' : ''}`}
                 contentEditable
                 onInput={handleInput}
+                onPaste={handlePaste} // <--- Tambahkan baris ini
                 onKeyDown={handleKeyDown}
                 onClick={handleEditorClick}
                 onTouchStart={handleTouchStart}
@@ -777,6 +910,42 @@ const handleEditorClick = (e: React.MouseEvent) => {
                  <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('delRow')} className="p-2 text-sm bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-100 rounded flex items-center gap-2"><Trash2 size={16}/> Row</button>
                  <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('delCol')} className="p-2 text-sm bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-100 rounded flex items-center gap-2"><Trash2 size={16}/> Col</button>
                  <button onMouseDown={preventFocusLoss} onClick={() => handleTableAction('delTable')} className="col-span-2 p-2 text-sm bg-red-100 dark:bg-red-900 font-bold text-red-700 dark:text-red-100 rounded flex justify-center items-center gap-2"><Trash2 size={16}/> Delete Entire Table</button>
+            </div>
+        )}
+
+        {/* --- IMAGE MENU --- */}
+        {activeMenu === 'IMAGE' && selectedImage && (
+            <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 z-40 animate-in slide-in-from-bottom-5 fade-in">
+                
+                {/* Resize Slider */}
+                <div className="flex items-center gap-3 mb-4">
+                    <Sliders size={18} className="text-gray-500" />
+                    <input 
+                        type="range" 
+                        min="10" 
+                        max="100" 
+                        value={imageWidth} 
+                        onChange={handleImageResize}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                    />
+                    <span className="text-sm font-mono text-gray-500 w-12 text-right">{imageWidth}%</span>
+                </div>
+
+                {/* Actions Grid */}
+                <div className="flex justify-between gap-2">
+                     <button onMouseDown={preventFocusLoss} onClick={handleCopyImage} className="flex-1 p-2 bg-gray-100 dark:bg-gray-700 rounded text-sm flex flex-col items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-600">
+                        <Copy size={18} /> 
+                        <span>Salin</span>
+                     </button>
+                     <button onMouseDown={preventFocusLoss} onClick={handleCutImage} className="flex-1 p-2 bg-gray-100 dark:bg-gray-700 rounded text-sm flex flex-col items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-600">
+                        <Scissors size={18} /> 
+                        <span>Potong</span>
+                     </button>
+                     <button onMouseDown={preventFocusLoss} onClick={handleDeleteImage} className="flex-1 p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded text-sm flex flex-col items-center gap-1 hover:bg-red-100 dark:hover:bg-red-900/50">
+                        <Trash2 size={18} /> 
+                        <span>Hapus</span>
+                     </button>
+                </div>
             </div>
         )}
 
