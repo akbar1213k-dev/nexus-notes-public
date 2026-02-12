@@ -150,7 +150,7 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
         return isDarkMode ? "#064e3b" : "#d1fae5";
       }
       // 3. Default/Root (Abu/Putih)
-      return isDarkMode ? "#1f2937" : "#ffffff";
+      return isDarkMode ? "#1f2937" : "#e2e8f0";
     };
 
     // Helper untuk menentukan warna border (Stroke)
@@ -164,7 +164,7 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
         return isDarkMode ? "#34d399" : "#059669";
       }
       // 3. Default
-      return isDarkMode ? "#374151" : "#cbd5e1";
+      return isDarkMode ? "#374151" : "#94a3b8";
     };
 
     // Helper untuk ketebalan border
@@ -283,11 +283,13 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
            <span className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-600 dark:bg-emerald-900 dark:border-emerald-400 block"></span>
            <span>Folder Keterhubungan</span>
         </div>
-        <div className="flex items-center gap-2">
-           <span className="w-3 h-3 rounded-sm bg-white border border-gray-400 dark:bg-gray-800 dark:border-gray-500 block"></span>
-           <span>Lainnya / Root</span>
+        
+        {/* UPDATE BAGIAN INI: Lainnya / Root */}            
+          <div className="flex items-center gap-2">            
+            <span className="w-3 h-3 rounded-sm bg-slate-200 border border-slate-400 dark:bg-gray-800 dark:border-gray-500 block"></span>            
+            <span>Lainnya / Root</span>            
+          </div>            
         </div>
-      </div>
       <svg ref={svgRef} className="w-full h-full touch-none" />
     </div>
   );
