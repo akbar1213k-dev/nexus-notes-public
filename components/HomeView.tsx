@@ -780,7 +780,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                      Home (Root)
                    </button>
                )}
-               {folders.filter(f => f.id !== currentFolderId).map(f => (
+              
+              {/* HANYA tampilkan folder yang TIDAK dihapus (!f.deletedAt) */}
+                {folders.filter(f => f.id !== currentFolderId && !f.deletedAt).map(f => (
                  <button 
                    key={f.id}
                    onClick={() => handleMoveAction(f.id)}
