@@ -43,7 +43,7 @@ export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
 
-  // --- LOGIKA SAMPAH (AUTO DELETE 24 JAM) ---
+  // --- LOGIKA SAMPAH (AUTO DELETE 24 JAM) ----
   useEffect(() => {
     if (!notes.length && !folders.length) return;
     
@@ -384,20 +384,55 @@ export default function App() {
     return 'Nexus Notes';
   };
 
-  const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
-    if (!user) return;
-    try {
-        const promises = [
-            ...data.notes.map(x => setDoc(doc(db, "notes", x.id), { ...x, userId: user.uid })),
-            ...data.folders.map(x => setDoc(doc(db, "folders", x.id), { ...x, userId: user.uid }))
-        ];
-        await Promise.all(promises);
-        alert("Import berhasil! Data telah dipulihkan.");
-    } catch (err) {
-        console.error("Import error:", err);
-        alert("Gagal mengimpor data.");
+  // Ganti fungsi handleImportData yang lama dengan ini:
+
+const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
+    // 1. Cek Login & Beri Peringatan
+    if (!user) {
+        alert("⚠️ GAGAL IMPORT: Anda harus LOGIN terlebih dahulu agar data bisa disimpan ke akun Anda.");
+        return;
     }
-  };
+
+    try {
+        // Tampilkan loading (opsional, tapi baik untuk UX)
+        console.log("Mulai mengimpor data...");
+
+        // 2. Pastikan data array ada (Safe Guard)
+        // Walaupun JSON Anda punya 'folders', kode ini mencegah error jika di masa depan ada file tanpa folder
+        const notesToImport = data.notes || [];
+        const foldersToImport = data.folders || [];
+
+        if (notesToImport.length === 0 && foldersToImport.length === 0) {
+            alert("File JSON kosong atau format tidak dikenali.");
+            return;
+        }
+
+        const promises = [
+            ...notesToImport.map(x => setDoc(doc(db, "notes", x.id), { 
+                ...x, 
+                userId: user.uid, // Paksa data jadi milik user yang login
+                updatedAt: x.updatedAt || Date.now() // Jaga-jaga jika tanggal kosong
+            })),
+            ...foldersToImport.map(x => setDoc(doc(db, "folders", x.id), { 
+                ...x, 
+                userId: user.uid 
+            }))
+        ];
+
+        await Promise.all(promises);
+        
+        // Berhasil
+        alert(`✅ Sukses! Berhasil memulihkan ${notesToImport.length} catatan dan ${foldersToImport.length} folder.`);
+        
+        // Opsional: Refresh halaman agar data tampil
+        window.location.reload(); 
+
+    } catch (err: any) {
+        console.error("Detail Error Import:", err);
+        // 3. Tampilkan pesan error asli untuk debugging
+        alert(`❌ Terjadi kesalahan saat menyimpan ke database:\n\n${err.message}`);
+    }
+};
 
   // --- FUNGSI MENU EDITOR (HAPUS & PINDAH) ---
   const handleDeleteCurrentNote = async () => {
