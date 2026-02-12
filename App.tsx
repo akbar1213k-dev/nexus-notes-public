@@ -589,7 +589,15 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
             );
             
         case 'GRAPH': 
-            return <GraphView notes={notes} onNodeClick={(id) => navigateTo('EDITOR', id)} isDarkMode={isDarkMode} />;
+            // Kita kirimkan currentNoteId sebagai activeNoteId agar GraphView tahu mana yg harus difokuskan
+            return (
+                <GraphView 
+                    notes={notes} 
+                    onNodeClick={(id) => navigateTo('EDITOR', id)} 
+                    isDarkMode={isDarkMode} 
+                    activeNoteId={currentNoteId} 
+                />
+            );
         
         case 'EDITOR': 
             const n = notes.find(x => x.id === currentNoteId);
