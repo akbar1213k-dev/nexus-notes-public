@@ -38,8 +38,12 @@ const removeFromLocalStorage = (noteId: string) => {
 };
 const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
 
-export default function App() {
+
+  export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  // TAMBAHAN: State untuk menangani loading awal auth
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
 
@@ -232,6 +236,9 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      // Hentikan loading setelah status auth diketahui (baik login maupun logout)
+      setIsAuthLoading(false);
+
       if (!currentUser) {
         setNotes([]); setFolders([]); setIsReady(false); setAuthError(''); setDbError('');
       }
@@ -467,6 +474,26 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
   };
 
   // --- RENDER LOGIN SCREEN (Condition Check) ---
+    // --- RENDER LOADING SCREEN (SPLASH SCREEN) ---
+  // Tampilkan ini JIKA sedang loading auth
+  if (isAuthLoading) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-white dark:bg-gray-950 transition-colors">
+        <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
+             <div className="relative w-24 h-24 mb-6">
+                <div className="absolute inset-0 bg-blue-500 blur-2xl opacity-20 dark:opacity-40 animate-pulse"></div>
+                <div className="relative w-full h-full bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-600/30">
+                     <svg className="w-12 h-12 text-white drop-shadow-md animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                     </svg>
+                </div>
+            </div>
+            <h1 className="text-xl font-bold text-gray-400 dark:text-gray-600 animate-pulse">Nexus Notes</h1>
+        </div>
+      </div>
+    );
+  }
+    
   if (!user) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900 px-4 transition-colors">
