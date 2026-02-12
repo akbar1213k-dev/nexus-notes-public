@@ -176,8 +176,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
     handleCancelSelection();
   };
 
-  const handleItemClick = (type: 'note' | 'folder', id: string) => {
-    if (selectionMode) {
+  const handleItemClick = (type: 'note' | 'folder', id: string, e?: React.MouseEvent) => {
+    // Deteksi tombol modifier (Ctrl atau Command)
+    const isModifierPressed = e && (e.ctrlKey || e.metaKey);
+
+    if (selectionMode || isModifierPressed) {
+      // Jika belum mode seleksi tapi tekan Ctrl, aktifkan mode seleksi
+      if (!selectionMode) setSelectionMode(true);
       toggleSelection(type, id);
     } else {
       if (type === 'folder') {
@@ -498,10 +503,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                           }
                           ${!isLinkedFolder ? 'cursor-pointer' : selectionMode ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}
                         `}
-                        onClick={() => {
+                        onClick={(e) => {
                             // PROTEKSI: Jangan bisa diklik jika sedang mode select & ini folder spesial
                             if (selectionMode && isLinkedFolder) return;
-                            handleItemClick('folder', folder.id);
+                            handleItemClick('folder', folder.id, e);
                         }}
                         onTouchStart={() => {
                             if (isLinkedFolder) return; // Disable long press selection
@@ -586,7 +591,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
                       }
                     `}
-                    onClick={() => handleItemClick('note', note.id)}
+                    onClick={(e) => handleItemClick('note', note.id, e)}
                     onTouchStart={() => handleTouchStart('note', note.id)}
                     onTouchEnd={handleTouchEnd}
                     onTouchMove={handleTouchEnd}
