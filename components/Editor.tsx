@@ -192,8 +192,28 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Di dalam komponen Editor, sejajar dengan ref lain:
   const isIgnoringClick = useRef(false); // Tambahan untuk mencegah klik tidak sengaja
   
-  // --- KEYBOARD HANDLING ---
+    // --- KEYBOARD HANDLING ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // [LOGIKA BARU] Handle Enter saat Mention List terbuka
+    if (showMentionList) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            // Filter catatan secara manual karena variabel filteredNotes ada di bawah
+            const currentFiltered = allNotes.filter(n => 
+                n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && 
+                n.id !== note.id 
+            );
+            // Pilih item pertama atau buat baru (null)
+            handleMentionSelect(currentFiltered.length > 0 ? currentFiltered[0] : null);
+            return;
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            setShowMentionList(false);
+            return;
+        }
+    }
+
     const selection = window.getSelection();
     if (!selection?.anchorNode) return;
     
@@ -297,7 +317,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const content = editorRef.current.innerHTML;
     onUpdate({ ...note, content });
 
-    // Mention logic
+      
+    // Mention logic (NEW: Trigger with @. and allow spaces)
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
 
@@ -306,21 +327,53 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     
     if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
       const textBeforeCursor = textNode.textContent.slice(0, range.startOffset);
-      const atIndex = textBeforeCursor.lastIndexOf('@');
       
-      if (atIndex !== -1 && (atIndex === 0 || /\s/.test(textBeforeCursor[atIndex - 1]))) {
-        const query = textBeforeCursor.slice(atIndex + 1);
-        if (!/\s/.test(query)) {
-          const rect = range.getBoundingClientRect();
-          setMentionPosition({ top: rect.top - 40, left: rect.left });
-          setMentionQuery(query);
-          setShowMentionList(true);
-          setCursorRange(range);
-          return;
-        }
+      // 1. KONDISI TRIGGER: Jika menu BELUM terbuka
+      if (!showMentionList) {
+         // Cek apakah user mengetik "@." (at + titik)
+         if (textBeforeCursor.endsWith('@.')) {
+             const atIndex = textBeforeCursor.lastIndexOf('@');
+             
+             // --- HAPUS TITIK (.) SECARA OTOMATIS ---
+             const textAfterCursor = textNode.textContent.substring(range.startOffset);
+             // Gabungkan: Teks sebelum titik + Teks setelah kursor
+             textNode.textContent = textBeforeCursor.slice(0, -1) + textAfterCursor;
+             
+             // --- PERBAIKI POSISI KURSOR ---
+             // Kembalikan kursor tepat setelah '@'
+             const newRange = document.createRange();
+             newRange.setStart(textNode, atIndex + 1);
+             newRange.collapse(true);
+             selection.removeAllRanges();
+             selection.addRange(newRange);
+             
+             // Simpan range ini agar insertMention tahu di mana harus menempel
+             setCursorRange(newRange);
+             
+             // --- BUKA MENU ---
+             const rect = newRange.getBoundingClientRect();
+             setMentionPosition({ top: rect.top - 40, left: rect.left });
+             setMentionQuery(''); // Query awal kosong
+             setShowMentionList(true);
+             return;
+         }
+      } 
+      
+      // 2. KONDISI UPDATE: Jika menu SUDAH terbuka
+      else {
+          const atIndex = textBeforeCursor.lastIndexOf('@');
+          if (atIndex !== -1) {
+              // Ambil semua teks setelah @ (IZINKAN SPASI)
+              const query = textBeforeCursor.slice(atIndex + 1);
+              setMentionQuery(query);
+              setCursorRange(range); // Update range terus menerus saat mengetik
+              return;
+          } else {
+              // Jika tanda @ terhapus, tutup menu
+              setShowMentionList(false);
+          }
       }
     }
-    setShowMentionList(false);
   };
 
   const checkSelectionContext = () => {
