@@ -2,19 +2,19 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Note } from '../types';
 
-// Tambahkan activeNoteId ke props
 interface GraphViewProps {
   notes: Note[];
   onNodeClick: (noteId: string) => void;
   isDarkMode: boolean;
-  activeNoteId?: string; // New: ID untuk auto-focus
+  activeNoteId?: string;
 }
 
-// Interface Node D3 yang diperluas untuk mendukung width/height dinamis
+// Update Interface: Menambahkan properti folder
 interface D3Node extends d3.SimulationNodeDatum {
   id: string;
   title: string;
   group: number;
+  folder?: string; // Menampung info folder
   width?: number;
   height?: number;
 }
@@ -47,11 +47,12 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
   useEffect(() => {
     if (!svgRef.current || !notes.length) return;
 
-    // Mapping data ke format D3Node
+    // Mapping data: Sertakan properti folder
     const nodes: D3Node[] = notes.map(n => ({
       id: n.id,
       title: n.title || "Untitled",
-      group: 1
+      group: 1,
+      folder: n.folder // Ambil nama folder
     }));
 
     const links: D3Link[] = [];
@@ -77,10 +78,10 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
 
     // Simulation Setup
     const simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150)) // Jarak diperlebar untuk kotak
-      .force("charge", d3.forceManyBody().strength(-500)) // Tolakan diperkuat
+      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
+      .force("charge", d3.forceManyBody().strength(-500))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide().radius(80).iterations(2)); // Radius diperbesar untuk menghindari tumpang tindih kotak
+      .force("collide", d3.forceCollide().radius(80).iterations(2));
 
     const svg = d3.select(svgRef.current)
       .attr("width", width)
@@ -88,11 +89,11 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
       .attr("viewBox", [0, 0, width, height])
       .attr("style", "max-width: 100%; height: auto;");
 
-    // --- Definisi Marker Panah (Arrowhead) ---
+    // --- Definisi Marker Panah ---
     svg.append("defs").append("marker")
       .attr("id", "arrowhead")
       .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 38) // Offset agar panah tidak tertutup node (sesuaikan dengan ukuran node)
+      .attr("refX", 38)
       .attr("refY", 0)
       .attr("markerWidth", 6)
       .attr("markerHeight", 6)
@@ -110,7 +111,7 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
       });
     
     svg.call(zoom)
-       .on("dblclick.zoom", null); // Disable double click zoom
+       .on("dblclick.zoom", null);
 
     const link = g.append("g")
       .attr("stroke", isDarkMode ? "#555" : "#999")
@@ -119,9 +120,8 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
       .data(links)
       .join("line")
       .attr("stroke-width", 2)
-      .attr("marker-end", "url(#arrowhead)"); // Tambahkan panah di ujung garis
+      .attr("marker-end", "url(#arrowhead)");
 
-    // --- Perubahan: Node menggunakan Group (g) berisi Rect dan Text ---
     const node = g.append("g")
       .selectAll("g")
       .data(nodes)
@@ -132,33 +132,66 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
         .on("drag", dragged)
         .on("end", dragended) as any);
 
-    // Render Kotak (Card) sebagai pengganti Circle
+    // --- LOGIKA WARNA & STYLE ---
+    // Helper untuk menentukan warna background
+    const getFillColor = (d: D3Node) => {
+      // 1. Prioritas: Active Node (Biru/Indigo)
+      if (d.id === activeNoteId) {
+        return isDarkMode ? "#3730a3" : "#e0e7ff"; 
+      }
+      // 2. Folder Keterhubungan (Hijau/Emerald)
+      if (d.folder === "Keterhubungan") {
+        return isDarkMode ? "#064e3b" : "#d1fae5";
+      }
+      // 3. Default/Root (Abu/Putih)
+      return isDarkMode ? "#1f2937" : "#ffffff";
+    };
+
+    // Helper untuk menentukan warna border (Stroke)
+    const getStrokeColor = (d: D3Node) => {
+      // 1. Active
+      if (d.id === activeNoteId) {
+        return isDarkMode ? "#818cf8" : "#4338ca";
+      }
+      // 2. Folder Keterhubungan
+      if (d.folder === "Keterhubungan") {
+        return isDarkMode ? "#34d399" : "#059669";
+      }
+      // 3. Default
+      return isDarkMode ? "#374151" : "#cbd5e1";
+    };
+
+    // Helper untuk ketebalan border
+    const getStrokeWidth = (d: D3Node) => {
+      if (d.id === activeNoteId) return 3; // Paling tebal
+      if (d.folder === "Keterhubungan") return 2; // Sedang
+      return 1; // Biasa
+    };
+
     node.append("rect")
-      .attr("rx", 8) // Sudut membulat
+      .attr("rx", 8)
       .attr("ry", 8)
-      // Warna berbeda untuk node aktif
-      .attr("fill", d => d.id === activeNoteId 
-          ? (isDarkMode ? "#3730a3" : "#e0e7ff") // Warna Active (Indigo)
-          : (isDarkMode ? "#1f2937" : "#ffffff")) // Warna Default
-      .attr("stroke", d => d.id === activeNoteId 
-          ? (isDarkMode ? "#818cf8" : "#4338ca") 
-          : (isDarkMode ? "#374151" : "#e2e8f0"))
-      .attr("stroke-width", d => d.id === activeNoteId ? 3 : 1) // Border lebih tebal untuk active
+      .attr("fill", d => getFillColor(d))
+      .attr("stroke", d => getStrokeColor(d))
+      .attr("stroke-width", d => getStrokeWidth(d))
       .attr("filter", isDarkMode ? "drop-shadow(0 4px 6px rgba(0,0,0,0.5))" : "drop-shadow(0 4px 6px rgba(0,0,0,0.1))");
 
-    // Render Teks Label
-    const text = node.append("text")
+    // Teks Label
+    node.append("text")
       .text(d => d.title.length > 25 ? d.title.substring(0, 25) + '...' : d.title)
       .attr("text-anchor", "middle")
       .attr("dy", ".35em")
       .attr("font-size", "12px")
       .attr("font-weight", "600")
-      .attr("fill", d => d.id === activeNoteId 
-          ? (isDarkMode ? "#e0e7ff" : "#3730a3") 
-          : (isDarkMode ? "#e5e7eb" : "#1f2937"))
+      // Warna teks menyesuaikan background agar kontras
+      .attr("fill", d => {
+         if (d.id === activeNoteId) return isDarkMode ? "#e0e7ff" : "#3730a3";
+         if (d.folder === "Keterhubungan") return isDarkMode ? "#d1fae5" : "#065f46";
+         return isDarkMode ? "#e5e7eb" : "#1f2937";
+      })
       .style("pointer-events", "none");
     
-    // Dynamic sizing of the rect based on text
+    // Dynamic sizing
     node.each(function(d) {
         const textElement = d3.select(this).select("text").node() as SVGTextElement;
         const bbox = textElement.getBBox();
@@ -191,18 +224,17 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
         .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
 
-    // --- Logika Auto-Focus ke Node Aktif ---
+    // Auto-Focus
     if (activeNoteId) {
-        // Delay sedikit agar simulasi force layout stabil dulu
         setTimeout(() => {
             const targetNode = nodes.find(n => n.id === activeNoteId);
             if (targetNode && targetNode.x !== undefined && targetNode.y !== undefined) {
-                const scale = 1.2; // Zoom level yang nyaman
+                const scale = 1.2;
                 const translateX = width / 2 - scale * targetNode.x;
                 const translateY = height / 2 - scale * targetNode.y;
 
                 svg.transition()
-                    .duration(1000) // Animasi halus selama 1 detik
+                    .duration(1000)
                     .call(
                         zoom.transform, 
                         d3.zoomIdentity.translate(translateX, translateY).scale(scale)
@@ -235,11 +267,20 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
 
   return (
     <div ref={containerRef} className="w-full h-full bg-slate-50 dark:bg-gray-950 relative overflow-hidden transition-colors">
-      <div className="absolute top-4 left-4 bg-white/80 dark:bg-gray-800/80 p-3 rounded-lg text-xs text-gray-500 dark:text-gray-400 pointer-events-none z-10 backdrop-blur border dark:border-gray-700 flex flex-col gap-1 shadow-sm">
-        <span className="font-bold">Mode Peta Konsep</span>
-        <span>• Geser node untuk merapikan</span>
-        <span>• Cubit/Scroll untuk zoom</span>
-        {activeNoteId && <span className="text-blue-500 mt-1">• Fokus pada catatan aktif</span>}
+      <div className="absolute top-4 left-4 bg-white/80 dark:bg-gray-800/80 p-3 rounded-lg text-xs text-gray-500 dark:text-gray-400 pointer-events-none z-10 backdrop-blur border dark:border-gray-700 flex flex-col gap-2 shadow-sm">
+        <span className="font-bold border-b pb-1 mb-1 block">Legenda Peta Konsep</span>
+        <div className="flex items-center gap-2">
+           <span className="w-3 h-3 rounded-sm bg-indigo-100 border border-indigo-700 dark:bg-indigo-900 dark:border-indigo-400 block"></span>
+           <span>Catatan Aktif (Fokus)</span>
+        </div>
+        <div className="flex items-center gap-2">
+           <span className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-600 dark:bg-emerald-900 dark:border-emerald-400 block"></span>
+           <span>Folder Keterhubungan</span>
+        </div>
+        <div className="flex items-center gap-2">
+           <span className="w-3 h-3 rounded-sm bg-white border border-gray-400 dark:bg-gray-800 dark:border-gray-500 block"></span>
+           <span>Lainnya / Root</span>
+        </div>
       </div>
       <svg ref={svgRef} className="w-full h-full touch-none" />
     </div>
