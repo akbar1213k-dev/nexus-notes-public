@@ -135,11 +135,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
       }
     };
 
+    // (Kode Baru - Letakkan ini sebagai pengganti return di atas)
+    
+    // 1. Lakukan sorting standar dulu (berdasarkan pilihan user)
+    const sortedVisible = filteredFolders.sort((a, b) => sorter(a, b, 'folder'));
+    const sortedNavigation = baseFolders.sort((a, b) => sorter(a, b, 'folder'));
+
+    // 2. Fungsi helper untuk memindahkan "Keterhubungan" paksa ke paling atas
+    const pinSystemFolder = (list: Folder[]) => {
+        const SYSTEM_NAME = "Keterhubungan";
+        const systemFolder = list.find(f => f.name === SYSTEM_NAME);
+        const others = list.filter(f => f.name !== SYSTEM_NAME);
+        // Jika ketemu, taruh di depan (index 0), sisanya mengikuti
+        return systemFolder ? [systemFolder, ...others] : others;
+    };
+
     return {
       visibleNotes: filteredNotes.sort((a, b) => sorter(a, b, 'note')),
-      visibleFolders: filteredFolders.sort((a, b) => sorter(a, b, 'folder')),
-      // Kita kembalikan juga baseFolders untuk keperluan navigasi Dropdown
-      navigationFolders: baseFolders.sort((a, b) => sorter(a, b, 'folder')) 
+      visibleFolders: pinSystemFolder(sortedVisible),
+      navigationFolders: pinSystemFolder(sortedNavigation) 
     };
 
   }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection, isTrashMode]);
