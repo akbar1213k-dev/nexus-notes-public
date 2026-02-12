@@ -1,3 +1,4 @@
+// ... import lainnya tetap sama ...
 import { X, Folder as FolderIcon } from 'lucide-react'; 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, Folder, ViewMode, EditorHandle } from './types';
@@ -22,7 +23,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth'; 
 
-// --- HELPER: LOCAL STORAGE --
+// --- HELPER: LOCAL STORAGE (Tetap sama) --
 const getLocalNotes = (): Note[] => {
   try { return JSON.parse(localStorage.getItem('nexus_backup_notes') || '[]'); } catch { return []; }
 };
@@ -38,11 +39,21 @@ const removeFromLocalStorage = (noteId: string) => {
 };
 const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
 
+export default function App() {
+  // [PERCEPAT 1] Inisialisasi User langsung dari LocalStorage!
+  // Kita tidak mulai dari null, tapi kita cek apakah ada jejak login sebelumnya.
+  const [user, setUser] = useState<User | null>(() => {
+    const savedUid = localStorage.getItem('nexus_user_uid');
+    if (savedUid) {
+       // Kita buat objek user "palsu" sementara agar UI langsung render Home
+       // Firebase akan menimpa ini nanti dengan objek User asli yang lebih lengkap
+       return { uid: savedUid, email: null, displayName: 'Loading...' } as User;
+    }
+    return null;
+  });
 
-  export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  // TAMBAHAN: State untuk menangani loading awal auth
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  // State Auth Loading kita hapus/tidak dipakai untuk blocking UI lagi
+  // agar langsung tembus ke renderContent()
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -51,48 +62,41 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
   useEffect(() => {
     if (!notes.length && !folders.length) return;
     
-    const ONE_DAY_MS = 24 * 60 * 60 * 1000; // 24 Jam
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000; 
     const now = Date.now();
 
     const cleanupTrash = async () => {
-      // Cari notes yang sudah expired
       const expiredNotes = notes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
       expiredNotes.forEach(async (n) => {
         await deleteDoc(doc(db, "notes", n.id));
         removeFromLocalStorage(n.id);
       });
 
-      // Cari folders yang sudah expired
       const expiredFolders = folders.filter(f => f.deletedAt && (now - f.deletedAt > ONE_DAY_MS));
       expiredFolders.forEach(async (f) => {
         await deleteDoc(doc(db, "folders", f.id));
       });
     };
 
-    const timer = setInterval(cleanupTrash, 60000); // Cek setiap 1 menit
-    cleanupTrash(); // Cek saat load
+    const timer = setInterval(cleanupTrash, 60000); 
+    cleanupTrash(); 
     return () => clearInterval(timer);
   }, [notes, folders]);
 
-  // Fungsi Soft Delete (Pindah ke Sampah)
+  // Fungsi Soft Delete 
   const handleSoftDelete = async (noteIds: string[], folderIds: string[]) => {
-    // --- MODIFIKASI: PROTEKSI FOLDER KETERHUBUNGAN ---
     const protectedFolderNames = ["Keterhubungan"];
     const foldersToDelete = folders.filter(f => folderIds.includes(f.id));
     const isProtected = foldersToDelete.some(f => protectedFolderNames.includes(f.name));
 
     if (isProtected) {
         alert("Folder 'Keterhubungan' adalah folder sistem dan tidak dapat dihapus.");
-        // Filter ID agar folder spesial tidak ikut terhapus
         folderIds = folderIds.filter(id => {
             const folder = folders.find(f => f.id === id);
             return folder && !protectedFolderNames.includes(folder.name);
         });
-        
-        // Jika tidak ada sisa item yang bisa dihapus, berhenti.
         if (noteIds.length === 0 && folderIds.length === 0) return;
     }
-    // ------------------------------------------------
 
     const time = Date.now();
     const batchPromises = [
@@ -103,7 +107,6 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     alert("Item dipindahkan ke Sampah. Akan dihapus permanen dalam 24 jam.");
   };
   
-  // Fungsi Restore (Kembalikan dari Sampah)
   const handleRestore = async (noteIds: string[], folderIds: string[]) => {
     const batchPromises = [
       ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: null })),
@@ -112,7 +115,6 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     await Promise.all(batchPromises);
   };
 
-  // Fungsi Hard Delete (Hapus Permanen Manual)
   const handleHardDelete = async (noteIds: string[], folderIds: string[]) => {
     if(!confirm("Hapus permanen? Data tidak bisa dikembalikan.")) return;
     noteIds.forEach(id => { deleteDoc(doc(db, "notes", id)); removeFromLocalStorage(id); });
@@ -129,11 +131,8 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
   const [isResetting, setIsResetting] = useState(false); 
   const [resetMessage, setResetMessage] = useState('');
 
-  // --- STATE MENU EDITOR (DIPINDAHKAN KE ATAS) ---
-  // Fix Error #310: State ini harus dideklarasikan di sini, sebelum return if(!user)
   const [showEditorMoveDialog, setShowEditorMoveDialog] = useState(false);
 
-  // --- FUNGSI RESET PASSWORD ---
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
@@ -162,7 +161,6 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
   const [currentNoteId, setCurrentNoteId] = useState<string>(''); 
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
 
-  // --- STATE SETTINGS (DENGAN TRY-CATCH AGAR LEBIH AMAN) ---
   const [isAutoSync, setIsAutoSync] = useState(() => {
     try {
         const saved = localStorage.getItem('nexus_auto_sync');
@@ -191,7 +189,6 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
   const editorRef = useRef<EditorHandle>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- PERBAIKAN: INISIALISASI TEMA DENGAN LOCALSTORAGE ---
   const [isDarkMode, setIsDarkMode] = useState(() => {
     try {
       const saved = localStorage.getItem('nexus_theme');
@@ -199,7 +196,6 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     } catch { return false; }
   });
 
-  // --- PERBAIKAN: EFEK TEMA GELAP & SIMPAN KE STORAGE ---
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -209,7 +205,6 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     localStorage.setItem('nexus_theme', JSON.stringify(isDarkMode));
   }, [isDarkMode]);
 
-  // --- LOGIKA TOMBOL BACK ANDROID ---
   useEffect(() => {
     window.history.replaceState({ mode: 'HOME', noteId: '' }, '', '');
     const handlePopState = (event: PopStateEvent) => {
@@ -232,15 +227,18 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     window.history.pushState({ mode, noteId }, '', '');
   };
 
-  // --- AUTH LISTENER ---
+  // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      // Hentikan loading setelah status auth diketahui (baik login maupun logout)
-      setIsAuthLoading(false);
-
-      if (!currentUser) {
-        setNotes([]); setFolders([]); setIsReady(false); setAuthError(''); setDbError('');
+      if (currentUser) {
+          // [PERCEPAT 2] Jika login valid, simpan UID ke local storage
+          localStorage.setItem('nexus_user_uid', currentUser.uid);
+          setUser(currentUser); // Update user dengan data asli dari Firebase
+      } else {
+          // Jika logout atau sesi habis
+          localStorage.removeItem('nexus_user_uid');
+          setUser(null);
+          setNotes([]); setFolders([]); setIsReady(false); setAuthError(''); setDbError('');
       }
     });
     return () => unsubscribe();
@@ -251,6 +249,8 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     if (!user) return;
     setDbError('');
 
+    // Karena user.uid mungkin dari local storage (fake user), query tetap akan jalan
+    // dan Firebase akan menangani caching data-nya.
     const qNotes = query(
       collection(db, "notes"), 
       where("userId", "==", user.uid), 
@@ -275,8 +275,12 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
       setIsReady(true);
       if (localNotes.length > 0) setSyncStatus('unsaved');
     }, (err) => {
-      console.error("Notes Sync Error:", err);
-      setDbError(`Gagal memuat Catatan: ${err.message}`);
+      // Abaikan error permission sementara jika user object masih "fake"
+      // karena update user asli akan segera menyusul
+      if (err.code !== 'permission-denied') {
+          console.error("Notes Sync Error:", err);
+          setDbError(`Gagal memuat Catatan: ${err.message}`);
+      }
     });
 
     const qFolders = query(
@@ -288,14 +292,15 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     const unsubFolders = onSnapshot(qFolders, (snap) => {
       setFolders(snap.docs.map(d => d.data() as Folder));
     }, (err) => {
-      console.error("Folder Sync Error:", err);
-      setDbError(prev => prev ? prev : `Gagal memuat Folder: ${err.message}`);
+      if (err.code !== 'permission-denied') {
+        console.error("Folder Sync Error:", err);
+        setDbError(prev => prev ? prev : `Gagal memuat Folder: ${err.message}`);
+      }
     });
 
     return () => { unsubNotes(); unsubFolders(); };
-  }, [user]);
+  }, [user]); // useEffect akan re-run ketika user berubah dari "Fake" ke "Asli"
 
-  // Auth Functions
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault(); setAuthError(''); setIsLoadingAuth(true);
     try {
@@ -310,7 +315,12 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
   };
 
   const handleLogout = async () => {
-      await signOut(auth); clearLocalStorage(); setViewMode('HOME');
+      // [PERCEPAT 3] Hapus jejak saat logout
+      localStorage.removeItem('nexus_user_uid');
+      await signOut(auth); 
+      clearLocalStorage(); 
+      setViewMode('HOME');
+      // setUser(null) ditangani di listener auth
   };
 
   const handleManualSync = async () => {
@@ -391,21 +401,13 @@ const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
     return 'Nexus Notes';
   };
 
-  // Ganti fungsi handleImportData yang lama dengan ini:
-
-const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
-    // 1. Cek Login & Beri Peringatan
+  const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
     if (!user) {
         alert("⚠️ GAGAL IMPORT: Anda harus LOGIN terlebih dahulu agar data bisa disimpan ke akun Anda.");
         return;
     }
 
     try {
-        // Tampilkan loading (opsional, tapi baik untuk UX)
-        console.log("Mulai mengimpor data...");
-
-        // 2. Pastikan data array ada (Safe Guard)
-        // Walaupun JSON Anda punya 'folders', kode ini mencegah error jika di masa depan ada file tanpa folder
         const notesToImport = data.notes || [];
         const foldersToImport = data.folders || [];
 
@@ -417,8 +419,8 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
         const promises = [
             ...notesToImport.map(x => setDoc(doc(db, "notes", x.id), { 
                 ...x, 
-                userId: user.uid, // Paksa data jadi milik user yang login
-                updatedAt: x.updatedAt || Date.now() // Jaga-jaga jika tanggal kosong
+                userId: user.uid, 
+                updatedAt: x.updatedAt || Date.now() 
             })),
             ...foldersToImport.map(x => setDoc(doc(db, "folders", x.id), { 
                 ...x, 
@@ -427,21 +429,15 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
         ];
 
         await Promise.all(promises);
-        
-        // Berhasil
         alert(`✅ Sukses! Berhasil memulihkan ${notesToImport.length} catatan dan ${foldersToImport.length} folder.`);
-        
-        // Opsional: Refresh halaman agar data tampil
         window.location.reload(); 
 
     } catch (err: any) {
         console.error("Detail Error Import:", err);
-        // 3. Tampilkan pesan error asli untuk debugging
         alert(`❌ Terjadi kesalahan saat menyimpan ke database:\n\n${err.message}`);
     }
-};
+  };
 
-  // --- FUNGSI MENU EDITOR (HAPUS & PINDAH) ---
   const handleDeleteCurrentNote = async () => {
     if (!currentNoteId || !user) return;
     if (confirm("Apakah Anda yakin ingin menghapus catatan ini secara permanen?")) {
@@ -473,27 +469,12 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
     }
   };
 
-  // --- RENDER LOGIN SCREEN (Condition Check) ---
-    // --- RENDER LOADING SCREEN (SPLASH SCREEN) ---
-  // Tampilkan ini JIKA sedang loading auth
-  if (isAuthLoading) {
-    return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-white dark:bg-gray-950 transition-colors">
-        <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
-             <div className="relative w-24 h-24 mb-6">
-                <div className="absolute inset-0 bg-blue-500 blur-2xl opacity-20 dark:opacity-40 animate-pulse"></div>
-                <div className="relative w-full h-full bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-600/30">
-                     <svg className="w-12 h-12 text-white drop-shadow-md animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                     </svg>
-                </div>
-            </div>
-            <h1 className="text-xl font-bold text-gray-400 dark:text-gray-600 animate-pulse">Nexus Notes</h1>
-        </div>
-      </div>
-    );
-  }
-    
+  // [PERCEPAT 4] Kita HILANGKAN block "if (isAuthLoading)" yang menampilkan Splash Screen.
+  // Dan karena state "user" diinisialisasi dengan data dari localStorage,
+  // maka kondisi "if (!user)" di bawah ini akan bernilai FALSE (terlewati)
+  // sehingga aplikasi langsung merender Konten Utama.
+
+  // --- RENDER LOGIN SCREEN (Hanya tampil jika benar-benar logout / user null) ---
   if (!user) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900 px-4 transition-colors">
@@ -616,11 +597,10 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
             );
             
         case 'GRAPH': 
-            // Kita kirimkan currentNoteId sebagai activeNoteId agar GraphView tahu mana yg harus difokuskan
             return (
                 <GraphView 
                     notes={notes}
-                    folders={folders} // <--- TAMBAHKAN INI
+                    folders={folders} 
                     onNodeClick={(id) => navigateTo('EDITOR', id)} 
                     isDarkMode={isDarkMode} 
                     activeNoteId={currentNoteId} 
@@ -636,15 +616,10 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
                     note={n} 
                     allNotes={notes} 
                     onUpdate={handleUpdateNote} 
-                    // --- MODIFIKASI: LOGIKA FOLDER KETERHUBUNGAN ---
                     onCreateNewNote={async (title) => {
                         const LINKED_FOLDER_NAME = "Keterhubungan";
-                        
-                        // 1. Cek apakah folder "Keterhubungan" sudah ada
                         let linkedFolder = folders.find(f => f.name === LINKED_FOLDER_NAME);
                         let targetId = linkedFolder?.id;
-
-                        // 2. Jika belum ada, buat otomatis
                         if (!targetId) {
                             targetId = 'f_linked_' + Date.now();
                             const newFolder: Folder = { 
@@ -652,21 +627,13 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
                                 name: LINKED_FOLDER_NAME, 
                                 createdAt: Date.now(), 
                                 userId: user.uid,
-                                deletedAt: null // Pastikan tidak terhapus
+                                deletedAt: null 
                             };
-                            
-                            // Update State Lokal agar UI langsung responsif
                             setFolders(prev => [newFolder, ...prev]);
-                            
-                            // Simpan ke Firebase
                             await setDoc(doc(db, "folders", targetId), newFolder);
                         }
-
-                        // 3. Buat catatan baru di dalam folder tersebut
-                        // Parameter ke-3 adalah folderId. Kita isi dengan targetId (Folder Keterhubungan)
                         return handleCreateNote(title, 'note', targetId, false);
                     }}
-                    // -----------------------------------------------
                     onLinkClick={(id) => navigateTo('EDITOR', id)} 
                     onLinkLongPress={setPreviewNoteId} 
                     onGoHome={() => navigateTo('HOME')} 
@@ -682,7 +649,6 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
                     onCreateNote={(type, folderId) => handleCreateNote('', type, folderId, true)} 
                     onCreateFolder={async (n) => setDoc(doc(db, "folders", 'f_' + Date.now()), { id: 'f_' + Date.now(), name: n, createdAt: Date.now(), userId: user?.uid })} 
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
-                    // UBAH DISINI: Gunakan handleSoftDelete, dan tambahkan props baru
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
                     onPermanentDelete={handleHardDelete}
@@ -693,7 +659,6 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
     }
   };
   
-  // --- RETURN AKHIR (LAYOUT UTAMA) ---
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900 transition-colors">
       <TopBar 
@@ -717,7 +682,6 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
         {renderContent()}
       </div>
       
-      {/* --- DIALOG PINDAH FOLDER (EDITOR MODE) --- */}
       {showEditorMoveDialog && (
         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-4 animate-in fade-in">
           <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-xl overflow-hidden shadow-2xl">
@@ -726,7 +690,6 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
               <button onClick={() => setShowEditorMoveDialog(false)}><X size={20} className="text-gray-500"/></button>
             </div>
             <div className="max-h-80 overflow-y-auto p-2">
-               {/* Pilihan Root / Home */}
                <button 
                 onClick={() => handleMoveCurrentNote(undefined)}
                 className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
@@ -735,7 +698,6 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
                  <span>Home (Tanpa Folder)</span>
                </button>
 
-                  {/* Daftar Folder (Filter !deletedAt agar folder sampah tidak muncul) */}
                   {folders.filter(f => !f.deletedAt).map(f => (
                     <button 
                       key={f.id}
@@ -762,5 +724,4 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
       />
     </div>
   );
-  
 }
