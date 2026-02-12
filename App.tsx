@@ -699,11 +699,11 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
                  <span>Home (Tanpa Folder)</span>
                </button>
 
-               {/* Daftar Folder */}
-               {folders.map(f => (
-                 <button 
-                   key={f.id}
-                   onClick={() => handleMoveCurrentNote(f.id)}
+                  {/* Daftar Folder (Filter !deletedAt agar folder sampah tidak muncul) */}
+                  {folders.filter(f => !f.deletedAt).map(f => (
+                    <button 
+                      key={f.id}
+                      onClick={() => handleMoveCurrentNote(f.id)}
                    className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
                  >
                    <FolderIcon size={20} className="text-amber-500" />
