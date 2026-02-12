@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { Note } from '../types';
+import { Note, Folder } from '../types'; // <--- Tambah Import Folder
 
 interface GraphViewProps {
   notes: Note[];
+  folders: Folder[]; // <--- Tambah Props folders
   onNodeClick: (noteId: string) => void;
   isDarkMode: boolean;
   activeNoteId?: string;
@@ -14,7 +15,7 @@ interface D3Node extends d3.SimulationNodeDatum {
   id: string;
   title: string;
   group: number;
-  folder?: string; // Menampung info folder
+  folder?: string; 
   width?: number;
   height?: number;
 }
@@ -24,7 +25,7 @@ interface D3Link extends d3.SimulationLinkDatum<D3Node> {
   target: string | D3Node;
 }
 
-export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDarkMode, activeNoteId }) => {
+export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClick, isDarkMode, activeNoteId }) => { // <--- Terima folders di sini
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -47,13 +48,18 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onNodeClick, isDark
   useEffect(() => {
     if (!svgRef.current || !notes.length) return;
 
-    // Mapping data: Sertakan properti folder
-    const nodes: D3Node[] = notes.map(n => ({
-      id: n.id,
-      title: n.title || "Untitled",
-      group: 1,
-      folder: n.folder // Ambil nama folder
-    }));
+    // Mapping data: Cari nama folder berdasarkan ID
+    const nodes: D3Node[] = notes.map(n => {
+      // Cari folder yang ID-nya cocok dengan n.folderId
+      const matchedFolder = folders.find(f => f.id === n.folderId);
+      return {
+        id: n.id,
+        title: n.title || "Untitled",
+        group: 1,
+        // Jika ketemu, pakai namanya. Jika tidak, kosongkan.
+        folder: matchedFolder ? matchedFolder.name : "" 
+      };
+    });
 
     const links: D3Link[] = [];
     
