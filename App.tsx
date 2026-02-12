@@ -592,7 +592,8 @@ const handleImportData = async (data: { notes: Note[], folders: Folder[] }) => {
             // Kita kirimkan currentNoteId sebagai activeNoteId agar GraphView tahu mana yg harus difokuskan
             return (
                 <GraphView 
-                    notes={notes} 
+                    notes={notes}
+                    folders={folders} // <--- TAMBAHKAN INI
                     onNodeClick={(id) => navigateTo('EDITOR', id)} 
                     isDarkMode={isDarkMode} 
                     activeNoteId={currentNoteId} 
