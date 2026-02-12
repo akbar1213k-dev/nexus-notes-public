@@ -86,7 +86,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     
     // 1. Pisahkan Item Sampah vs Aktif
     const baseNotes = notes.filter(n => isTrashMode ? n.deletedAt : !n.deletedAt);
-    const baseFolders = folders.filter(f => isTrashMode ? f.deletedAt : !f.deletedAt);
+    const baseFolders = folders.filter(f => isTrashMode ? f.deletedAt : !f.deletedAt)
 
     let filteredNotes = [...baseNotes];
     let filteredFolders = [...baseFolders];
