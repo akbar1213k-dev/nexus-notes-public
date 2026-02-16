@@ -14,7 +14,7 @@ interface HomeViewProps {
   folders: Folder[];
   onNoteClick: (id: string) => void;
   onCreateNote: (type: 'note' | 'mindmap', folderId?: string) => void;
-  onCreateFolder: (name: string) => void;
+  onCreateFolder: (name: string, parentId?: string) => void;
   onRenameFolder: (id: string, name: string) => void;
   onDeleteItems: (noteIds: string[], folderIds: string[]) => void;
   onMoveItems: (noteIds: string[], targetFolderId: string | undefined) => void;
@@ -119,10 +119,37 @@ export const HomeView: React.FC<HomeViewProps> = ({
         (n.title && n.title.toLowerCase().includes(query)) || 
         (n.content && n.content.toLowerCase().includes(query))
       );
+      // Saat search, tampilkan semua folder yang cocok (flat list)
       filteredFolders = baseFolders.filter(f => 
         f.name.toLowerCase().includes(query)
       );
     } else {
+      if (isTrashMode) {
+         // Tampilkan semua yg terhapus
+         // (Tidak ada perubahan di sini)
+      } else {
+         // --- LOGIKA BARU UNTUK NESTED FOLDER ---
+         
+         // 1. Filter Catatan: Hanya yang ada di folder ini (sama seperti sebelumnya)
+         filteredNotes = baseNotes.filter(n => {
+           if (!currentFolderId) return !n.folderId; 
+           return n.folderId === currentFolderId;
+         });
+
+         // 2. Filter Folder: Tampilkan folder yang Parent-nya adalah folder saat ini
+         filteredFolders = baseFolders.filter(f => {
+            if (currentFolderId) {
+                // Jika sedang di dalam folder, cari sub-folder miliknya
+                return f.parentId === currentFolderId;
+            } else {
+                // Jika di Home (Root), cari folder yang tidak punya parent (atau parent-nya null)
+                return !f.parentId;
+            }
+         });
+      }
+    }
+    
+    else {
       if (isTrashMode) {
          // Tampilkan semua yg terhapus
       } else {
@@ -322,7 +349,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const triggerCreateFolder = () => {
     const name = prompt("Enter folder name:");
     if (name && name.trim()) {
-      onCreateFolder(name.trim());
+      // Kirim currentFolderId sebagai parentId (bisa undefined jika di root)
+      onCreateFolder(name.trim(), currentFolderId);
     }
     setFabExpanded(false);
   };
@@ -790,17 +818,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
             {fabExpanded && (
                 <>
-                     {!currentFolderId && (
-                      <button 
-                          onClick={(e) => { e.stopPropagation(); triggerCreateFolder(); }}
-                          className="flex items-center gap-2 pr-4 pl-2 py-2 bg-amber-500 text-white rounded-full shadow-lg hover:bg-amber-600 animate-in slide-in-from-bottom-5 fade-in duration-200"
-                      >
-                          <div className="w-10 h-10 rounded-full bg-amber-600 flex items-center justify-center">
-                              <FolderPlus size={20} />
-                          </div>
-                          <span className="font-medium whitespace-nowrap">Folder</span>
-                      </button>
-                     )}
 
                     <button 
                         onClick={(e) => { e.stopPropagation(); onCreateNote('mindmap', currentFolderId); }}
