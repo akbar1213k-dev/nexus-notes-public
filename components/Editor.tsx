@@ -310,86 +310,82 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   };
 
-    const handleInput = () => {
+      const handleInput = () => {
     if (!editorRef.current) return;
     checkSelectionContext();
 
     const content = editorRef.current.innerHTML;
     onUpdate({ ...note, content });
 
-      
     // Mention logic (NEW: Trigger with @. and allow spaces)
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
 
     const range = selection.getRangeAt(0);
     const textNode = range.startContainer;
-    
+
     if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
-      const textBeforeCursor = textNode.textContent.slice(0, range.startOffset);
-      
-      // 1. KONDISI TRIGGER: Jika menu BELUM terbuka
-      if (!showMentionList) {
-         // Cek apakah user mengetik "@." (at + titik)
-         if (textBeforeCursor.endsWith('@.')) {
-             const atIndex = textBeforeCursor.lastIndexOf('@');
-             
-             // --- HAPUS TITIK (.) DENGAN RANGE API (Agar kursor tidak lompat) ---
-             // Menggunakan deleteContents() jauh lebih aman untuk Checkbox/Nested Elements
-             // daripada mengganti textContent secara manual yang merusak fokus.
-             try {
-                const deleteRange = document.createRange();
-                if (range.startOffset > 0) {
-                    deleteRange.setStart(textNode,TbCc range.startOffset - 1); // Targetkan titik sebelum kursor
-                    deleteRange.setEnd(textNode, range.startOffset);
-                    deleteRange.deleteContents(); // Hapus titiknya saja
+        const textBeforeCursor = textNode.textContent.slice(0, range.startOffset);
+
+        // 1. KONDISI TRIGGER: Jika menu BELUM terbuka
+        if (!showMentionList) {
+            // Cek apakah user mengetik "@." (at + titik)
+            if (textBeforeCursor.endsWith('@.')) {
+                const atIndex = textBeforeCursor.lastIndexOf('@');
+
+                // --- HAPUS TITIK (.) DENGAN RANGE API (Agar kursor tidak lompat) ---
+                try {
+                    const deleteRange = document.createRange();
+                    if (range.startOffset > 0) {
+                        // PERBAIKAN DI SINI (Menghapus TbCc)
+                        deleteRange.setStart(textNode, range.startOffset - 1); 
+                        deleteRange.setEnd(textNode, range.startOffset);
+                        deleteRange.deleteContents(); // Hapus titiknya saja
+                    }
+
+                    // --- PERBAIKI POSISI KURSOR ---
+                    const newRange = document.createRange();
+                    if (atIndex + 1 <= textNode.textContent.length) {
+                        newRange.setStart(textNode, atIndex + 1);
+                    } else {
+                        newRange.setStart(textNode, textNode.textContent.length);
+                    }
+                    newRange.collapse(true);
+
+                    selection.removeAllRanges();
+                    selection.addRange(newRange);
+
+                    // Simpan range ini agar insertMention tahu di mana harus menempel
+                    setCursorRange(newRange);
+                } catch (err) {
+                    // PERBAIKAN DI SINI (Menghapus RP)
+                    console.error("Error adjusting cursor:", err);
                 }
 
-                // --- PERBAIKI POSISI KURSOR ---
-                // Pastikan range baru ada tepat setelah '@'
-                const newRange = document.createRange();
-                // Validasi agar tidak error jika index di luar batas
-                if (atIndex + 1 <= textNode.textContent.length) {
-                    newRange.setStart(textNode, atIndex + 1);
-                } else {
-                    newRange.setStart(textNode, textNode.textContent.length);
-                }
-                newRange.collapse(true);
-                
-                selection.removeAllRanges();
-                selection.addRange(newRange);
-                
-                // Simpan range ini agar insertMention tahu di mana harus menempel
-                setCursorRange(newRange);
-             } catch (err) {
-                console.error("Error adjusting cursor:",RP err);
-             }
-             
-             // --- BUKA MENU ---
-             const rect = newRange.getBoundingClientRect();
-             setMentionPosition({ top: rect.top - 40, left: rect.left });
-             setMentionQuery(''); // Query awal kosong
-             setShowMentionList(true);
-             return;
-         }
-      } 
-      
-      // 2. KONDISI UPDATE: Jika menu SUDAH terbuka
-      else {
-          const atIndex = textBeforeCursor.lastIndexOf('@');
-          if (atIndex !== -1) {
-              // Ambil semua teks setelah @ (IZINKAN SPASI)
-              const query = textBeforeCursor.slice(atIndex + 1);
-              setMentionQuery(query);
-              setCursorRange(range); // Update range terus menerus saat mengetik
-              return;
-          } else {
-              // Jika tanda @ terhapus, tutup menu
-              setShowMentionList(false);
-          }
-      }
+                // --- BUKA MENU ---
+                const rect = newRange.getBoundingClientRect();
+                setMentionPosition({ top: rect.top - 40, left: rect.left });
+                setMentionQuery(''); // Query awal kosong
+                setShowMentionList(true);
+                return;
+            }
+        }
+        // 2. KONDISI UPDATE: Jika menu SUDAH terbuka
+        else {
+            const atIndex = textBeforeCursor.lastIndexOf('@');
+            if (atIndex !== -1) {
+                // Ambil semua teks setelah @ (IZINKAN SPASI)
+                const query = textBeforeCursor.slice(atIndex + 1);
+                setMentionQuery(query);
+                setCursorRange(range); // Update range terus menerus saat mengetik
+                return;
+            } else {
+                // Jika tanda @ terhapus, tutup menu
+                setShowMentionList(false);
+            }
+        }
     }
-  };
+};
 
   const checkSelectionContext = () => {
     const selection = window.getSelection();
