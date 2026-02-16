@@ -845,21 +845,21 @@ const handleEditorClick = (e: React.MouseEvent) => {
       adjustTitleHeight();
   }, [note.title]);
 
-  // --- EFEK BARU: Update Judul Tab Browser ---
+  // --- EFEK BARU: Update Judul Tab Browser (Revisi) ---
   useEffect(() => {
-    // Ambil judul, bersihkan spasi ekstra
+    // 1. Ambil judul & bersihkan spasi di awal/akhir
     const cleanTitle = (note.title || "").trim();
     
-    // Logika: Ambil 3 kata pertama
-    const threeWords = cleanTitle.split(/\s+/).slice(0, 3).join(" ");
+    // 2. Ambil 25 karakter pertama
+    const truncatedTitle = cleanTitle.substring(0, 25);
     
-    // Format: "Nex-[3 kata]" atau "Nex-Untitled" jika kosong
-    const pageTitle = threeWords ? `Nex-${threeWords}` : "Nex-Untitled";
+    // 3. Tentukan judul final (gunakan 'Untitled' jika kosong)
+    const displayTitle = truncatedTitle || "Untitled";
     
-    // Set judul tab
-    document.title = pageTitle;
+    // 4. Set judul tab dengan format "Nex : [Judul]"
+    document.title = `Nex : ${displayTitle}`;
 
-    // Cleanup: Kembalikan ke default saat keluar dari Editor
+    // Cleanup: Kembalikan ke default saat keluar
     return () => {
       document.title = "Nexus Notes";
     };
