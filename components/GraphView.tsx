@@ -141,35 +141,40 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
     // --- LOGIKA WARNA & STYLE ---
     // Helper untuk menentukan warna background
     const getFillColor = (d: D3Node) => {
-      // UBAH: Tidak ada pengecekan activeNoteId di sini. 
-      // Warna dalam (fill) selalu mengikuti kategori folder.
-      
-      // 1. Folder Keterhubungan (Hijau/Emerald)
+      // 1. Folder Sampah (Merah)
+      if (d.folder === "Sampah") {
+        return isDarkMode ? "#450a0a" : "#fef2f2"; // Red-950 : Red-50
+      }
+      // 2. Folder Keterhubungan (Hijau/Emerald)
       if (d.folder === "Keterhubungan") {
         return isDarkMode ? "#064e3b" : "#d1fae5";
       }
-      // 2. Default/Root (Abu/Putih)
+      // 3. Default/Root (Abu/Putih)
       return isDarkMode ? "#1f2937" : "#e2e8f0";
     };
 
     // Helper untuk menentukan warna border (Stroke)
     const getStrokeColor = (d: D3Node) => {
-      // 1. Active - INI INDIKATOR FOKUS (Garis Pinggir Biru/Indigo)
+      // 1. Active - Prioritas Utama (Biru/Indigo)
       if (d.id === activeNoteId) {
         return isDarkMode ? "#818cf8" : "#4338ca"; 
       }
-      // 2. Folder Keterhubungan
+      // 2. Folder Sampah (Merah)
+      if (d.folder === "Sampah") {
+        return isDarkMode ? "#f87171" : "#ef4444"; // Red-400 : Red-500
+      }
+      // 3. Folder Keterhubungan (Hijau)
       if (d.folder === "Keterhubungan") {
         return isDarkMode ? "#34d399" : "#059669";
       }
-      // 3. Default
+      // 4. Default (Abu)
       return isDarkMode ? "#374151" : "#94a3b8";
     };
 
     // Helper untuk ketebalan border
     const getStrokeWidth = (d: D3Node) => {
       if (d.id === activeNoteId) return 3; // Paling tebal untuk yang aktif
-      if (d.folder === "Keterhubungan") return 2; 
+      if (d.folder === "Keterhubungan" || d.folder === "Sampah") return 2; // Folder khusus sedikit lebih tebal
       return 1; 
     };
 
@@ -189,9 +194,10 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
       .attr("font-size", "12px")
       .attr("font-weight", "600")
       // Warna teks menyesuaikan background folder agar kontras
+      // Warna teks menyesuaikan background folder agar kontras
       .attr("fill", d => {
-         // UBAH: Hapus pengecekan activeNoteId. 
-         // Teks mengikuti kontras folder (karena fill-nya warna folder).
+         // Teks mengikuti kontras folder
+         if (d.folder === "Sampah") return isDarkMode ? "#fca5a5" : "#991b1b"; // Text Red Light : Red Dark
          if (d.folder === "Keterhubungan") return isDarkMode ? "#d1fae5" : "#065f46";
          return isDarkMode ? "#e5e7eb" : "#1f2937";
       })
@@ -282,6 +288,10 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
         <div className="flex items-center gap-2">
            <span className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-600 dark:bg-emerald-900 dark:border-emerald-400 block"></span>
            <span>Folder Keterhubungan</span>
+        </div>
+        <div className="flex items-center gap-2">
+           <span className="w-3 h-3 rounded-sm bg-red-100 border border-red-600 dark:bg-red-900 dark:border-red-400 block"></span>
+           <span>Folder Sampah</span>
         </div>
         
         {/* UPDATE BAGIAN INI: Lainnya / Root */}            
