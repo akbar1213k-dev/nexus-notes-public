@@ -45,21 +45,28 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- STATE BARU UNTUK TOOLS ---
   const [showTools, setShowTools] = useState(false);
 
-  // --- FUNGSI CUT (POTONG) ---
+  // --- FUNGSI CUT (PERBAIKAN: Salin HTML sebelum dihapus) ---
   const handleCutContent = async () => {
     if (editorRef.current) {
         try {
-            // 1. Copy isi ke clipboard
-            const textToCopy = editorRef.current.innerText;
-            await navigator.clipboard.writeText(textToCopy);
+            // 1. LOGIKA COPY (Sama persis dengan handleCopyContent yang baru)
+            const htmlContent = editorRef.current.innerHTML;
+            const textContent = editorRef.current.innerText;
 
-            // 2. Hapus isi konten
+            const clipboardItem = new ClipboardItem({
+                "text/html": new Blob([htmlContent], { type: "text/html" }),
+                "text/plain": new Blob([textContent], { type: "text/plain" })
+            });
+
+            await navigator.clipboard.write([clipboardItem]);
+
+            // 2. LOGIKA DELETE (Hapus isi konten setelah berhasil dicopy)
             editorRef.current.innerHTML = '<p><br/></p>'; // Reset ke paragraf kosong
             
             // 3. Simpan perubahan (Update note)
             onUpdate({ ...note, content: '<p><br/></p>' });
             
-            // 4. Notifikasi / Feedback (YANG DIUBAH)
+            // 4. Notifikasi / Feedback
             setShowTools(false); // Tutup menu
             
             // Tampilkan notifikasi toast
@@ -70,6 +77,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
         } catch (err) {
             console.error("Gagal memotong:", err);
+            
+            // Fallback: Coba cara lama (text only) jika HTML gagal, lalu hapus
+            try {
+                await navigator.clipboard.writeText(editorRef.current.innerText);
+                
+                // Tetap lakukan penghapusan walau fallback
+                editorRef.current.innerHTML = '<p><br/></p>';
+                onUpdate({ ...note, content: '<p><br/></p>' });
+                
+                setShowTools(false);
+                setShowCutToast(true);
+                setTimeout(() => setShowCutToast(false), 2000);
+            } catch (fallbackErr) {
+                 console.error("Fallback cut juga gagal:", fallbackErr);
+            }
         }
     }
   };
