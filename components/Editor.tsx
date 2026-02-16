@@ -743,12 +743,24 @@ const handleEditorClick = (e: React.MouseEvent) => {
   // Mind map visual helpers
   const isMindMap = note.type === 'mindmap';
 
-  // --- FUNGSI COPY CONTENT ---
+  // --- FUNGSI COPY CONTENT (PERBAIKAN: Salin HTML, bukan cuma Teks) ---
   const handleCopyContent = async () => {
     if (editorRef.current) {
         try {
-            const textToCopy = editorRef.current.innerText;
-            await navigator.clipboard.writeText(textToCopy);
+            // 1. Ambil HTML lengkap, bukan innerText
+            const htmlContent = editorRef.current.innerHTML;
+            
+            // 2. Buat Blob dengan tipe text/html dan text/plain
+            // Ini penting agar aplikasi lain (Word, Browser lain) bisa memilih format yang sesuai
+            const textContent = editorRef.current.innerText; // Fallback untuk text plain
+            
+            const clipboardItem = new ClipboardItem({
+                "text/html": new Blob([htmlContent], { type: "text/html" }),
+                "text/plain": new Blob([textContent], { type: "text/plain" })
+            });
+
+            // 3. Tulis ke Clipboard
+            await navigator.clipboard.write([clipboardItem]);
             
             // Tampilkan notifikasi
             setShowCopyToast(true);
@@ -760,7 +772,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
         } catch (err) {
             console.error("Gagal menyalin:", err);
-            // Opsional: Anda bisa buat state error jika mau, tapi biasanya silent fail cukup
+            // Fallback ke cara lama (text only) jika browser tidak support ClipboardItem HTML
+            try {
+                await navigator.clipboard.writeText(editorRef.current.innerText);
+                 setShowCopyToast(true);
+                 setTimeout(() => setShowCopyToast(false), 2000);
+            } catch (fallbackErr) {
+                console.error("Fallback copy juga gagal:", fallbackErr);
+            }
         }
     }
   };
