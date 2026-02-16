@@ -172,16 +172,33 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (!editorRef.current) return;
     const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => {
-        (cb as HTMLInputElement).onclick = (e) => {
-            const target = e.target as HTMLInputElement;
-            const parent = target.closest('.todo-item');
-            if (parent) {
-                if (target.checked) {
-                    target.setAttribute('checked', 'checked');
-                    parent.classList.add('completed');
+        const target = cb as HTMLInputElement;
+        const parent = target.closest('.todo-item') as HTMLElement;
+        
+        if (parent) {
+            // --- FIX KURSOR LOMPAT KE KIRI ---
+            // 1. Matikan edit di container utama (agar kursor tidak bisa ke kiri checkbox)
+            parent.contentEditable = 'false';
+            
+            // 2. Hidupkan edit HANYA pada teks (span)
+            let span = parent.querySelector('span');
+            if (span) {
+                span.contentEditable = 'true';
+                span.style.outline = 'none'; // Hilangkan garis biru fokus
+            }
+        }
+
+        // Event Listener Klik Checkbox
+        target.onclick = (e) => {
+            const el = e.target as HTMLInputElement;
+            const p = el.closest('.todo-item');
+            if (p) {
+                if (el.checked) {
+                    el.setAttribute('checked', 'checked');
+                    p.classList.add('completed');
                 } else {
-                    target.removeAttribute('checked');
-                    parent.classList.remove('completed');
+                    el.removeAttribute('checked');
+                    p.classList.remove('completed');
                 }
                 handleInput(); 
             }
@@ -286,7 +303,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             const currentItem = todoItem as HTMLElement;
             const newItem = document.createElement('div');
             newItem.className = 'todo-item';
-            newItem.innerHTML = '<input type="checkbox"><span>\u00A0</span>'; 
+            
+            // --- UPDATE DI SINI: Tambahkan atribut contentEditable ---
+            newItem.contentEditable = 'false'; // Container mati
+            newItem.innerHTML = '<input type="checkbox"><span contentEditable="true">\u00A0</span>'; // Span hidup
             
             if (currentItem.nextSibling) {
                 currentItem.parentNode?.insertBefore(newItem, currentItem.nextSibling);
@@ -575,24 +595,21 @@ const handleEditorClick = (e: React.MouseEvent) => {
     // 1. Cek apakah ada teks yang diblok (Selected)
     if (selection && !selection.isCollapsed) {
         const text = selection.toString();
-        
-        // Pecah teks berdasarkan baris baru (Enter)
-        // Regex /\r?\n/ menangani enter di Windows/Mac/Linux
         const lines = text.split(/\r?\n/);
         
-        // Buat HTML untuk setiap baris menjadi checkbox terpisah
+        // --- UPDATE DI SINI ---
         const html = lines.map(line => {
-            // Jika baris kosong, isi dengan spasi non-breaking agar baris tetap muncul
             const content = line.trim() === '' ? '\u00A0' : line; 
-            return `<div class="todo-item"><input type="checkbox"><span>${content}</span></div>`;
+            // Tambahkan contentEditable="false" di div dan "true" di span
+            return `<div class="todo-item" contentEditable="false"><input type="checkbox"><span contentEditable="true">${content}</span></div>`;
         }).join('');
         
-        // Masukkan HTML baru menggantikan teks yang diblok
         execCmd('insertHTML', html);
         addCheckboxListeners();
     } else {
-        // 2. Perilaku Lama: Jika tidak ada blok (hanya kursor), buat 1 checkbox kosong
-        const html = `<div class="todo-item"><input type="checkbox"><span>\u00A0</span></div>`;
+        // 2. Perilaku Lama (Tanpa blok)
+        // --- UPDATE DI SINI ---
+        const html = `<div class="todo-item" contentEditable="false"><input type="checkbox"><span contentEditable="true">\u00A0</span></div>`;
         execCmd('insertHTML', html);
         addCheckboxListeners();
     }
