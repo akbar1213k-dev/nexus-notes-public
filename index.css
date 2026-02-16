@@ -54,24 +54,41 @@
     transition: all 0.2s ease;
 }
 
-/* Tambahan: Styling agar checkbox dan teks lebih rapi */
+/* --- LOGIKA CHECKBOX TERCORET & PERBAIKAN KURSOR --- */
+
 .todo-item {
     display: flex;
-    align-items: flex-start; /* Supaya checkbox tetap di atas jika teks panjang */
+    align-items: flex-start;
     margin: 4px 0;
 }
 
+/* 1. Mencegah kursor masuk ke area checkbox (Perbaikan masalah gambar Anda) */
 .todo-item input[type="checkbox"] {
     margin-right: 8px;
-    margin-top: 6px; /* Menyesuaikan posisi checkbox dengan baris pertama teks */
+    margin-top: 6px;
     cursor: pointer;
-    flex-shrink: 0; /* Mencegah checkbox mengecil */
+    flex-shrink: 0;
     width: 16px;
     height: 16px;
+    /* Tambahan penting: */
+    user-select: none;
+    -webkit-user-select: none;
+    outline: none;
 }
 
 .todo-item span {
-    flex: 1; /* Teks mengambil sisa ruang */
-    word-break: break-word; /* Agar teks panjang turun ke bawah */
+    flex: 1;
+    word-break: break-word;
     line-height: 1.6;
+    outline: none;
+    min-height: 24px; /* Area klik teks lebih nyaman */
+}
+
+/* 2. Logika Coret: Gunakan selector ':checked' agar instan tanpa menunggu JS */
+.todo-item.completed span,
+.todo-item input:checked + span {
+    text-decoration: line-through;
+    color: #9ca3af;
+    opacity: 0.8;
+    transition: all 0.2s ease;
 }
