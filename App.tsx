@@ -222,6 +222,21 @@ export default function App() {
 
   const navigateTo = (mode: ViewMode, noteId: string = '') => {
     if (viewMode === mode && currentNoteId === noteId) return;
+    // --- TAMBAHAN BARU: Update lastOpenedAt saat membuka editor ---
+    if (mode === 'EDITOR' && noteId && user) {
+        const now = Date.now();
+        
+        // 1. Update State Lokal agar UI langsung berubah
+        setNotes(prev => prev.map(n => 
+            n.id === noteId ? { ...n, lastOpenedAt: now } : n
+        ));
+
+        // 2. Update ke Firebase (Silent update, tidak perlu loading state)
+        // Kita gunakan updateDoc langsung tanpa menunggu
+        updateDoc(doc(db, "notes", noteId), { lastOpenedAt: now })
+            .catch(err => console.error("Failed to update last opened:", err));
+    }
+    // --------------
     setViewMode(mode);
     setCurrentNoteId(noteId);
     window.history.pushState({ mode, noteId }, '', '');
