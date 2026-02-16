@@ -231,18 +231,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Di dalam komponen Editor, sejajar dengan ref lain:
   const isIgnoringClick = useRef(false); // Tambahan untuk mencegah klik tidak sengaja
   
-    // --- KEYBOARD HANDLING ---
+    // --- KEYBOARD HANDLING (UPDATED) ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // [LOGIKA BARU] Handle Enter saat Mention List terbuka
+    // 1. Handle Enter saat Mention List terbuka
     if (showMentionList) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            // Filter catatan secara manual karena variabel filteredNotes ada di bawah
             const currentFiltered = allNotes.filter(n => 
                 n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && 
                 n.id !== note.id 
             );
-            // Pilih item pertama atau buat baru (null)
             handleMentionSelect(currentFiltered.length > 0 ? currentFiltered[0] : null);
             return;
         }
@@ -256,39 +254,73 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const selection = window.getSelection();
     if (!selection?.anchorNode) return;
     
+    // Normalisasi Node
     let node: Node | null = selection.anchorNode;
     if (node.nodeType === Node.TEXT_NODE) {
         node = node.parentNode;
     }
 
-    // 1. Handle List Outdent on Enter/Backspace for empty items (Bullet/Numbering)
-    const li = (node as HTMLElement).closest('li');
-    if (li && (e.key === 'Enter' || e.key === 'Backspace')) {
-        const isEmpty = li.textContent?.trim() === '';
-        if (isEmpty) {
-             document.execCommand('outdent');
-             e.preventDefault(); 
+    // --- PERBAIKAN UTAMA: Handle Penghapusan Format (List/Blockquote) ---
+    // Deteksi apakah kita sedang berada di dalam List Item (LI) atau Blockquote
+    const block = (node as HTMLElement).closest('li, blockquote');
+    
+    if (block) {
+        // Cek apakah kursor berada "Benar-benar di Awal" baris
+        const range = selection.getRangeAt(0);
+        const preCaretRange = range.cloneRange();
+        preCaretRange.selectNodeContents(block);
+        preCaretRange.setEnd(range.endContainer, range.endOffset);
+        
+        // isAtStart bernilai True jika tidak ada teks sebelum kursor
+        const isAtStart = preCaretRange.toString().trim().length === 0; 
+        const isEmpty = block.textContent?.trim() === '';
+
+        // A. TOMBOL BACKSPACE DI AWAL BARIS
+        if (e.key === 'Backspace' && selection.isCollapsed && isAtStart) {
+            // Jika ini List Item (Bullet/Numbering)
+            if (block.tagName === 'LI') {
+                e.preventDefault();
+                // Paksa "Outdent" (Hilangkan Bullet, jadikan teks biasa)
+                document.execCommand('outdent');
+                return;
+            }
+            // Jika ini Blockquote
+            if (block.tagName === 'BLOCKQUOTE') {
+                 e.preventDefault();
+                 // Ubah kembali menjadi Paragraf biasa
+                 document.execCommand('formatBlock', false, 'p');
+                 return;
+            }
+        }
+
+        // B. TOMBOL ENTER PADA BARIS KOSONG (Keluar dari format)
+        if (e.key === 'Enter' && isEmpty) {
+             e.preventDefault();
+             if (block.tagName === 'LI') {
+                 document.execCommand('outdent');
+             } else {
+                 document.execCommand('formatBlock', false, 'p');
+                 document.execCommand('outdent'); // Extra safety
+             }
              return;
         }
     }
 
-    // 2. Handle Todo Items (LOGIKA BARU)
+    // 2. Handle Todo Items (Logika Checkbox)
     const todoItem = (node as HTMLElement).closest('.todo-item');
     if (todoItem) {
         const textContent = todoItem.textContent?.trim() || '';
-        // Cek apakah baris benar-benar kosong
         const isEmpty = textContent === '';
 
         // A. BACKSPACE pada Todo Kosong -> Hapus Checkbox (Jadi teks biasa)
         if (e.key === 'Backspace' && isEmpty) {
             e.preventDefault();
-            // Ganti dengan div standar
             const newDiv = document.createElement('div');
-            newDiv.innerHTML = '<br>'; // Placeholder agar baris tidak hilang
+            newDiv.innerHTML = '<br>'; 
             if (todoItem.parentNode) {
                 todoItem.parentNode.replaceChild(newDiv, todoItem);
                 
-                // Pindahkan fokus ke baris teks baru
+                // Pindahkan fokus
                 const range = document.createRange();
                 range.setStart(newDiv, 0);
                 range.collapse(true);
@@ -306,8 +338,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             newDiv.innerHTML = '<br>';
             if (todoItem.parentNode) {
                 todoItem.parentNode.replaceChild(newDiv, todoItem);
-                
-                // Pindahkan fokus ke baris teks baru
                 const range = document.createRange();
                 range.setStart(newDiv, 0);
                 range.collapse(true);
@@ -318,17 +348,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             return;
         }
 
-        // C. ENTER pada Todo yang ADA ISINYA -> Buat Todo Baru di Bawahnya
+        // C. ENTER pada Todo berisi -> Buat Todo Baru
         if (e.key === 'Enter' && !isEmpty) {
             e.preventDefault(); 
-            
             const currentItem = todoItem as HTMLElement;
             const newItem = document.createElement('div');
             newItem.className = 'todo-item';
-            
-            // --- UPDATE DI SINI: Tambahkan atribut contentEditable ---
-            newItem.contentEditable = 'false'; // Container mati
-            newItem.innerHTML = '<input type="checkbox"><span contentEditable="true">\u00A0</span>'; // Span hidup
+            newItem.contentEditable = 'false';
+            newItem.innerHTML = '<input type="checkbox"><span contentEditable="true">\u00A0</span>'; 
             
             if (currentItem.nextSibling) {
                 currentItem.parentNode?.insertBefore(newItem, currentItem.nextSibling);
@@ -344,7 +371,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
                 selection.removeAllRanges();
                 selection.addRange(range);
             }
-            
             setTimeout(addCheckboxListeners, 0);
             handleInput(); 
             return;
