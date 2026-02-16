@@ -8,6 +8,7 @@ export interface Note {
   title: string;
   content: string;
   updatedAt: number;
+  lastOpenedAt?: number; // <--- Tambahkan baris ini
   type: 'note' | 'mindmap';
   folderId?: string;
   deletedAt?: number | null; // Penanda waktu dihapus
