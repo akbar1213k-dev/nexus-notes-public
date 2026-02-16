@@ -845,6 +845,26 @@ const handleEditorClick = (e: React.MouseEvent) => {
       adjustTitleHeight();
   }, [note.title]);
 
+  // --- EFEK BARU: Update Judul Tab Browser ---
+  useEffect(() => {
+    // Ambil judul, bersihkan spasi ekstra
+    const cleanTitle = (note.title || "").trim();
+    
+    // Logika: Ambil 3 kata pertama
+    const threeWords = cleanTitle.split(/\s+/).slice(0, 3).join(" ");
+    
+    // Format: "Nex-[3 kata]" atau "Nex-Untitled" jika kosong
+    const pageTitle = threeWords ? `Nex-${threeWords}` : "Nex-Untitled";
+    
+    // Set judul tab
+    document.title = pageTitle;
+
+    // Cleanup: Kembalikan ke default saat keluar dari Editor
+    return () => {
+      document.title = "Nexus Notes";
+    };
+  }, [note.title]);
+
   // --- IMAGE ACTIONS ---
   const handleImageResize = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = parseInt(e.target.value);
