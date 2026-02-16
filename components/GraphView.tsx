@@ -50,7 +50,17 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
 
     // Mapping data: Cari nama folder berdasarkan ID
     const nodes: D3Node[] = notes.map(n => {
-      // Cari folder yang ID-nya cocok dengan n.folderId
+      // PERBAIKAN: Prioritas cek apakah note ada di sampah (memiliki deletedAt)
+      if (n.deletedAt) {
+        return {
+          id: n.id,
+          title: n.title || "Untitled",
+          group: 1,
+          folder: "Sampah" // Kita paksa namanya "Sampah" agar logika warna merah berjalan
+        };
+      }
+
+      // Jika tidak di sampah, cari folder aslinya
       const matchedFolder = folders.find(f => f.id === n.folderId);
       return {
         id: n.id,
