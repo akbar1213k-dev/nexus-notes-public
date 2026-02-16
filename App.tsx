@@ -666,7 +666,16 @@ export default function App() {
                     folders={folders} 
                     onNoteClick={(id) => navigateTo('EDITOR', id)} 
                     onCreateNote={(type, folderId) => handleCreateNote('', type, folderId, true)} 
-                    onCreateFolder={async (n) => setDoc(doc(db, "folders", 'f_' + Date.now()), { id: 'f_' + Date.now(), name: n, createdAt: Date.now(), userId: user?.uid })} 
+                    onCreateFolder={async (name, parentId) => {
+                        const id = 'f_' + Date.now();
+                        await setDoc(doc(db, "folders", id), { 
+                            id, 
+                            name, 
+                            createdAt: Date.now(), 
+                            userId: user?.uid,
+                            parentId: parentId || null // Simpan Parent ID
+                        });
+                    }} 
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
