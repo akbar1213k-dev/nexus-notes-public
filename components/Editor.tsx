@@ -314,78 +314,82 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (!editorRef.current) return;
     checkSelectionContext();
 
-    const content = editorRef.current.innerHTML;
-    onUpdate({ ...note, content });
-
-    // Mention logic (NEW: Trigger with @. and allow spaces)
+    // --- LOGIKA MENTION (@.) ---
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
 
-    const range = selection.getRangeAt(0);
-    const textNode = range.startContainer;
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const textNode = range.startContainer;
 
-    if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
+      if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
         const textBeforeCursor = textNode.textContent.slice(0, range.startOffset);
 
         // 1. KONDISI TRIGGER: Jika menu BELUM terbuka
         if (!showMentionList) {
-            // Cek apakah user mengetik "@." (at + titik)
-            if (textBeforeCursor.endsWith('@.')) {
-                const atIndex = textBeforeCursor.lastIndexOf('@');
+          // Cek apakah user mengetik "@."
+          if (textBeforeCursor.endsWith('@.')) {
+            const atIndex = textBeforeCursor.lastIndexOf('@');
 
-                // --- HAPUS TITIK (.) DENGAN RANGE API (Agar kursor tidak lompat) ---
-                try {
-                    const deleteRange = document.createRange();
-                    if (range.startOffset > 0) {
-                        // PERBAIKAN DI SINI (Menghapus TbCc)
-                        deleteRange.setStart(textNode, range.startOffset - 1); 
-                        deleteRange.setEnd(textNode, range.startOffset);
-                        deleteRange.deleteContents(); // Hapus titiknya saja
-                    }
+            try {
+              // --- LANGKAH 1: HAPUS TITIK (.) DULU SEBELUM UPDATE STATE ---
+              // Ini krusial agar 'content' yang dikirim ke onUpdate sudah bersih.
+              // Jika tidak, useEffect akan mendeteksi perbedaan dan mereset kursor.
+              const deleteRange = document.createRange();
+              if (range.startOffset > 0) {
+                 deleteRange.setStart(textNode, range.startOffset - 1);
+                 deleteRange.setEnd(textNode, range.startOffset);
+                 deleteRange.deleteContents(); // Hapus titiknya
+              }
 
-                    // --- PERBAIKI POSISI KURSOR ---
-                    const newRange = document.createRange();
-                    if (atIndex + 1 <= textNode.textContent.length) {
-                        newRange.setStart(textNode, atIndex + 1);
-                    } else {
-                        newRange.setStart(textNode, textNode.textContent.length);
-                    }
-                    newRange.collapse(true);
+              // --- LANGKAH 2: PERBAIKI POSISI KURSOR ---
+              const newRange = document.createRange();
+              // Karena titik sudah dihapus, posisi target ada tepat setelah '@'
+              const newCursorPos = atIndex + 1;
+              
+              // Safety check agar tidak error jika index kacau
+              if (newCursorPos <= textNode.textContent.length) {
+                  newRange.setStart(textNode, newCursorPos);
+              } else {
+                  newRange.setStart(textNode, textNode.textContent.length);
+              }
+              newRange.collapse(true);
 
-                    selection.removeAllRanges();
-                    selection.addRange(newRange);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              setCursorRange(newRange);
 
-                    // Simpan range ini agar insertMention tahu di mana harus menempel
-                    setCursorRange(newRange);
-                } catch (err) {
-                    // PERBAIKAN DI SINI (Menghapus RP)
-                    console.error("Error adjusting cursor:", err);
-                }
-
-                // --- BUKA MENU ---
-                const rect = newRange.getBoundingClientRect();
-                setMentionPosition({ top: rect.top - 40, left: rect.left });
-                setMentionQuery(''); // Query awal kosong
-                setShowMentionList(true);
-                return;
+              // --- LANGKAH 3: BUKA MENU ---
+              const rect = newRange.getBoundingClientRect();
+              setMentionPosition({ top: rect.top - 40, left: rect.left });
+              setMentionQuery('');
+              setShowMentionList(true);
+              
+            } catch (err) {
+              console.error("Error adjusting cursor:", err);
             }
-        }
+          }
+        } 
         // 2. KONDISI UPDATE: Jika menu SUDAH terbuka
         else {
-            const atIndex = textBeforeCursor.lastIndexOf('@');
-            if (atIndex !== -1) {
-                // Ambil semua teks setelah @ (IZINKAN SPASI)
-                const query = textBeforeCursor.slice(atIndex + 1);
-                setMentionQuery(query);
-                setCursorRange(range); // Update range terus menerus saat mengetik
-                return;
-            } else {
-                // Jika tanda @ terhapus, tutup menu
-                setShowMentionList(false);
-            }
+           const atIndex = textBeforeCursor.lastIndexOf('@');
+           if (atIndex !== -1) {
+              const query = textBeforeCursor.slice(atIndex + 1);
+              setMentionQuery(query);
+              setCursorRange(range);
+           } else {
+              setShowMentionList(false);
+           }
         }
+      }
     }
-};
+
+    // --- LANGKAH TERAKHIR: SIMPAN KE STATE (ONUPDATE) ---
+    // PENTING: Kita ambil innerHTML SEKARANG, setelah manipulasi penghapusan titik selesai.
+    // Dengan begini, data yang masuk ke 'note.content' sudah sama persis dengan yang ada di layar.
+    // useEffect tidak akan melihat perbedaan, sehingga tidak akan mereset kursor.
+    const content = editorRef.current.innerHTML;
+    onUpdate({ ...note, content });
+  };
 
   const checkSelectionContext = () => {
     const selection = window.getSelection();
