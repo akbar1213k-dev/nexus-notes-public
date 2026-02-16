@@ -19,6 +19,7 @@ export interface Folder {
   name: string;
   createdAt: number;
   deletedAt?: number | null; // Penanda waktu dihapus
+  parentId?: string | null; // <--- Tambahkan baris ini
 }
 
 // Interface untuk D3 Graph
