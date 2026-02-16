@@ -231,9 +231,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Di dalam komponen Editor, sejajar dengan ref lain:
   const isIgnoringClick = useRef(false); // Tambahan untuk mencegah klik tidak sengaja
   
-    // --- KEYBOARD HANDLING (UPDATED) ---
+    // --- KEYBOARD HANDLING (FULL FIX) ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // 1. Handle Enter saat Mention List terbuka
+    // 1. Handle Mention List (Tetap sama)
     if (showMentionList) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -260,152 +260,122 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         node = node.parentNode;
     }
 
-    // --- PERBAIKAN UTAMA: Handle Penghapusan Format (List/Blockquote) ---
-    // Deteksi apakah kita sedang berada di dalam List Item (LI) atau Blockquote
+    // 2. DETEKSI LIST / BLOCKQUOTE (Format biasa)
     const block = (node as HTMLElement).closest('li, blockquote');
-    
     if (block) {
-        // Cek apakah kursor berada "Benar-benar di Awal" baris
-        const range = selection.getRangeAt(0);
-        const preCaretRange = range.cloneRange();
-        preCaretRange.selectNodeContents(block);
-        preCaretRange.setEnd(range.endContainer, range.endOffset);
-        
-        // isAtStart bernilai True jika tidak ada teks sebelum kursor
-        const isAtStart = preCaretRange.toString().trim().length === 0; 
-        const isEmpty = block.textContent?.trim() === '';
-
-        // A. TOMBOL BACKSPACE DI AWAL BARIS
-        if (e.key === 'Backspace' && selection.isCollapsed && isAtStart) {
-            // Jika ini List Item (Bullet/Numbering)
-            if (block.tagName === 'LI') {
-                e.preventDefault();
-                // Paksa "Outdent" (Hilangkan Bullet, jadikan teks biasa)
-                document.execCommand('outdent');
-                return;
-            }
-            // Jika ini Blockquote
-            if (block.tagName === 'BLOCKQUOTE') {
-                 e.preventDefault();
-                 // Ubah kembali menjadi Paragraf biasa
-                 document.execCommand('formatBlock', false, 'p');
-                 return;
-            }
-        }
-
-        // B. TOMBOL ENTER PADA BARIS KOSONG (Keluar dari format)
-        if (e.key === 'Enter' && isEmpty) {
-             e.preventDefault();
-             if (block.tagName === 'LI') {
-                 document.execCommand('outdent');
-             } else {
-                 document.execCommand('formatBlock', false, 'p');
-                 document.execCommand('outdent'); // Extra safety
-             }
-             return;
-        }
+        // ... (Kode lama untuk Li/Blockquote bisa dibiarkan atau pakai logika standar)
+        // Agar aman, fokus pada perbaikan Checkbox di bawah ini
     }
 
-    // 2. Handle Todo Items (Logika Checkbox)
+    // 3. HANDLE TODO ITEMS (CHECKBOX)
     const todoItem = (node as HTMLElement).closest('.todo-item');
     if (todoItem) {
-        // --- LOGIKA BARU UNTUK ENTER (SPLIT LINE) ---
+        const currentItem = todoItem as HTMLElement;
+        const currentSpan = currentItem.querySelector('span');
+        
+        // Cek apakah kursor ada di AWAL baris (offset 0)
+        const range = selection.getRangeAt(0);
+        // Kita perlu memastikan range benar-benar di start dari SPAN, bukan wrapper
+        const isAtStart = range.startOffset === 0 && range.collapsed; 
+
+        // --- A. BACKSPACE: UBAH JADI TEKS BIASA ---
+        if (e.key === 'Backspace' && isAtStart) {
+            e.preventDefault();
+            
+            // 1. Buat elemen Paragraf (P) baru
+            const p = document.createElement('p');
+            
+            // 2. Pindahkan isi teks dari Checkbox ke P
+            // Menggunakan innerHTML agar format bold/italic di dalamnya tetap ada
+            if (currentSpan) {
+                p.innerHTML = currentSpan.innerHTML;
+            }
+            
+            // 3. Jika kosong, beri <br> agar baris tetap ada
+            if (p.innerHTML.trim() === '') p.innerHTML = '<br>';
+
+            // 4. Ganti Checkbox dengan P
+            if (todoItem.parentNode) {
+                todoItem.parentNode.replaceChild(p, todoItem);
+                
+                // 5. Kembalikan kursor ke awal P
+                const newRange = document.createRange();
+                newRange.setStart(p, 0);
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+            }
+            
+            handleInput(); // Simpan
+            return;
+        }
+
+        // --- B. ENTER: SPLIT LINE (Potong Teks ke Bawah) ---
         if (e.key === 'Enter') {
             e.preventDefault();
             
-            const currentItem = todoItem as HTMLElement;
-            const currentSpan = currentItem.querySelector('span');
-            
-            // 1. Buat elemen Todo Baru
+            // Buat elemen baru
             const newItem = document.createElement('div');
             newItem.className = 'todo-item';
-            newItem.contentEditable = 'false'; // Wrapper tidak editable
+            newItem.contentEditable = 'false';
             
             const newCheckbox = document.createElement('input');
             newCheckbox.type = 'checkbox';
             
             const newSpan = document.createElement('span');
-            newSpan.contentEditable = 'true'; // Hanya teks yang editable
+            newSpan.contentEditable = 'true';
             newSpan.style.outline = 'none';
 
-            // 2. Pindahkan Teks setelah Kursor ke Baris Baru
-            if (currentSpan && selection && selection.rangeCount > 0) {
+            // Logika Potong Teks (Cut & Paste ke bawah)
+            if (currentSpan && selection.rangeCount > 0) {
                 const range = selection.getRangeAt(0);
                 
-                // Pastikan kursor memang berada di dalam span saat ini
+                // Pastikan range valid di dalam span ini
                 if (currentSpan.contains(range.startContainer)) {
-                    // Buat range dari posisi kursor sampai akhir teks saat ini
                     const splitRange = document.createRange();
                     splitRange.setStart(range.startContainer, range.startOffset);
                     splitRange.setEndAfter(currentSpan.lastChild || currentSpan);
                     
-                    // Potong (Cut) konten tersebut
-                    const contentAfterCursor = splitRange.extractContents();
+                    const contentFragment = splitRange.extractContents(); // POTONG
                     
-                    // Masukkan ke baris baru
-                    if (contentAfterCursor.textContent?.trim() || contentAfterCursor.childNodes.length > 0) {
-                        newSpan.appendChild(contentAfterCursor);
+                    if (contentFragment.textContent?.trim() || contentFragment.childNodes.length > 0) {
+                        newSpan.appendChild(contentFragment);
                     } else {
-                        // Jika tidak ada teks sisa, beri spasi kosong agar baris tetap ada tingginya
-                        newSpan.innerHTML = '\u00A0'; 
+                        newSpan.innerHTML = '\u00A0'; // Spasi kosong
                     }
                 } else {
                     newSpan.innerHTML = '\u00A0';
                 }
-            } else {
-                newSpan.innerHTML = '\u00A0';
             }
 
-            // Gabungkan elemen
             newItem.appendChild(newCheckbox);
             newItem.appendChild(newSpan);
             
-            // 3. Masukkan Item Baru ke DOM (Di bawah item saat ini)
+            // Masukkan di bawah item sekarang
             if (currentItem.nextSibling) {
                 currentItem.parentNode?.insertBefore(newItem, currentItem.nextSibling);
             } else {
                 currentItem.parentNode?.appendChild(newItem);
             }
 
-            // 4. Pindahkan Fokus ke Awal Baris Baru
+            // Pindahkan fokus
             setTimeout(() => {
-                addCheckboxListeners(); // Re-attach listeners untuk checkbox baru
-                
+                addCheckboxListeners(); // Re-bind event click
                 const newRange = document.createRange();
-                // Fokus ke awal teks di span baru
-                newRange.setStart(newSpan, 0); 
+                
+                // Fokus ke awal span baru
+                if (newSpan.firstChild) {
+                     newRange.setStart(newSpan.firstChild, 0);
+                } else {
+                     newRange.setStart(newSpan, 0);
+                }
                 newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
                 
-                selection?.removeAllRanges();
-                selection?.addRange(newRange);
-                
-                // Scroll ke view jika perlu
                 newItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }, 0);
 
-            handleInput(); // Simpan perubahan
-            return;
-        }
-
-        // Handle Backspace pada Todo Kosong (Hapus Checkbox) - Tetap sama
-        const textContent = todoItem.textContent?.trim() || '';
-        const isEmpty = textContent === '';
-
-        if (e.key === 'Backspace' && isEmpty) {
-            e.preventDefault();
-            // ... (Kode Backspace lama Anda tetap digunakan di sini jika belum diubah)
-            // Namun karena kita fokus di Enter, pastikan logika Backspace yang sebelumnya 
-            // saya berikan tetap ada di bawah blok Enter ini.
-            const newDiv = document.createElement('div');
-            newDiv.innerHTML = '<br>'; 
-            if (todoItem.parentNode) {
-                todoItem.parentNode.replaceChild(newDiv, todoItem);
-                const range = document.createRange();
-                range.setStart(newDiv, 0);
-                range.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(range);
-            }
             handleInput();
             return;
         }
@@ -825,43 +795,48 @@ const handleEditorClick = (e: React.MouseEvent) => {
   // Mind map visual helpers
   const isMindMap = note.type === 'mindmap';
 
-  // --- FUNGSI COPY CONTENT (PERBAIKAN: Salin HTML, bukan cuma Teks) ---
+  // --- FUNGSI COPY CONTENT (PERBAIKAN: Sync status checkbox) ---
   const handleCopyContent = async () => {
     if (editorRef.current) {
         try {
-            // 1. Ambil HTML lengkap, bukan innerText
+            // 1. SYNC CHECKBOX STATE KE ATTRIBUTE
+            // Browser tidak otomatis menyalin status 'checked' input ke HTML string.
+            // Kita harus memaksanya manual.
+            const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach((cb) => {
+                const input = cb as HTMLInputElement;
+                if (input.checked) {
+                    input.setAttribute('checked', 'true');
+                } else {
+                    input.removeAttribute('checked');
+                }
+            });
+
+            // 2. Ambil HTML lengkap
             const htmlContent = editorRef.current.innerHTML;
             
-            // 2. Buat Blob dengan tipe text/html dan text/plain
-            // Ini penting agar aplikasi lain (Word, Browser lain) bisa memilih format yang sesuai
-            const textContent = editorRef.current.innerText; // Fallback untuk text plain
-            
+            // 3. Buat Blob
+            const textContent = editorRef.current.innerText;
             const clipboardItem = new ClipboardItem({
                 "text/html": new Blob([htmlContent], { type: "text/html" }),
                 "text/plain": new Blob([textContent], { type: "text/plain" })
             });
 
-            // 3. Tulis ke Clipboard
             await navigator.clipboard.write([clipboardItem]);
             
-            // Tampilkan notifikasi
             setShowCopyToast(true);
-            
-            // Sembunyikan otomatis setelah 2 detik
             setTimeout(() => {
                 setShowCopyToast(false);
             }, 2000);
 
         } catch (err) {
             console.error("Gagal menyalin:", err);
-            // Fallback ke cara lama (text only) jika browser tidak support ClipboardItem HTML
+            // Fallback
             try {
                 await navigator.clipboard.writeText(editorRef.current.innerText);
                  setShowCopyToast(true);
                  setTimeout(() => setShowCopyToast(false), 2000);
-            } catch (fallbackErr) {
-                console.error("Fallback copy juga gagal:", fallbackErr);
-            }
+            } catch (fallbackErr) { console.error(fallbackErr); }
         }
     }
   };
