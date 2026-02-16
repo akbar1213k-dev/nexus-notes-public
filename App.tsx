@@ -1,4 +1,3 @@
-// ... import lainnya tetap sama ...
 import { X, Folder as FolderIcon } from 'lucide-react'; 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, Folder, ViewMode, EditorHandle } from './types';
@@ -455,13 +454,18 @@ export default function App() {
 
   const handleDeleteCurrentNote = async () => {
     if (!currentNoteId || !user) return;
-    if (confirm("Apakah Anda yakin ingin menghapus catatan ini secara permanen?")) {
+    
+    // UBAH 1: Konfirmasi dipindahkan ke sampah, bukan hapus permanen
+    if (confirm("Pindahkan catatan ini ke Sampah?")) {
       try {
-        await deleteDoc(doc(db, "notes", currentNoteId));
-        removeFromLocalStorage(currentNoteId);
+        // UBAH 2: Gunakan handleSoftDelete, jangan deleteDoc
+        // Kita masukkan currentNoteId ke dalam array karena handleSoftDelete butuh array
+        await handleSoftDelete([currentNoteId], []);
+        
+        // Kembali ke menu utama setelah dihapus
         navigateTo('HOME');
       } catch (err: any) {
-        alert("Gagal menghapus: " + err.message);
+        alert("Gagal memindahkan ke sampah: " + err.message);
       }
     }
   };
