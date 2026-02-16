@@ -680,7 +680,22 @@ export default function App() {
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
                     onPermanentDelete={handleHardDelete}
-                    onMoveItems={(nIds, tId) => nIds.forEach(id => updateDoc(doc(db, "notes", id), { folderId: tId || "", updatedAt: Date.now() }))} 
+                    onMoveItems={(noteIds, folderIds, targetFolderId) => {
+                         // 1. Pindahkan Notes
+                         noteIds.forEach(id => {
+                            updateDoc(doc(db, "notes", id), { 
+                                folderId: targetFolderId || "", 
+                                updatedAt: Date.now() 
+                            });
+                         });
+            
+                         // 2. Pindahkan Folders (Nested)
+                         folderIds.forEach(id => {
+                            updateDoc(doc(db, "folders", id), { 
+                                parentId: targetFolderId || null 
+                            });
+                         });
+                    }}
                     onImportData={handleImportData} 
                 />
             );
