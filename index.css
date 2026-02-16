@@ -92,3 +92,22 @@
     opacity: 0.8;
     transition: all 0.2s ease;
 }
+
+/* Fix selection behavior for Checkboxes */
+.todo-item {
+  user-select: text;       /* Izinkan seleksi teks */
+  -webkit-user-select: text;
+  cursor: text;            /* Ubah kursor jadi teks saat hover */
+}
+
+.todo-item input {
+  user-select: none;       /* Jangan seleksi kotak checkbox-nya */
+  content-visibility: visible;
+}
+
+.todo-item span {
+  display: inline-block;
+  min-width: 10px;
+  width: calc(100% - 24px); /* Pastikan span mengambil sisa lebar */
+  vertical-align: top;
+}
