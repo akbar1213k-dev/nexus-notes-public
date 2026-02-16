@@ -17,7 +17,8 @@ interface HomeViewProps {
   onCreateFolder: (name: string, parentId?: string) => void;
   onRenameFolder: (id: string, name: string) => void;
   onDeleteItems: (noteIds: string[], folderIds: string[]) => void;
-  onMoveItems: (noteIds: string[], targetFolderId: string | undefined) => void;
+  // UPDATE: onMoveItems sekarang menerima folderIds juga
+  onMoveItems: (noteIds: string[], folderIds: string[], targetFolderId: string | undefined) => void;
   onImportData?: (data: any) => void;
   onRestoreItems: (noteIds: string[], folderIds: string[]) => void;
   onPermanentDelete: (noteIds: string[], folderIds: string[]) => void;
@@ -125,12 +126,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
       );
     } else {
       if (isTrashMode) {
-         // Tampilkan semua yg terhapus
-         // (Tidak ada perubahan di sini)
+         // Tampilkan semua yg terhapus (biarkan filteredNotes/Folders apa adanya dari base)
       } else {
-         // --- LOGIKA BARU UNTUK NESTED FOLDER ---
+         // --- LOGIKA NESTED FOLDER ---
          
-         // 1. Filter Catatan: Hanya yang ada di folder ini (sama seperti sebelumnya)
+         // 1. Filter Catatan: Hanya yang ada di folder ini
          filteredNotes = baseNotes.filter(n => {
            if (!currentFolderId) return !n.folderId; 
            return n.folderId === currentFolderId;
@@ -169,18 +169,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
       }
     };
 
-    // (Kode Baru - Letakkan ini sebagai pengganti return di atas)
-    
-    // 1. Lakukan sorting standar dulu (berdasarkan pilihan user)
+    // 4. Finalisasi Output
     const sortedVisible = filteredFolders.sort((a, b) => sorter(a, b, 'folder'));
     const sortedNavigation = baseFolders.sort((a, b) => sorter(a, b, 'folder'));
 
-    // 2. Fungsi helper untuk memindahkan "Keterhubungan" paksa ke paling atas
     const pinSystemFolder = (list: Folder[]) => {
         const SYSTEM_NAME = "Keterhubungan";
         const systemFolder = list.find(f => f.name === SYSTEM_NAME);
         const others = list.filter(f => f.name !== SYSTEM_NAME);
-        // Jika ketemu, taruh di depan (index 0), sisanya mengikuti
         return systemFolder ? [systemFolder, ...others] : others;
     };
 
@@ -340,8 +336,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setFabExpanded(false);
   };
 
+  // --- UPDATE: Handle Move Folder & Note ---
   const handleMoveAction = (targetId: string | undefined) => {
-    onMoveItems(Array.from(selectedNoteIds), targetId);
+    // Cek apakah target adalah salah satu folder yang sedang dipilih (mencegah loop)
+    if (targetId && selectedFolderIds.has(targetId)) {
+        alert("Tidak bisa memindahkan folder ke dalam dirinya sendiri!");
+        return;
+    }
+
+    onMoveItems(Array.from(selectedNoteIds), Array.from(selectedFolderIds), targetId);
     setShowMoveDialog(false);
     handleCancelSelection();
   };
@@ -781,7 +784,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                      </button>
                   )}
 
-                  {selectedNoteIds.size > 0 && (
+                  {/* UBAH: Tombol Move aktif jika ada Note ATAU Folder yang dipilih */}
+                  {(selectedNoteIds.size > 0 || selectedFolderIds.size > 0) && (
                     <button onClick={() => setShowMoveDialog(true)} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
                       <FolderInput size={20} /> <span className="text-[10px] font-medium">Move</span>
                     </button>
@@ -798,14 +802,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
               )}
            </div>
         </div>
+
       ) : !isTrashMode && (
         /* FAB - Add Button */
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
             {fabExpanded && (
                 <>
-
+                    {/* 1. Tombol FOLDER (Selalu Muncul) */}
                     <button 
-                        onClick={(e) => { e.stopPropagation(); onCreateNote('mindmap', currentFolderId); }}
+                        onClick={(e) => { e.stopPropagation(); triggerCreateFolder(); }} 
+                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-amber-500 text-white rounded-full shadow-lg hover:bg-amber-600 animate-in slide-in-from-bottom-5 fade-in duration-200"
+                    >
+                        <div className="w-10 h-10 rounded-full bg-amber-600 flex items-center justify-center">
+                            <FolderPlus size={20} />
+                        </div>
+                        <span className="font-medium whitespace-nowrap">Folder</span>
+                    </button>
+
+                    {/* 2. Tombol PETA KONSEP (Tadi hilang, saya kembalikan) */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onCreateNote('mindmap', currentFolderId); }} 
                         className="flex items-center gap-2 pr-4 pl-2 py-2 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 animate-in slide-in-from-bottom-5 fade-in duration-200 delay-75"
                     >
                         <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center">
@@ -814,6 +830,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         <span className="font-medium whitespace-nowrap">Peta Konsep</span>
                     </button>
 
+                    {/* 3. Tombol CATATAN */}
                     <button 
                         onClick={(e) => { e.stopPropagation(); onCreateNote('note', currentFolderId); }}
                         className="flex items-center gap-2 pr-4 pl-2 py-2 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 animate-in slide-in-from-bottom-5 fade-in duration-200 delay-100"
@@ -855,16 +872,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
                )}
               
               {/* HANYA tampilkan folder yang TIDAK dihapus (!f.deletedAt) */}
-                {folders.filter(f => f.id !== currentFolderId && !f.deletedAt).map(f => (
-                 <button 
-                   key={f.id}
-                   onClick={() => handleMoveAction(f.id)}
-                   className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200"
-                 >
+                {/* Filter folder tujuan agar valid (bukan yang sedang dihapus, bukan folder saat ini, dan BUKAN folder yang sedang dipindahkan) */}
+                {folders.filter(f => 
+                    f.id !== currentFolderId && 
+                    !f.deletedAt &&
+                    !selectedFolderIds.has(f.id) // Penting: Jangan tampilkan folder yang sedang dipilih untuk dipindah
+                ).map(f => (
+                 <button key={f.id} onClick={() => handleMoveAction(f.id)} className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200">
                    <FolderIcon size={20} className="text-amber-500" />
                    {f.name}
                  </button>
                ))}
+              
                {folders.length <= (currentFolderId ? 1 : 0) && (
                  <div className="p-4 text-center text-gray-400 text-sm">No other folders available</div>
                )}
