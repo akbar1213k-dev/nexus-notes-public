@@ -334,21 +334,36 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
          if (textBeforeCursor.endsWith('@.')) {
              const atIndex = textBeforeCursor.lastIndexOf('@');
              
-             // --- HAPUS TITIK (.) SECARA OTOMATIS ---
-             const textAfterCursor = textNode.textContent.substring(range.startOffset);
-             // Gabungkan: Teks sebelum titik + Teks setelah kursor
-             textNode.textContent = textBeforeCursor.slice(0, -1) + textAfterCursor;
-             
-             // --- PERBAIKI POSISI KURSOR ---
-             // Kembalikan kursor tepat setelah '@'
-             const newRange = document.createRange();
-             newRange.setStart(textNode, atIndex + 1);
-             newRange.collapse(true);
-             selection.removeAllRanges();
-             selection.addRange(newRange);
-             
-             // Simpan range ini agar insertMention tahu di mana harus menempel
-             setCursorRange(newRange);
+             // --- HAPUS TITIK (.) DENGAN RANGE API (Agar kursor tidak lompat) ---
+             // Menggunakan deleteContents() jauh lebih aman untuk Checkbox/Nested Elements
+             // daripada mengganti textContent secara manual yang merusak fokus.
+             try {
+                const deleteRange = document.createRange();
+                if (range.startOffset > 0) {
+                    deleteRange.setStart(textNode,TbCc range.startOffset - 1); // Targetkan titik sebelum kursor
+                    deleteRange.setEnd(textNode, range.startOffset);
+                    deleteRange.deleteContents(); // Hapus titiknya saja
+                }
+
+                // --- PERBAIKI POSISI KURSOR ---
+                // Pastikan range baru ada tepat setelah '@'
+                const newRange = document.createRange();
+                // Validasi agar tidak error jika index di luar batas
+                if (atIndex + 1 <= textNode.textContent.length) {
+                    newRange.setStart(textNode, atIndex + 1);
+                } else {
+                    newRange.setStart(textNode, textNode.textContent.length);
+                }
+                newRange.collapse(true);
+                
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+                
+                // Simpan range ini agar insertMention tahu di mana harus menempel
+                setCursorRange(newRange);
+             } catch (err) {
+                console.error("Error adjusting cursor:",RP err);
+             }
              
              // --- BUKA MENU ---
              const rect = newRange.getBoundingClientRect();
