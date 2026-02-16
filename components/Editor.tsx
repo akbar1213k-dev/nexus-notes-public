@@ -309,70 +309,104 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     // 2. Handle Todo Items (Logika Checkbox)
     const todoItem = (node as HTMLElement).closest('.todo-item');
     if (todoItem) {
-        const textContent = todoItem.textContent?.trim() || '';
-        const isEmpty = textContent === '';
-
-        // A. BACKSPACE pada Todo Kosong -> Hapus Checkbox (Jadi teks biasa)
-        if (e.key === 'Backspace' && isEmpty) {
+        // --- LOGIKA BARU UNTUK ENTER (SPLIT LINE) ---
+        if (e.key === 'Enter') {
             e.preventDefault();
-            const newDiv = document.createElement('div');
-            newDiv.innerHTML = '<br>'; 
-            if (todoItem.parentNode) {
-                todoItem.parentNode.replaceChild(newDiv, todoItem);
-                
-                // Pindahkan fokus
-                const range = document.createRange();
-                range.setStart(newDiv, 0);
-                range.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(range);
-            }
-            handleInput();
-            return;
-        }
-
-        // B. ENTER pada Todo Kosong -> Hapus Checkbox (Keluar dari mode Todo)
-        if (e.key === 'Enter' && isEmpty) {
-            e.preventDefault();
-            const newDiv = document.createElement('div');
-            newDiv.innerHTML = '<br>';
-            if (todoItem.parentNode) {
-                todoItem.parentNode.replaceChild(newDiv, todoItem);
-                const range = document.createRange();
-                range.setStart(newDiv, 0);
-                range.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(range);
-            }
-            handleInput();
-            return;
-        }
-
-        // C. ENTER pada Todo berisi -> Buat Todo Baru
-        if (e.key === 'Enter' && !isEmpty) {
-            e.preventDefault(); 
+            
             const currentItem = todoItem as HTMLElement;
+            const currentSpan = currentItem.querySelector('span');
+            
+            // 1. Buat elemen Todo Baru
             const newItem = document.createElement('div');
             newItem.className = 'todo-item';
-            newItem.contentEditable = 'false';
-            newItem.innerHTML = '<input type="checkbox"><span contentEditable="true">\u00A0</span>'; 
+            newItem.contentEditable = 'false'; // Wrapper tidak editable
             
+            const newCheckbox = document.createElement('input');
+            newCheckbox.type = 'checkbox';
+            
+            const newSpan = document.createElement('span');
+            newSpan.contentEditable = 'true'; // Hanya teks yang editable
+            newSpan.style.outline = 'none';
+
+            // 2. Pindahkan Teks setelah Kursor ke Baris Baru
+            if (currentSpan && selection && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                
+                // Pastikan kursor memang berada di dalam span saat ini
+                if (currentSpan.contains(range.startContainer)) {
+                    // Buat range dari posisi kursor sampai akhir teks saat ini
+                    const splitRange = document.createRange();
+                    splitRange.setStart(range.startContainer, range.startOffset);
+                    splitRange.setEndAfter(currentSpan.lastChild || currentSpan);
+                    
+                    // Potong (Cut) konten tersebut
+                    const contentAfterCursor = splitRange.extractContents();
+                    
+                    // Masukkan ke baris baru
+                    if (contentAfterCursor.textContent?.trim() || contentAfterCursor.childNodes.length > 0) {
+                        newSpan.appendChild(contentAfterCursor);
+                    } else {
+                        // Jika tidak ada teks sisa, beri spasi kosong agar baris tetap ada tingginya
+                        newSpan.innerHTML = '\u00A0'; 
+                    }
+                } else {
+                    newSpan.innerHTML = '\u00A0';
+                }
+            } else {
+                newSpan.innerHTML = '\u00A0';
+            }
+
+            // Gabungkan elemen
+            newItem.appendChild(newCheckbox);
+            newItem.appendChild(newSpan);
+            
+            // 3. Masukkan Item Baru ke DOM (Di bawah item saat ini)
             if (currentItem.nextSibling) {
                 currentItem.parentNode?.insertBefore(newItem, currentItem.nextSibling);
             } else {
                 currentItem.parentNode?.appendChild(newItem);
             }
 
-            const newSpan = newItem.querySelector('span');
-            if (newSpan) {
+            // 4. Pindahkan Fokus ke Awal Baris Baru
+            setTimeout(() => {
+                addCheckboxListeners(); // Re-attach listeners untuk checkbox baru
+                
+                const newRange = document.createRange();
+                // Fokus ke awal teks di span baru
+                newRange.setStart(newSpan, 0); 
+                newRange.collapse(true);
+                
+                selection?.removeAllRanges();
+                selection?.addRange(newRange);
+                
+                // Scroll ke view jika perlu
+                newItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 0);
+
+            handleInput(); // Simpan perubahan
+            return;
+        }
+
+        // Handle Backspace pada Todo Kosong (Hapus Checkbox) - Tetap sama
+        const textContent = todoItem.textContent?.trim() || '';
+        const isEmpty = textContent === '';
+
+        if (e.key === 'Backspace' && isEmpty) {
+            e.preventDefault();
+            // ... (Kode Backspace lama Anda tetap digunakan di sini jika belum diubah)
+            // Namun karena kita fokus di Enter, pastikan logika Backspace yang sebelumnya 
+            // saya berikan tetap ada di bawah blok Enter ini.
+            const newDiv = document.createElement('div');
+            newDiv.innerHTML = '<br>'; 
+            if (todoItem.parentNode) {
+                todoItem.parentNode.replaceChild(newDiv, todoItem);
                 const range = document.createRange();
-                range.setStart(newSpan, 0);
+                range.setStart(newDiv, 0);
                 range.collapse(true);
                 selection.removeAllRanges();
                 selection.addRange(range);
             }
-            setTimeout(addCheckboxListeners, 0);
-            handleInput(); 
+            handleInput();
             return;
         }
     }
