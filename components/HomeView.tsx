@@ -148,21 +148,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
          });
       }
     }
-    
-    else {
-      if (isTrashMode) {
-         // Tampilkan semua yg terhapus
-      } else {
-         // Mode normal: Ikuti folder
-         filteredNotes = baseNotes.filter(n => {
-           if (!currentFolderId) return !n.folderId; 
-           return n.folderId === currentFolderId;
-         });
-         // Catatan: filteredFolders dibuat kosong saat masuk folder agar tidak duplikat di list utama,
-         // tapi kita akan menggunakan 'baseFolders' untuk navigasi dropdown.
-         filteredFolders = currentFolderId ? [] : baseFolders; 
-      }
-    }
 
     // 3. Sorting
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
