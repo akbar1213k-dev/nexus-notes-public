@@ -5,7 +5,7 @@ import {
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
-  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock // <--- Tambahkan Lock
+  RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
   History // <--- Tambahkan ini
 } from 'lucide-react';
 
@@ -453,7 +453,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             )}
             {/* --- FITUR BARU: RECENTLY OPENED (Hanya tampil jika tidak search & bukan Trash Mode) --- */}
         {!searchQuery && !isTrashMode && recentNotes.length > 0 && (
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2 mb-4 pt-1">
             <button 
               onClick={() => setIsRecentsOpen(!isRecentsOpen)}
               className="w-full flex items-center justify-between p-3 bg-white dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm transition-all hover:bg-gray-50 dark:hover:bg-gray-800"
