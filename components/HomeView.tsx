@@ -6,6 +6,7 @@ import {
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock // <--- Tambahkan Lock
+  History // <--- Tambahkan ini
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -44,6 +45,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // --- STATE BARU: Kontrol Dropdown Folder ---
   // UBAH 1: Default state menjadi false (Tertutup)
   const [isFoldersOpen, setIsFoldersOpen] = useState(false);
+
+  // --- STATE BARU: Dropdown Recent Notes ---
+  const [isRecentsOpen, setIsRecentsOpen] = useState(() => {
+    try {
+        const saved = localStorage.getItem('nexus_recents_open');
+        return saved !== null ? JSON.parse(saved) : true; 
+    } catch { return true; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('nexus_recents_open', JSON.stringify(isRecentsOpen));
+  }, [isRecentsOpen]);
+
+  // --- LOGIKA BARU: Ambil 5 Catatan Terakhir Dibuka ---
+  const recentNotes = useMemo(() => {
+    // Ambil catatan yang punya lastOpenedAt, tidak dihapus, urutkan desc, ambil 5
+    return notes
+        .filter(n => n.lastOpenedAt && !n.deletedAt)
+        .sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))
+        .slice(0, 5);
+  }, [notes]);
 
   // Selection & UI State
   const [selectionMode, setSelectionMode] = useState(false);
@@ -429,7 +451,56 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </button>
               </div>
             )}
-            
+            {/* --- FITUR BARU: RECENTLY OPENED (Hanya tampil jika tidak search & bukan Trash Mode) --- */}
+        {!searchQuery && !isTrashMode && recentNotes.length > 0 && (
+          <div className="space-y-2 mb-4">
+            <button 
+              onClick={() => setIsRecentsOpen(!isRecentsOpen)}
+              className="w-full flex items-center justify-between p-3 bg-white dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm transition-all hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+               <div className="flex items-center gap-3">
+                   <div className="text-gray-400 dark:text-gray-500">
+                     {isRecentsOpen ? <ChevronDown size={20}/> : <ChevronRight size={20}/>}
+                   </div>
+                   <span className="text-base font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide flex items-center gap-2">
+                      <History size={16} className="text-blue-500"/> TERBARU DIBUKA
+                   </span>
+               </div>
+            </button>
+
+            {isRecentsOpen && (
+               <div className="grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-200 pl-2 border-l-2 border-gray-100 dark:border-gray-800 ml-4">
+                  {recentNotes.map(note => (
+                      <div 
+                        key={'recent_' + note.id}
+                        onClick={(e) => handleItemClick('note', note.id, e)}
+                        className="p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center justify-between group transition-colors"
+                      >
+                         <div className="flex items-center gap-3 overflow-hidden">
+                            {note.type === 'mindmap' ? (
+                                <Network size={18} className="text-indigo-500 shrink-0" />
+                            ) : (
+                                <FileText size={18} className="text-blue-500 shrink-0" />
+                            )}
+                            <span className="truncate font-medium text-gray-700 dark:text-gray-200 text-sm">
+                                {note.title || "Untitled"}
+                            </span>
+                         </div>
+                         <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                            {(() => {
+                                const diff = Date.now() - (note.lastOpenedAt || 0);
+                                if (diff < 60000) return 'Baru saja';
+                                if (diff < 3600000) return Math.floor(diff/60000) + 'm lalu';
+                                if (diff < 86400000) return Math.floor(diff/3600000) + 'j lalu';
+                                return new Date(note.lastOpenedAt || 0).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'});
+                            })()}
+                         </span>
+                      </div>
+                  ))}
+               </div>
+            )}
+          </div>
+        )}
           </div>
         )}
         
