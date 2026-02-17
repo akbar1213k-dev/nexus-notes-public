@@ -40,11 +40,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [cursorRange, setCursorRange] = useState<Range | null>(null);
   // --- STATE BARU UNTUK NOTIFIKASI COPY & CUT ---
   const [showCopyToast, setShowCopyToast] = useState(false);
-  const [showCutToast, setShowCutToast] = useState(false); // <--- Tambahkan ini
-
+  const [showCutToast, setShowCutToast] = useState(false);
+  // --- STATE BARU: Dialog Checkbox ---
+  const [showCheckboxDialog, setShowCheckboxDialog] = useState(false);
+  const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
   // --- STATE BARU UNTUK TOOLS ---
   const [showTools, setShowTools] = useState(false);
-
   // --- FUNGSI CUT (PERBAIKAN: Salin HTML sebelum dihapus) ---
   const handleCutContent = async () => {
     if (editorRef.current) {
@@ -214,13 +215,22 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         target.onclick = (e) => {
             const el = e.target as HTMLInputElement;
             const p = el.closest('.todo-item');
+            
             if (p) {
                 if (el.checked) {
                     el.setAttribute('checked', 'checked');
                     p.classList.add('completed');
+                    
+                    // --- LOGIKA BARU: Simpan Waktu Centang (Khusus Berjangka) ---
+                    if (el.dataset.days) {
+                        el.setAttribute('data-checked-time', Date.now().toString());
+                    }
                 } else {
                     el.removeAttribute('checked');
                     p.classList.remove('completed');
+                    
+                    // Hapus waktu jika di-uncheck manual
+                    el.removeAttribute('data-checked-time');
                 }
                 handleInput(); 
             }
@@ -641,30 +651,43 @@ const handleEditorClick = (e: React.MouseEvent) => {
     savedSelection.current = null; // Bersihkan setelah digunakan
   };
 
+  // Ubah fungsi insertCheckbox yang lama menjadi ini:
   const insertCheckbox = () => {
-    const selection = window.getSelection();
-    
-    // 1. Cek apakah ada teks yang diblok (Selected)
-    if (selection && !selection.isCollapsed) {
-        const text = selection.toString();
-        const lines = text.split(/\r?\n/);
-        
-        // --- UPDATE DI SINI ---
-        const html = lines.map(line => {
-            const content = line.trim() === '' ? '\u00A0' : line; 
-            // Tambahkan contentEditable="false" di div dan "true" di span
-            return `<div class="todo-item" contentEditable="false"><input type="checkbox"><span contentEditable="true">${content}</span></div>`;
-        }).join('');
-        
-        execCmd('insertHTML', html);
-        addCheckboxListeners();
-    } else {
-        // 2. Perilaku Lama (Tanpa blok)
-        // --- UPDATE DI SINI ---
-        const html = `<div class="todo-item" contentEditable="false"><input type="checkbox"><span contentEditable="true">\u00A0</span></div>`;
-        execCmd('insertHTML', html);
-        addCheckboxListeners();
-    }
+      // Simpan posisi kursor saat ini agar tidak hilang saat dialog muncul
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+          savedSelection.current = sel.getRangeAt(0).cloneRange();
+      }
+      setShowCheckboxDialog(true); // Buka Dialog
+  };
+
+  // Fungsi BARU untuk eksekusi final (Dipanggil dari Dialog)
+  const confirmInsertCheckbox = (isRecurring: boolean) => {
+      // Kembalikan posisi kursor
+      if (savedSelection.current) {
+          const sel = window.getSelection();
+          if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(savedSelection.current);
+          }
+      }
+
+      const days = isRecurring ? parseInt(checkboxInterval) : 0;
+      
+      // Buat HTML Checkbox
+      // Jika recurring, kita tambah class 'recurring' dan atribut 'data-days'
+      const html = `<div class="todo-item ${isRecurring ? 'recurring' : ''}" contentEditable="false">
+          <input type="checkbox" ${isRecurring ? `data-days="${days}"` : ''}>
+          <span contentEditable="true">\u00A0</span>
+      </div>`;
+
+      execCmd('insertHTML', html);
+      addCheckboxListeners();
+      
+      // Reset & Tutup Dialog
+      setShowCheckboxDialog(false);
+      setCheckboxInterval('1');
+      setActiveMenu('NONE');
   };
 
   const insertTable = () => {
@@ -1208,6 +1231,61 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 </button>
             </div>
         </div>
+      {/* --- DIALOG PILIHAN CHECKBOX --- */}
+      {showCheckboxDialog && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-100 dark:border-gray-700">
+                <h3 className="text-lg font-bold mb-4 dark:text-white text-center">Pilih Tipe Tugas</h3>
+                
+                <div className="space-y-3">
+                    <button 
+                        onClick={() => confirmInsertCheckbox(false)}
+                        className="w-full p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-3 transition-all"
+                    >
+                        <div className="w-5 h-5 border-2 border-gray-400 rounded-sm"></div>
+                        <div className="text-left">
+                            <div className="font-bold text-gray-800 dark:text-gray-200">Permanen</div>
+                            <div className="text-xs text-gray-500">Tetap dicentang selamanya</div>
+                        </div>
+                    </button>
+
+                    <div className="p-4 rounded-xl border-2 border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/10">
+                        <button 
+                            onClick={() => confirmInsertCheckbox(true)}
+                            className="w-full flex items-center gap-3 mb-3 text-left"
+                        >
+                            <div className="w-5 h-5 border-2 border-indigo-500 rounded-sm flex items-center justify-center text-[10px] font-bold text-indigo-600">
+                                {checkboxInterval}
+                            </div>
+                            <div>
+                                <div className="font-bold text-indigo-900 dark:text-indigo-200">Berjangka (Rutin)</div>
+                                <div className="text-xs text-indigo-600 dark:text-indigo-400">Reset otomatis setiap:</div>
+                            </div>
+                        </button>
+                        
+                        <div className="flex items-center gap-2 mt-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-indigo-100 dark:border-indigo-700">
+                            <input 
+                                type="number" 
+                                min="1" 
+                                max="365"
+                                value={checkboxInterval}
+                                onChange={(e) => setCheckboxInterval(e.target.value)}
+                                className="w-16 p-1 text-center font-bold border rounded dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <span className="text-sm font-medium dark:text-gray-300">Hari Sekali</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button 
+                    onClick={() => setShowCheckboxDialog(false)}
+                    className="mt-4 w-full py-2 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white text-sm font-medium"
+                >
+                    Batal
+                </button>
+            </div>
+        </div>
+      )}
     </div>
   );
 });
