@@ -623,6 +623,16 @@ export default function App() {
                     onNodeClick={(id) => navigateTo('EDITOR', id)} 
                     isDarkMode={isDarkMode} 
                     activeNoteId={currentNoteId} 
+                    // --- TAMBAHKAN PROPS INI ---
+                    onDeleteItems={(noteIds) => handleSoftDelete(noteIds, [])} // Graph hanya menampilkan Note, folderIds kosong
+                    onMoveItems={(noteIds, targetFolderId) => {
+                        noteIds.forEach(id => {
+                            updateDoc(doc(db, "notes", id), { 
+                                folderId: targetFolderId || "", 
+                                updatedAt: Date.now() 
+                            });
+                        });
+                    }}
                 />
             );
         
