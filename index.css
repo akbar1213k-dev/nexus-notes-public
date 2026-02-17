@@ -1,13 +1,15 @@
-/* index.css */
+/* index.css - VERSI BERSIH */
+
+/* --- 1. MENTION CHIP --- */
 .mention-chip {
-    color: #2563eb; /* Warna biru */
-    background-color: #dbeafe; /* Latar biru muda */
+    color: #2563eb;
+    background-color: #dbeafe;
     border-radius: 4px;
     padding: 0 4px;
     margin: 0 2px;
-    cursor: pointer; /* PENTING: Mengubah kursor jadi jari tunjuk */
+    cursor: pointer;
     font-weight: 500;
-    user-select: none; /* Supaya tidak terblok saat di-klik double */
+    user-select: none;
     transition: all 0.2s;
 }
 
@@ -16,9 +18,7 @@
     text-decoration: underline;
 }
 
-/* ... kode css sebelumnya ... */
-
-/* TAMBAHAN: Memunculkan Bullet dan Numbering */
+/* --- 2. EDITOR LIST STYLING --- */
 .editor-content ul {
     list-style-type: disc !important;
     padding-left: 1.5rem !important;
@@ -35,79 +35,66 @@
     margin-bottom: 0.25rem;
 }
 
-/* Pastikan todo-item tampil sebagai blok flex yang rapi */
+/* --- 3. TODO ITEM (CHECKBOX) - FINAL & CONSOLIDATED --- */
+
+/* Container Utama */
 .todo-item {
     display: flex;
-    align-items: center;
-    margin: 0.25rem 0;
-}
-
-/* ... kode CSS yang sudah ada sebelumnya ... */
-
-/* --- LOGIKA CHECKBOX TERCORET --- */
-
-/* Saat parent (.todo-item) memiliki class 'completed', coret teks di dalamnya */
-.todo-item.completed span {
-    text-decoration: line-through; /* Garis coret */
-    color: #9ca3af; /* Ubah warna jadi abu-abu (opsional) */
-    opacity: 0.8;
-    transition: all 0.2s ease;
-}
-
-/* --- LOGIKA CHECKBOX TERCORET & PERBAIKAN KURSOR --- */
-
-.todo-item {
-    display: flex;
-    align-items: flex-start;
+    align-items: flex-start; /* Aligment atas agar rapi jika teks panjang/multi-line */
     margin: 4px 0;
+    
+    /* Izinkan seleksi teks pada container, ubah kursor jadi text */
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
 }
 
-/* 1. Mencegah kursor masuk ke area checkbox (Perbaikan masalah gambar Anda) */
+/* Checkbox Style */
 .todo-item input[type="checkbox"] {
     margin-right: 8px;
-    margin-top: 6px;
+    margin-top: 6px; /* Disesuaikan dengan line-height teks agar sejajar */
     cursor: pointer;
-    flex-shrink: 0;
+    flex-shrink: 0; /* Mencegah checkbox mengecil */
     width: 16px;
     height: 16px;
-    /* Tambahan penting: */
+    
+    /* Mencegah checkbox terblok biru saat seleksi teks */
     user-select: none;
     -webkit-user-select: none;
     outline: none;
+    content-visibility: visible;
 }
 
+/* Teks di sebelah Checkbox */
 .todo-item span {
-    flex: 1;
-    word-break: break-word;
+    flex: 1;                 /* Mengambil sisa lebar otomatis */
+    word-break: break-word;  /* Agar teks panjang turun ke bawah */
     line-height: 1.6;
-    outline: none;
-    min-height: 24px; /* Area klik teks lebih nyaman */
+    min-height: 24px; 
+    
+    outline: none;           /* Hapus garis biru fokus default */
+    
+    /* FIX: Hapus highlight biru memanjang (masalah sebelumnya) */
+    -webkit-tap-highlight-color: transparent; 
+    box-shadow: none !important;
+    background-color: transparent;
+    
+    /* Layout fix */
+    display: block;          /* Pastikan block agar width bekerja benar dalam flex */
+    vertical-align: top;
 }
 
-/* 2. Logika Coret: Gunakan selector ':checked' agar instan tanpa menunggu JS */
+/* Pastikan saat fokus juga tidak muncul background biru */
+.todo-item span:focus {
+    background-color: transparent !important;
+}
+
+/* --- 4. LOGIKA CORET (COMPLETED) --- */
+/* Menggunakan selector ':checked' agar instan tanpa menunggu JS, plus class .completed */
 .todo-item.completed span,
 .todo-item input:checked + span {
     text-decoration: line-through;
     color: #9ca3af;
     opacity: 0.8;
     transition: all 0.2s ease;
-}
-
-/* Fix selection behavior for Checkboxes */
-.todo-item {
-  user-select: text;       /* Izinkan seleksi teks */
-  -webkit-user-select: text;
-  cursor: text;            /* Ubah kursor jadi teks saat hover */
-}
-
-.todo-item input {
-  user-select: none;       /* Jangan seleksi kotak checkbox-nya */
-  content-visibility: visible;
-}
-
-.todo-item span {
-  display: inline-block;
-  min-width: 10px;
-  width: calc(100% - 24px); /* Pastikan span mengambil sisa lebar */
-  vertical-align: top;
 }
