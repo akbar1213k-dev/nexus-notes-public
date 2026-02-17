@@ -1,13 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { Note, Folder } from '../types'; // <--- Tambah Import Folder
+import { Note, Folder } from '../types'; 
+import { Trash2, FolderInput, X } from 'lucide-react'; // <--- Tambahkan Icon ini
 
 interface GraphViewProps {
   notes: Note[];
-  folders: Folder[]; // <--- Tambah Props folders
+  folders: Folder[];
   onNodeClick: (noteId: string) => void;
   isDarkMode: boolean;
   activeNoteId?: string;
+  // --- TAMBAHAN BARU ---
+  onDeleteItems: (noteIds: string[]) => void;
+  onMoveItems: (noteIds: string[], targetFolderId?: string) => void;
 }
 
 // Update Interface: Menambahkan properti folder
@@ -29,6 +33,43 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
+  // --- STATE SELEKSI & AKSI ---
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const selectionModeRef = useRef(false); // Ref agar terbaca di dalam D3
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+
+  // Sync Ref dengan State (Penting untuk D3)
+  useEffect(() => {
+      selectionModeRef.current = selectionMode;
+  }, [selectionMode]);
+
+  const toggleSelection = (id: string) => {
+      setSelectedNodeIds(prev => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+      });
+  };
+
+  const cancelSelection = () => {
+      setSelectionMode(false);
+      setSelectedNodeIds(new Set());
+  };
+
+  const handleBulkDelete = () => {
+      if (confirm(`Hapus ${selectedNodeIds.size} catatan terpilih?`)) {
+          onDeleteItems(Array.from(selectedNodeIds));
+          cancelSelection();
+      }
+  };
+
+  const handleMoveAction = (targetId: string | undefined) => {
+      onMoveItems(Array.from(selectedNodeIds), targetId);
+      setShowMoveDialog(false);
+      cancelSelection();
+  };
 
   // Handle Resize
   useEffect(() => {
@@ -142,8 +183,35 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
       .selectAll("g")
       .data(nodes)
       .join("g")
-      .attr("cursor", "pointer")
-      .call(d3.drag<SVGGElement, D3Node>()
+      .attr("cursor", "pointer");
+
+    // --- INTERAKSI BARU (LONG PRESS & SELECT) ---
+    let pressTimer: any;
+
+    node.on("mousedown touchstart", function(event, d) {
+        // Timer untuk Long Press (Masuk mode seleksi)
+        pressTimer = setTimeout(() => {
+            if (navigator.vibrate) navigator.vibrate(50);
+            setSelectionMode(true); 
+            toggleSelection(d.id);
+        }, 600);
+    })
+    .on("mouseup touchend", function(event, d) {
+        clearTimeout(pressTimer); // Batalkan jika dilepas cepat
+    })
+    .on("click", (event, d) => {
+        // Cek apakah sedang mode seleksi?
+        if (selectionModeRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleSelection(d.id);
+        } else {
+            // Mode normal: Buka Editor
+            if (navigator.vibrate) navigator.vibrate(10);
+            onNodeClick(d.id);
+        }
+    })
+    .call(d3.drag<SVGGElement, D3Node>()
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended) as any);
@@ -287,6 +355,32 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
     };
   }, [notes, dimensions, onNodeClick, isDarkMode, activeNoteId]);
 
+  // --- EFEK VISUAL: Update Warna Seleksi Tanpa Reload Grafik ---
+  useEffect(() => {
+      if (!svgRef.current) return;
+      const svg = d3.select(svgRef.current);
+      
+      // Update stroke (garis pinggir)
+      svg.selectAll<SVGRectElement, D3Node>("rect")
+         .attr("stroke", (d) => {
+             // Jika dipilih, beri warna biru terang
+             if (selectedNodeIds.has(d.id)) return "#3b82f6"; 
+             
+             // Fallback ke warna asli (sesuai logika lama Anda)
+             if (d.id === activeNoteId) return isDarkMode ? "#818cf8" : "#4338ca"; 
+             if (d.folder === "Sampah") return isDarkMode ? "#f87171" : "#ef4444";
+             if (d.folder === "Keterhubungan") return isDarkMode ? "#34d399" : "#059669";
+             return isDarkMode ? "#374151" : "#94a3b8";
+         })
+         .attr("stroke-width", (d) => {
+             if (selectedNodeIds.has(d.id)) return 4; // Lebih tebal jika dipilih
+             if (d.id === activeNoteId) return 3;
+             if (d.folder === "Keterhubungan" || d.folder === "Sampah") return 2;
+             return 1;
+         });
+
+  }, [selectedNodeIds, isDarkMode, activeNoteId]);
+
   return (
     <div ref={containerRef} className="w-full h-full bg-slate-50 dark:bg-gray-950 relative overflow-hidden transition-colors">
       <div className="absolute top-4 left-4 bg-white/80 dark:bg-gray-800/80 p-3 rounded-lg text-xs text-gray-500 dark:text-gray-400 pointer-events-none z-10 backdrop-blur border dark:border-gray-700 flex flex-col gap-2 shadow-sm">
@@ -311,6 +405,49 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
           </div>            
         </div>
       <svg ref={svgRef} className="w-full h-full touch-none" />
+
+      {/* --- ACTION BAR (Muncul Saat Seleksi) --- */}
+      {selectionMode && (
+        <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-30 animate-in slide-in-from-bottom-5">
+           <div className="flex gap-6 mx-auto">
+              <button onClick={handleBulkDelete} className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors">
+                  <Trash2 size={20} /> <span className="text-[10px] font-medium">Delete</span>
+              </button>
+              <button onClick={() => setShowMoveDialog(true)} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
+                  <FolderInput size={20} /> <span className="text-[10px] font-medium">Move</span>
+              </button>
+              <button onClick={cancelSelection} className="flex flex-col items-center gap-1 text-gray-500 hover:text-gray-800 dark:hover:text-white transition-colors">
+                  <X size={20} /> <span className="text-[10px] font-medium">Cancel</span>
+              </button>
+           </div>
+           <div className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-blue-600 dark:text-blue-400 text-sm">
+               {selectedNodeIds.size} Selected
+           </div>
+        </div>
+      )}
+
+      {/* --- DIALOG MOVE --- */}
+      {showMoveDialog && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
+              <h3 className="font-bold text-lg dark:text-white">Pindahkan ke...</h3>
+              <button onClick={() => setShowMoveDialog(false)}><X size={20} className="text-gray-500"/></button>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+               <button onClick={() => handleMoveAction(undefined)} className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200">
+                 <FolderInput size={20} className="text-gray-400" /> Home (Root)
+               </button>
+               {folders.filter(f => !f.deletedAt).map(f => (
+                 <button key={f.id} onClick={() => handleMoveAction(f.id)} className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg flex items-center gap-3 text-gray-700 dark:text-gray-200">
+                   <FolderInput size={20} className="text-amber-500" />
+                   {f.name}
+                 </button>
+               ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
