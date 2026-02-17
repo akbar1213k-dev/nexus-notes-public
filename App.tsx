@@ -285,8 +285,72 @@ export default function App() {
       });
 
       mergedNotes.sort((a, b) => b.updatedAt - a.updatedAt);
-      setNotes(mergedNotes);
+      // --- LOGIKA RESET CHECKBOX BERJANGKA ---
+      const now = new Date();
+      let hasUpdates = false;
+      
+      // Clone array agar bisa dimodifikasi
+      const updatedNotes = mergedNotes.map(note => {
+          // Hanya proses jika konten memiliki checkbox recurring
+          if (note.content.includes('class="todo-item recurring"')) {
+              const docParser = new DOMParser();
+              const docHTML = docParser.parseFromString(note.content, 'text/html');
+              const checkboxes = docHTML.querySelectorAll('input.recurring, .todo-item.recurring input');
+              
+              let noteChanged = false;
+
+              checkboxes.forEach((cb: any) => {
+                  const checkedTime = cb.getAttribute('data-checked-time');
+                  const daysInterval = parseInt(cb.getAttribute('data-days') || '0');
+
+                  if (cb.checked && checkedTime && daysInterval > 0) {
+                      const lastCheckedDate = new Date(parseInt(checkedTime));
+                      
+                      // Hitung Target Reset: Jam 00:00 setelah (Interval) hari
+                      const targetResetDate = new Date(lastCheckedDate);
+                      targetResetDate.setDate(targetResetDate.getDate() + daysInterval);
+                      targetResetDate.setHours(0, 0, 0, 0); // Set jam 12 malam pas
+
+                      // Jika sekarang sudah melewati waktu reset
+                      if (now >= targetResetDate) {
+                          cb.removeAttribute('checked');
+                          cb.removeAttribute('data-checked-time');
+                          
+                          // Hapus style coret di parent
+                          const parent = cb.closest('.todo-item');
+                          if (parent) parent.classList.remove('completed');
+                          
+                          noteChanged = true;
+                      }
+                  }
+              });
+
+              if (noteChanged) {
+                  hasUpdates = true;
+                  const newContent = docHTML.body.innerHTML;
+                  
+                  // Update Firebase diam-diam
+                  updateDoc(doc(db, "notes", note.id), { 
+                      content: newContent,
+                      updatedAt: Date.now() // Opsional: update timestamp atau tidak
+                  });
+                  
+                  return { ...note, content: newContent };
+              }
+          }
+          return note;
+      });
+
+      // Update state lokal jika ada yang di-reset agar UI langsung berubah
+      if (hasUpdates) {
+          setNotes(updatedNotes);
+      } else {
+          setNotes(mergedNotes);
+      }
+      
       setIsReady(true);
+      // ...
+
       if (localNotes.length > 0) setSyncStatus('unsaved');
     }, (err) => {
       // Abaikan error permission sementara jika user object masih "fake"
