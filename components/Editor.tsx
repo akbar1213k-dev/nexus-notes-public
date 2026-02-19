@@ -7,7 +7,7 @@ import {
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
-  Undo, Redo, Sliders // <--- Tambahkan Sliders
+  Undo, Redo, Sliders, Code // <--- Tambahkan Sliders dan Code
 } from 'lucide-react';
 
 interface EditorProps {
@@ -46,6 +46,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
   // --- STATE BARU UNTUK TOOLS ---
   const [showTools, setShowTools] = useState(false);
+  // --- STATE BARU: Mode Kode (HTML) ---
+  const [isCodeView, setIsCodeView] = useState(false);
   // --- FUNGSI CUT (PERBAIKAN: Salin HTML sebelum dihapus) ---
   const handleCutContent = async () => {
     if (editorRef.current) {
@@ -972,18 +974,28 @@ const handleEditorClick = (e: React.MouseEvent) => {
             />
             </div>
             
-            <div 
-                ref={editorRef}
-                className={`editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200 ${isMindMap ? 'mindmap-mode' : ''}`}
-                contentEditable
-                onInput={handleInput}
-                onPaste={handlePaste} // <--- Tambahkan baris ini
-                onKeyDown={handleKeyDown}
-                onClick={handleEditorClick}
-                onTouchStart={handleTouchStart}
-                onTouchEnd={handleTouchEnd}
-                data-placeholder={isMindMap ? "Mulai dengan poin utama..." : "Mulai mengetik..."}
-            />
+            {/* TAMPILAN KODE (HTML) ATAU VISUAL */}
+            {isCodeView ? (
+                <textarea
+                    className="w-full min-h-[50vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y"
+                    value={note.content}
+                    onChange={(e) => onUpdate({ ...note, content: e.target.value })}
+                    placeholder="Tulis kode HTML di sini..."
+                />
+            ) : (
+                <div 
+                    ref={editorRef}
+                    className={`editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200 ${isMindMap ? 'mindmap-mode' : ''}`}
+                    contentEditable
+                    onInput={handleInput}
+                    onPaste={handlePaste} // <--- Tambahkan baris ini
+                    onKeyDown={handleKeyDown}
+                    onClick={handleEditorClick}
+                    onTouchStart={handleTouchStart}
+                    onTouchEnd={handleTouchEnd}
+                    data-placeholder={isMindMap ? "Mulai dengan poin utama..." : "Mulai mengetik..."}
+                />
+            )}
         </div>
 
         {/* Mention Popover */}
@@ -1167,6 +1179,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
                 <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('LIST')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'LIST' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <List size={20} />
+                </button>
+
+                <button onMouseDown={preventFocusLoss} onClick={() => setIsCodeView(!isCodeView)} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
+                    <Code size={20} />
                 </button>
 
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
