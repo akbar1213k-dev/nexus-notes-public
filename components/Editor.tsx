@@ -184,14 +184,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             sel?.removeAllRanges();
             sel?.addRange(range);
           } catch (e) {
-            // Abaikan error seleksi jika terjadi
+                // Abaikan error seleksi jika terjadi
+              }
           }
-      }
-    }
-    addCheckboxListeners();
-  }, [note.id, note.content]);
+        }
+        addCheckboxListeners();
+      }, [note.id, note.content, isCodeView]); // <--- PERBAIKAN: Tambahkan isCodeView di dalam kurung siku ini
 
-  // akhir perubahan
+      // akhir perubahan
 
   const addCheckboxListeners = () => {
     if (!editorRef.current) return;
