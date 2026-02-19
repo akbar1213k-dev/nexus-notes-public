@@ -820,8 +820,35 @@ const handleEditorClick = (e: React.MouseEvent) => {
   // Mind map visual helpers
   const isMindMap = note.type === 'mindmap';
 
-  // --- FUNGSI COPY CONTENT (PERBAIKAN: Sync status checkbox) ---
+  // --- FUNGSI COPY CONTENT (PERBAIKAN: Sync status checkbox & Clean Code) ---
   const handleCopyContent = async () => {
+    // --- TAMBAHAN BARU: Jika sedang di Mode Kode, bersihkan HTML sebelum disalin ---
+    if (isCodeView) {
+        try {
+            let cleanHtml = note.content
+                // 1. Hapus ratusan style bawaan (--tw-scale, shadow, dll)
+                .replace(/ style="[^"]*"/gi, '') 
+                // 2. Hapus status contenteditable bawaan editor
+                .replace(/ contenteditable="[^"]*"/gi, '') 
+                // 3. Hapus atribut data sementara (opsional untuk kebersihan)
+                .replace(/ data-[a-zA-Z\-]+="[^"]*"/gi, '') 
+                // 4. Hapus karakter gaib / kosong penyita spasi (seperti ‎)
+                .replace(/[\u200B-\u200D\uFEFF\u200E]/g, '') 
+                // 5. Rapikan tag pembuka dan penutup agar menurun (Pretty Print dasar)
+                .replace(/></g, '>\n<');
+
+            // Salin hanya sebagai teks murni (Teks Kode HTML Bersih)
+            await navigator.clipboard.writeText(cleanHtml);
+            
+            setShowCopyToast(true);
+            setTimeout(() => setShowCopyToast(false), 2000);
+        } catch (err) {
+            console.error("Gagal menyalin kode:", err);
+        }
+        return; // Hentikan fungsi di sini agar tidak menjalankan copy visual
+    }
+
+    // --- LOGIKA NORMAL JIKA DI MODE VISUAL ---
     if (editorRef.current) {
         try {
             // 1. SYNC CHECKBOX STATE KE ATTRIBUTE
