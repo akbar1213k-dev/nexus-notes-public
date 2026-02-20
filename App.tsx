@@ -729,7 +729,7 @@ export default function App() {
                     }}
                     onLinkClick={(id) => navigateTo('EDITOR', id)} 
                     onLinkLongPress={setPreviewNoteId} 
-                    onGoHome={() => navigateTo('HOME')} 
+                    onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')}
                 />
             );
 
@@ -790,8 +790,8 @@ export default function App() {
         isAutoSync={isAutoSync} 
         onManualSync={handleManualSync} 
         onOpenSettings={() => navigateTo('SETTINGS')}
-        onGoHome={() => navigateTo('HOME')} 
-        onDeleteNote={handleDeleteCurrentNote}
+          onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
+          onDeleteNote={handleDeleteCurrentNote}
         onMoveNote={() => setShowEditorMoveDialog(true)}
       />
       
