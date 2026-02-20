@@ -7,7 +7,7 @@ import {
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
-  Undo, Redo, Sliders, Code // <--- Tambahkan Sliders dan Code
+  Undo, Redo, Sliders, Code, ArrowLeft // <--- Tambahkan Sliders dan Code
 } from 'lucide-react';
 
 interface EditorProps {
@@ -1120,8 +1120,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
         <button 
             onClick={onGoHome}
             className="fixed bottom-20 right-4 w-12 h-12 bg-gray-800 dark:bg-gray-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-black z-30 opacity-90 transition-opacity"
+            title="Kembali ke Sebelumnya"
         >
-            <Home size={20} />
+            <ArrowLeft size={20} />
         </button>
 
         {/* --- Toolbar Menus (Popups) --- */}
