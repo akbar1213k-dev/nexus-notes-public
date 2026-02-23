@@ -21,6 +21,7 @@ interface EditorProps {
 }
 
 type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
+
 // === FUNGSI BARU: Membersihkan dan merapikan (Pretty Print) HTML ===
 const formatAndCleanHTML = (html: string) => {
     let formatted = '';
@@ -35,10 +36,13 @@ const formatAndCleanHTML = (html: string) => {
     // 3. Hapus atribut style jika isinya menjadi kosong setelah dibersihkan
     clean = clean.replace(/style="\s*"/g, '');
     
-    // 4. Tambahkan baris baru (enter) di antara tag penutup dan pembuka
+    // 4. Pisahkan tag <br> ke baris baru secara eksplisit agar mudah dideteksi
+    clean = clean.replace(/<br\s*\/?>/gi, '\n<br>\n');
+
+    // 5. Tambahkan baris baru (enter) di antara tag penutup dan pembuka
     clean = clean.replace(/></g, '>\n<');
     
-    // 5. Logika Indentasi (Menjorok ke dalam agar terlihat struktur atas-bawahnya)
+    // 6. Logika Indentasi (Menjorok ke dalam agar terlihat struktur atas-bawahnya)
     const lines = clean.split('\n');
     
     for (let i = 0; i < lines.length; i++) {
@@ -50,8 +54,14 @@ const formatAndCleanHTML = (html: string) => {
             pad = Math.max(0, pad - 1);
         }
         
-        // Tulis baris dengan spasi yang sesuai
-        formatted += '  '.repeat(pad) + line + '\n';
+        // --- PERUBAHAN UNTUK MEMBERI SPASI KOSONG PADA <br> ---
+        if (line.toLowerCase() === '<br>') {
+            // Tambahkan enter sebelum (\n) dan 2 enter sesudahnya (\n\n)
+            formatted += '\n' + '  '.repeat(pad) + line + '\n\n';
+        } else {
+            // Tulis baris normal dengan spasi indentasi yang sesuai
+            formatted += '  '.repeat(pad) + line + '\n';
+        }
         
         // Jika baris adalah tag pembuka dan BUKAN tag mandiri (seperti <img> atau <br>), tambah spasi indentasi
         if (line.match(/^<[^/?][^>]*>/) && 
@@ -61,6 +71,7 @@ const formatAndCleanHTML = (html: string) => {
         }
     }
     
+    // Bersihkan enter berlebih di awal atau akhir teks
     return formatted.trim();
 };
 
