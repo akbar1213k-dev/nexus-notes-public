@@ -21,6 +21,48 @@ interface EditorProps {
 }
 
 type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
+// === FUNGSI BARU: Membersihkan dan merapikan (Pretty Print) HTML ===
+const formatAndCleanHTML = (html: string) => {
+    let formatted = '';
+    let pad = 0;
+    
+    // 1. Bersihkan karakter gaib/kosong penyita spasi
+    let clean = html.replace(/[\u200B-\u200D\uFEFF\u200E]/g, '');
+    
+    // 2. Bersihkan variabel Tailwind (--tw-...) yang panjang dan membuat pusing saat dibaca
+    clean = clean.replace(/--tw-[a-zA-Z0-9-]+:\s*[^;]+;\s*/g, '');
+    
+    // 3. Hapus atribut style jika isinya menjadi kosong setelah dibersihkan
+    clean = clean.replace(/style="\s*"/g, '');
+    
+    // 4. Tambahkan baris baru (enter) di antara tag penutup dan pembuka
+    clean = clean.replace(/></g, '>\n<');
+    
+    // 5. Logika Indentasi (Menjorok ke dalam agar terlihat struktur atas-bawahnya)
+    const lines = clean.split('\n');
+    
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line) continue;
+        
+        // Jika baris adalah tag penutup (misal </div>), kurangi spasi indentasi
+        if (line.match(/^<\/[a-zA-Z0-9]+>/)) {
+            pad = Math.max(0, pad - 1);
+        }
+        
+        // Tulis baris dengan spasi yang sesuai
+        formatted += '  '.repeat(pad) + line + '\n';
+        
+        // Jika baris adalah tag pembuka dan BUKAN tag mandiri (seperti <img> atau <br>), tambah spasi indentasi
+        if (line.match(/^<[^/?][^>]*>/) && 
+            !line.match(/<\/[a-zA-Z0-9]+>$/) && 
+            !line.match(/<[^>]+(?:hr|br|img|input)[^>]*>/i)) {
+            pad += 1;
+        }
+    }
+    
+    return formatted.trim();
+};
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
   note, 
@@ -1209,7 +1251,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     <List size={20} />
                 </button>
 
-                <button onMouseDown={preventFocusLoss} onClick={() => setIsCodeView(!isCodeView)} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
+                <button onMouseDown={preventFocusLoss} onClick={() => {
+                    if (!isCodeView) {
+                        // Jalankan pembersih dan perapi sebelum masuk ke mode kode
+                        const cleanedHTML = formatAndCleanHTML(note.content);
+                        onUpdate({ ...note, content: cleanedHTML });
+                    }
+                    setIsCodeView(!isCodeView);
+                }} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
                     <Code size={20} />
                 </button>
 
