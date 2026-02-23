@@ -26,53 +26,73 @@ type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
 const formatAndCleanHTML = (html: string) => {
     let formatted = '';
     let pad = 0;
+    let divDepth = 0; // Menghitung kedalaman tag div untuk menentukan level 1, 2, 3, dst.
     
     // 1. Bersihkan karakter gaib/kosong penyita spasi
     let clean = html.replace(/[\u200B-\u200D\uFEFF\u200E]/g, '');
     
-    // 2. Bersihkan variabel Tailwind (--tw-...) yang panjang dan membuat pusing saat dibaca
+    // 2. Bersihkan variabel Tailwind (--tw-...)
     clean = clean.replace(/--tw-[a-zA-Z0-9-]+:\s*[^;]+;\s*/g, '');
     
-    // 3. Hapus atribut style jika isinya menjadi kosong setelah dibersihkan
+    // 3. Hapus atribut style jika isinya menjadi kosong
     clean = clean.replace(/style="\s*"/g, '');
-    
-    // 4. Pisahkan tag <br> ke baris baru secara eksplisit agar mudah dideteksi
-    clean = clean.replace(/<br\s*\/?>/gi, '\n<br>\n');
 
-    // 5. Tambahkan baris baru (enter) di antara tag penutup dan pembuka
+    // (Spasi pada <br> telah dibatalkan/dihapus sesuai permintaan)
+
+    // 4. Tambahkan baris baru (enter) di antara tag penutup dan pembuka
     clean = clean.replace(/></g, '>\n<');
     
-    // 6. Logika Indentasi (Menjorok ke dalam agar terlihat struktur atas-bawahnya)
+    // 5. Logika Indentasi dan Spasi Div
     const lines = clean.split('\n');
     
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trim();
         if (!line) continue;
         
-        // Jika baris adalah tag penutup (misal </div>), kurangi spasi indentasi
+        // A. Cek apakah baris ini adalah tag PENUTUP div
+        const isClosingDiv = line.match(/^<\/div>/i);
+        if (isClosingDiv) {
+            // Turunkan level kedalaman div SEBELUM diproses
+            divDepth = Math.max(0, divDepth - 1);
+        }
+
+        // Turunkan indentasi visual untuk semua tag penutup
         if (line.match(/^<\/[a-zA-Z0-9]+>/)) {
             pad = Math.max(0, pad - 1);
         }
         
-        // --- PERUBAHAN UNTUK MEMBERI SPASI KOSONG PADA <br> ---
-        if (line.toLowerCase() === '<br>') {
-            // Tambahkan enter sebelum (\n) dan 2 enter sesudahnya (\n\n)
-            formatted += '\n' + '  '.repeat(pad) + line + '\n\n';
-        } else {
-            // Tulis baris normal dengan spasi indentasi yang sesuai
-            formatted += '  '.repeat(pad) + line + '\n';
-        }
+        // B. Cek apakah baris ini adalah tag PEMBUKA div
+        const isOpeningDiv = line.match(/^<div[^>]*>/i);
         
-        // Jika baris adalah tag pembuka dan BUKAN tag mandiri (seperti <img> atau <br>), tambah spasi indentasi
+        // --- ATURAN SPASI: SEBELUM PEMBUKA DIV (Hanya Level 1 & 2) ---
+        // Karena divDepth bertambah setelah ini, maka level 1 = 0, level 2 = 1. (Berarti < 2)
+        if (isOpeningDiv && divDepth < 2) {
+            formatted += '\n'; 
+        }
+
+        // Tulis baris kode ke variabel hasil (dengan spasi menjorok / indent)
+        formatted += '  '.repeat(pad) + line + '\n';
+        
+        // --- ATURAN SPASI: SESUDAH PENUTUP DIV (Hanya Level 1 & 2) ---
+        if (isClosingDiv && divDepth < 2) {
+            formatted += '\n'; 
+        }
+
+        // Naikkan indentasi visual jika baris ini tag pembuka (Bukan tag mandiri seperti img/br/input)
         if (line.match(/^<[^/?][^>]*>/) && 
             !line.match(/<\/[a-zA-Z0-9]+>$/) && 
             !line.match(/<[^>]+(?:hr|br|img|input)[^>]*>/i)) {
             pad += 1;
         }
+
+        // Jika ini tag PEMBUKA div, naikkan level kedalaman div SETELAH diproses
+        if (isOpeningDiv) {
+            divDepth += 1;
+        }
     }
     
-    // Bersihkan enter berlebih di awal atau akhir teks
-    return formatted.trim();
+    // Bersihkan enter berlebih (jika ada lebih dari 2 enter berturut-turut jadikan 1 spasi enter saja)
+    return formatted.replace(/\n{3,}/g, '\n\n').trim();
 };
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
