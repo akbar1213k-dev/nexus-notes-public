@@ -7,7 +7,8 @@ import {
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
-  Undo, Redo, Sliders, Code, ArrowLeft // <--- Tambahkan Sliders dan Code
+  Undo, Redo, Sliders, Code, ArrowLeft,
+  Search, X, ChevronUp, ChevronDown // <--- Icon Pencarian
 } from 'lucide-react';
 
 interface EditorProps {
@@ -121,6 +122,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showTools, setShowTools] = useState(false);
   // --- STATE BARU: Mode Kode (HTML) ---
   const [isCodeView, setIsCodeView] = useState(false);
+
+  // --- STATE PENCARIAN (PROXIMITY SEARCH) ---
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Range[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+
   // --- FUNGSI CUT (PERBAIKAN: Salin HTML sebelum dihapus) ---
   const handleCutContent = async () => {
     if (editorRef.current) {
@@ -184,6 +192,132 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         }
         setShowTools(false); // Tutup menu
     }
+  };
+
+  // --- ALGORITMA PROXIMITY SEARCH (JARAK 20 KARAKTER) ---
+  const performSearch = (query: string) => {
+      if (!query.trim() || !editorRef.current) {
+          setSearchResults([]);
+          setCurrentSearchIndex(0);
+          return;
+      }
+
+      // 1. Ekstrak teks murni beserta pemetaan panjang karakternya ke DOM Element
+      let text = '';
+      const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT, null, false);
+      let node: Node | null;
+      const nodes: { node: Node; start: number; end: number }[] = [];
+      
+      while ((node = walker.nextNode())) {
+          if (node.nodeValue) {
+              nodes.push({ node, start: text.length, end: text.length + node.nodeValue.length });
+              text += node.nodeValue;
+          }
+      }
+
+      const lowerText = text.toLowerCase();
+      // Pisahkan query berdasarkan spasi
+      const words = query.toLowerCase().trim().split(/\s+/).filter(w => w.length > 0);
+      const matches: { start: number; end: number }[] = [];
+
+      if (words.length === 1) {
+          // Mode pencarian kata tunggal normal
+          let idx = lowerText.indexOf(words[0]);
+          while (idx !== -1) {
+              matches.push({ start: idx, end: idx + words[0].length });
+              idx = lowerText.indexOf(words[0], idx + 1);
+          }
+      } else {
+          // --- LOGIKA UPGRADE: PROXIMITY SEARCH ---
+          // Cari semua indeks untuk SEMUA kata yang diketik
+          const allFound: { word: string; start: number; end: number }[] = [];
+          words.forEach((word) => {
+              let idx = lowerText.indexOf(word);
+              while (idx !== -1) {
+                  allFound.push({ word, start: idx, end: idx + word.length });
+                  idx = lowerText.indexOf(word, idx + 1);
+              }
+          });
+
+          // Urutkan temuan berdasarkan kemunculannya di kalimat
+          allFound.sort((a, b) => a.start - b.start);
+
+          // Metode Sliding Window untuk mencari grup kata yang berdekatan
+          for (let i = 0; i < allFound.length; i++) {
+              let seen = new Set([allFound[i].word]);
+              let currentEnd = allFound[i].end;
+              let j = i + 1;
+
+              while (j < allFound.length) {
+                  // Cek apakah jarak KATA SELANJUTNYA dengan batas KATA SEBELUMNYA <= 20 karakter
+                  if (allFound[j].start - currentEnd <= 20) {
+                      seen.add(allFound[j].word);
+                      currentEnd = allFound[j].end;
+                      
+                      // Jika seluruh susunan kata kunci ditemukan dalam area ini
+                      if (seen.size === words.length) {
+                          matches.push({ start: allFound[i].start, end: currentEnd });
+                          break; // Lanjut geser area awal
+                      }
+                      j++;
+                  } else {
+                      break; // Terlalu jauh (> 20 karakter), batalkan grup ini
+                  }
+              }
+          }
+      }
+
+      // 2. Ubah indeks string menjadi object 'Range' DOM untuk disorot
+      const ranges = matches.map(match => {
+          const range = document.createRange();
+          let startSet = false;
+          let endSet = false;
+
+          for (let i = 0; i < nodes.length; i++) {
+              const n = nodes[i];
+              // Tentukan node awal pemblokiran
+              if (!startSet && match.start >= n.start && match.start < n.end) {
+                  range.setStart(n.node, match.start - n.start);
+                  startSet = true;
+              }
+              // Tentukan node akhir pemblokiran
+              if (!endSet && match.end > n.start && match.end <= n.end) {
+                  range.setEnd(n.node, match.end - n.start);
+                  endSet = true;
+              }
+              if (startSet && endSet) break;
+          }
+          return (startSet && endSet) ? range : null;
+      }).filter(r => r !== null) as Range[];
+
+      setSearchResults(ranges);
+      
+      // Jika ada hasil, fokus ke hasil pertama
+      if (ranges.length > 0) {
+          setCurrentSearchIndex(0);
+          focusMatchRange(ranges[0]);
+      }
+  };
+
+  const focusMatchRange = (range: Range) => {
+      const sel = window.getSelection();
+      if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+      }
+      if (range.startContainer.parentElement) {
+          range.startContainer.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+  };
+
+  const navigateSearch = (direction: 'next' | 'prev') => {
+      if (searchResults.length === 0) return;
+      let newIndex = currentSearchIndex + (direction === 'next' ? 1 : -1);
+      if (newIndex < 0) newIndex = searchResults.length - 1;
+      if (newIndex >= searchResults.length) newIndex = 0;
+      
+      setCurrentSearchIndex(newIndex);
+      focusMatchRange(searchResults[newIndex]);
   };
   
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
@@ -1056,7 +1190,44 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
   return (
     <div className="flex flex-col h-full relative">
-        <div className="flex-1 overflow-y-auto p-4 no-scrollbar pb-32">
+        
+        {/* --- UI PENCARIAN MENGAMBANG --- */}
+        {showSearch && (
+            <div className="absolute top-4 left-4 right-4 bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 rounded-xl p-2 z-50 flex items-center gap-2 animate-in slide-in-from-top-2">
+                <Search size={18} className="text-gray-400 shrink-0" />
+                <input
+                    type="text"
+                    placeholder="Cari... (Coba: kata1 kata2)"
+                    value={searchQuery}
+                    onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        performSearch(e.target.value);
+                    }}
+                    className="flex-1 bg-transparent outline-none text-sm dark:text-white min-w-0"
+                    autoFocus
+                />
+                <span className="text-xs text-gray-400 font-mono shrink-0">
+                    {searchResults.length > 0 ? currentSearchIndex + 1 : 0}/{searchResults.length}
+                </span>
+                <button onMouseDown={preventFocusLoss} onClick={() => navigateSearch('prev')} disabled={searchResults.length === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 text-gray-600 dark:text-gray-300">
+                    <ChevronUp size={18} />
+                </button>
+                <button onMouseDown={preventFocusLoss} onClick={() => navigateSearch('next')} disabled={searchResults.length === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 text-gray-600 dark:text-gray-300">
+                    <ChevronDown size={18} />
+                </button>
+                <div className="w-[1px] h-4 bg-gray-300 dark:bg-gray-600 mx-1 shrink-0"></div>
+                <button onMouseDown={preventFocusLoss} onClick={() => {
+                    setShowSearch(false);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    window.getSelection()?.removeAllRanges(); // Bersihkan blok
+                }} className="p-1 hover:bg-red-100 dark:hover:bg-red-900/50 hover:text-red-500 rounded text-gray-600 dark:text-gray-300">
+                    <X size={18} />
+                </button>
+            </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-4 no-scrollbar pb-32 mt-2">
             <div className="flex items-center gap-2 mb-4">
                 {isMindMap && <Network className="text-indigo-500" size={28} />}
                 {/* PERBAIKAN: Menggunakan Textarea agar judul bisa multi-baris dan font lebih kecil */}
@@ -1278,8 +1449,13 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     <Bold size={20} />
                 </button>
 
-                <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('LIST')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'LIST' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+               <button onMouseDown={preventFocusLoss} onClick={() => toggleMenu('LIST')} className={`p-2 rounded min-w-[40px] flex justify-center ${activeMenu === 'LIST' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
                     <List size={20} />
+                </button>
+
+                {/* --- TOMBOL PENCARIAN (BARU) --- */}
+                <button onMouseDown={preventFocusLoss} onClick={() => setShowSearch(!showSearch)} className={`p-2 rounded min-w-[40px] flex justify-center ${showSearch ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Cari di Catatan">
+                    <Search size={20} />
                 </button>
 
                 <button onMouseDown={preventFocusLoss} onClick={() => {
