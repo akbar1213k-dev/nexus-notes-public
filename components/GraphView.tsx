@@ -298,6 +298,9 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
           .attr("y", -d.height / 2);
     });
 
+    // Memperbarui radius tabrakan (collide) secara dinamis sesuai ukuran asli setiap kotak
+    simulation.force("collide", d3.forceCollide().radius((d: any) => Math.max(d.width, d.height) / 2 + 15).iterations(5));
+
     node.on("click", (event, d) => {
         if (navigator.vibrate) navigator.vibrate(10);
         onNodeClick(d.id);
