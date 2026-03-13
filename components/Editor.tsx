@@ -292,10 +292,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
       setSearchResults(ranges);
       
-      // Jika ada hasil, fokus ke hasil pertama
+      // PERBAIKAN: Jangan gunakan focusMatchRange (getSelection) saat mengetik
+      // agar kursor tidak melompat. Cukup scroll layar ke posisi hasil pertama.
       if (ranges.length > 0) {
           setCurrentSearchIndex(0);
-          focusMatchRange(ranges[0]);
+          if (ranges[0].startContainer.parentElement) {
+              ranges[0].startContainer.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
       }
   };
 
@@ -1202,6 +1205,15 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     onChange={(e) => {
                         setSearchQuery(e.target.value);
                         performSearch(e.target.value);
+                    }}
+                    // PERBAIKAN: Gunakan tombol Enter untuk menyetujui pemblokiran teks
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (searchResults.length > 0) {
+                                focusMatchRange(searchResults[currentSearchIndex]);
+                            }
+                        }
                     }}
                     className="flex-1 bg-transparent outline-none text-sm dark:text-white min-w-0"
                     autoFocus
