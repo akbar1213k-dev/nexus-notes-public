@@ -24,7 +24,58 @@ interface HomeViewProps {
   onPermanentDelete: (noteIds: string[], folderIds: string[]) => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ 
+// --- HELPER BARU: Algoritma Proximity Search (Jarak Maks. 45 Karakter) ---
+const checkProximityMatch = (htmlContent: string, searchQuery: string, maxDistance: number = 45) => {
+    if (!htmlContent) return false;
+    // 1. Bersihkan tag HTML dan karakter khusus agar perhitungan jarak akurat pada teks mentah
+    const cleanText = htmlContent.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ').toLowerCase();
+    const words = searchQuery.toLowerCase().trim().split(/\s+/).filter(w => w.length > 0);
+
+    if (words.length === 0) return true;
+    // Jika hanya mencari 1 kata, gunakan pencarian standar
+    if (words.length === 1) return cleanText.includes(words[0]);
+
+    // 2. Cari semua indeks letak kata-kata kunci
+    const allFound: { word: string; start: number; end: number }[] = [];
+    words.forEach((word) => {
+        let idx = cleanText.indexOf(word);
+        while (idx !== -1) {
+            allFound.push({ word, start: idx, end: idx + word.length });
+            idx = cleanText.indexOf(word, idx + 1);
+        }
+    });
+
+    // Validasi Cepat: Jika ada satu saja kata kunci yang tidak ada di catatan ini, langsung lewati (false)
+    const uniqueWordsFound = new Set(allFound.map(item => item.word));
+    if (uniqueWordsFound.size < words.length) return false;
+
+    // Urutkan kata berdasarkan posisinya di dalam teks
+    allFound.sort((a, b) => a.start - b.start);
+
+    // 3. Sliding Window Proximity
+    for (let i = 0; i < allFound.length; i++) {
+        let seen = new Set([allFound[i].word]);
+        let currentEnd = allFound[i].end;
+        let j = i + 1;
+
+        while (j < allFound.length) {
+            if (allFound[j].start - currentEnd <= maxDistance) {
+                seen.add(allFound[j].word);
+                currentEnd = allFound[j].end;
+                
+                // Jika semua kata kunci ditemukan dalam area jarak yang berdekatan ini
+                if (seen.size === words.length) return true; 
+                j++;
+            } else {
+                break; // Jarak sudah melebihi 45 karakter, batalkan grup susunan ini
+            }
+        }
+    }
+    return false;
+};
+// --------------------------------------------------------------------------
+
+export const HomeView: React.FC<HomeViewProps> = ({
   notes, 
   folders, 
   onNoteClick, 
@@ -117,10 +168,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
     // 2. Filtering berdasarkan Folder / Search
     if (query) {
       filteredNotes = baseNotes.filter(n => 
+        // Pertahankan pencarian pasti/exact untuk Judul Catatan
         (n.title && n.title.toLowerCase().includes(query)) || 
-        (n.content && n.content.toLowerCase().includes(query))
+        // Terapkan Proximity Search canggih untuk Isi Konten
+        checkProximityMatch(n.content, query)
       );
-      // Saat search, tampilkan semua folder yang cocok (flat list)
+      // Saat search, tampilkan semua folder yang cocok (flat list - pencarian pasti/exact)
       filteredFolders = baseFolders.filter(f => 
         f.name.toLowerCase().includes(query)
       );
