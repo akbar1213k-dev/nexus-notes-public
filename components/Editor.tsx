@@ -243,28 +243,28 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           allFound.sort((a, b) => a.start - b.start);
 
           // Metode Sliding Window untuk mencari grup kata yang berdekatan
-          for (let i = 0; i < allFound.length; i++) {
-              let seen = new Set([allFound[i].word]);
-              let currentEnd = allFound[i].end;
-              let j = i + 1;
+          for (let i = 0; i < allFound.length; i++) {
+              let seen = new Set([allFound[i].word]);
+              let currentEnd = allFound[i].end;
+              let j = i + 1;
 
-              while (j < allFound.length) {
-                  // Cek apakah jarak KATA SELANJUTNYA dengan batas KATA SEBELUMNYA <= 20 karakter
-                  if (allFound[j].start - currentEnd <= 20) {
-                      seen.add(allFound[j].word);
-                      currentEnd = allFound[j].end;
-                      
-                      // Jika seluruh susunan kata kunci ditemukan dalam area ini
-                      if (seen.size === words.length) {
-                          matches.push({ start: allFound[i].start, end: currentEnd });
-                          break; // Lanjut geser area awal
-                      }
-                      j++;
-                  } else {
-                      break; // Terlalu jauh (> 20 karakter), batalkan grup ini
-                  }
-              }
-          }
+              while (j < allFound.length) {
+                  // Cek apakah jarak KATA SELANJUTNYA dengan batas KATA SEBELUMNYA <= 45 karakter
+                  if (allFound[j].start - currentEnd <= 45) {
+                      seen.add(allFound[j].word);
+                      currentEnd = allFound[j].end;
+                      
+                      // Jika seluruh susunan kata kunci ditemukan dalam area ini
+                      if (seen.size === words.length) {
+                          matches.push({ start: allFound[i].start, end: currentEnd });
+                          break; // Lanjut geser area awal
+                      }
+                      j++;
+                  } else {
+                      break; // Terlalu jauh (> 45 karakter), batalkan grup ini
+                  }
+              }
+          }
       }
 
       // 2. Ubah indeks string menjadi object 'Range' DOM untuk disorot
