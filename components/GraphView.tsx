@@ -119,24 +119,51 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
       const mentions = doc.querySelectorAll('.mention-chip');
       mentions.forEach(el => {
         const targetId = el.getAttribute('data-id');
-        if (targetId && notes.find(n => n.id === targetId)) {
-          links.push({
-            source: sourceNote.id,
-            target: targetId
-          });
-        }
-      });
-    });
+       if (targetId && notes.find(n => n.id === targetId)) {
+          links.push({
+            source: sourceNote.id,
+            target: targetId
+          });
+        }
+      });
+    });
 
-    d3.select(svgRef.current).selectAll("*").remove();
+    // 1. MENGHITUNG JUMLAH CABANG (DEGREE) SETIAP NODE
+    const nodeDegrees: Record<string, number> = {};
+    // Inisialisasi semua node dengan nilai 0
+    nodes.forEach(n => { nodeDegrees[n.id] = 0; });
+    // Hitung setiap kali node muncul sebagai sumber atau target dari sebuah garis
+    links.forEach(l => {
+      nodeDegrees[l.source as string] = (nodeDegrees[l.source as string] || 0) + 1;
+      nodeDegrees[l.target as string] = (nodeDegrees[l.target as string] || 0) + 1;
+    });
 
-    const width = dimensions.width;
-    const height = dimensions.height;
+    d3.select(svgRef.current).selectAll("*").remove();
 
-    // Simulation Setup
+    const width = dimensions.width;
+    const height = dimensions.height;
+
+    // Simulation Setup
     const simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(250)) // Jarak diperpanjang agar garis lebih terlihat
-      .force("charge", d3.forceManyBody().strength(-2500)) // Tolakan diperkuat drastis agar tidak menumpuk
+      // 2. MENGATUR JARAK GARIS SECARA DINAMIS BERDASARKAN JUMLAH CABANG
+      .force("link", d3.forceLink(links).id((d: any) => d.id).distance((link: any) => {
+          // D3 terkadang mengubah source/target menjadi objek, jadi kita ambil ID-nya
+          const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+          const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+          
+          // Ambil jumlah cabang dari node asal dan node tujuan
+          const sourceDegree = nodeDegrees[sourceId] || 1;
+          const targetDegree = nodeDegrees[targetId] || 1;
+          
+          // Kita cari node mana yang paling banyak cabangnya di antara kedua ujung garis tersebut
+          const maxBranches = Math.max(sourceDegree, targetDegree);
+          
+          // RUMUS PANJANG GARIS:
+          // Jarak minimum 120, lalu ditambah 40 piksel untuk setiap 1 cabang tambahan.
+          // Anda bisa mengubah angka 120 dan 40 ini jika dirasa kurang panjang/pendek
+          return 120 + (maxBranches * 40);
+      }))
+      .force("charge", d3.forceManyBody().strength(-2500))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collide", d3.forceCollide().radius(100).iterations(3))
       .alphaDecay(0.08); // Mempercepat waktu berhenti simulasi agar tidak terus melayang di angkasa
