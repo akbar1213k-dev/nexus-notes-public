@@ -145,23 +145,19 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
 
     // Simulation Setup
     const simulation = d3.forceSimulation(nodes)
-      // 2. MENGATUR JARAK GARIS SECARA DINAMIS BERDASARKAN JUMLAH CABANG
+      // 2. MENGATUR JARAK GARIS SECARA DINAMIS BERDASARKAN JUMLAH CABANG (DIPANGKAS 50%)
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance((link: any) => {
-          // D3 terkadang mengubah source/target menjadi objek, jadi kita ambil ID-nya
           const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
           const targetId = typeof link.target === 'object' ? link.target.id : link.target;
           
-          // Ambil jumlah cabang dari node asal dan node tujuan
           const sourceDegree = nodeDegrees[sourceId] || 1;
           const targetDegree = nodeDegrees[targetId] || 1;
           
-          // Kita cari node mana yang paling banyak cabangnya di antara kedua ujung garis tersebut
           const maxBranches = Math.max(sourceDegree, targetDegree);
           
-          // RUMUS PANJANG GARIS:
-          // Jarak minimum 120, lalu ditambah 40 piksel untuk setiap 1 cabang tambahan.
-          // Anda bisa mengubah angka 120 dan 40 ini jika dirasa kurang panjang/pendek
-          return 120 + (maxBranches * 40);
+          // RUMUS PANJANG GARIS BARU (Dipotong 50% dari sebelumnya):
+          // Jarak minimum 60, lalu ditambah 20 piksel untuk setiap 1 cabang tambahan.
+          return 60 + (maxBranches * 20);
       }))
       .force("charge", d3.forceManyBody().strength(-2500))
       .force("center", d3.forceCenter(width / 2, height / 2))
