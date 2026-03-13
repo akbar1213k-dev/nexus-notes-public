@@ -134,11 +134,12 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
     const height = dimensions.height;
 
     // Simulation Setup
-    const simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
-      .force("charge", d3.forceManyBody().strength(-500))
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide().radius(80).iterations(2));
+    const simulation = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(250)) // Jarak diperpanjang agar garis lebih terlihat
+      .force("charge", d3.forceManyBody().strength(-2500)) // Tolakan diperkuat drastis agar tidak menumpuk
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collide", d3.forceCollide().radius(100).iterations(3))
+      .alphaDecay(0.08); // Mempercepat waktu berhenti simulasi agar tidak terus melayang di angkasa
 
     const svg = d3.select(svgRef.current)
       .attr("width", width)
@@ -146,11 +147,11 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
       .attr("viewBox", [0, 0, width, height])
       .attr("style", "max-width: 100%; height: auto;");
 
-    // --- Definisi Marker Panah ---
-    svg.append("defs").append("marker")
-      .attr("id", "arrowhead")
-      .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 38)
+   // --- Definisi Marker Panah ---
+    svg.append("defs").append("marker")
+      .attr("id", "arrowhead")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 65) // Diperbesar agar ujung panah berada di luar area kotak
       .attr("refY", 0)
       .attr("markerWidth", 6)
       .attr("markerHeight", 6)
@@ -298,8 +299,9 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
           .attr("y", -d.height / 2);
     });
 
-    // Memperbarui radius tabrakan (collide) secara dinamis sesuai ukuran asli setiap kotak
-    simulation.force("collide", d3.forceCollide().radius((d: any) => Math.max(d.width, d.height) / 2 + 15).iterations(5));
+    // Memperbarui radius tabrakan (collide) secara dinamis menggunakan jarak diagonal
+    // Ini memastikan seluruh sudut persegi panjang terlindungi dari tumpang tindih
+    simulation.force("collide", d3.forceCollide().radius((d: any) => Math.sqrt(Math.pow(d.width, 2) + Math.pow(d.height, 2)) / 2 + 15).iterations(5));
 
     node.on("click", (event, d) => {
         if (navigator.vibrate) navigator.vibrate(10);
