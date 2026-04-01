@@ -476,6 +476,9 @@ export default function App() {
       const activeNote = notes.find(n => n.id === currentNoteId);
       return activeNote ? (activeNote.title || 'Untitled Note') : 'Nexus Notes';
     }
+    if (viewMode === 'TRACT') {
+      return 'Activity Tracker';
+    }
     return 'Nexus Notes';
   };
 
@@ -663,6 +666,18 @@ export default function App() {
     if (!isReady) return <div className="flex h-full items-center justify-center text-gray-400 font-medium">Memuat data...</div>;
 
     switch (viewMode) {
+        case 'TRACT':
+            // Placeholder: File TractView.tsx akan kita buat di Tahap 2
+            return (
+                <div className="flex-1 p-6 flex flex-col items-center justify-center bg-white dark:bg-gray-900 transition-colors">
+                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                        <ActivityIcon size={32} />
+                    </div>
+                    <h2 className="text-2xl font-bold dark:text-white">TractApp Sedang Disiapkan...</h2>
+                    <p className="text-gray-500 mt-2 text-center max-w-md">Pondasi berhasil! Kita akan merender UI TractApp secara penuh dengan integrasi fitur "@" di sini pada tahap selanjutnya.</p>
+                </div>
+            );
+        
         case 'SETTINGS':
             return (
                 <SettingsView 
@@ -753,6 +768,7 @@ export default function App() {
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
+                    onOpenTractApp={() => navigateTo('TRACT')}
                     onPermanentDelete={handleHardDelete}
                     onMoveItems={(noteIds, folderIds, targetFolderId) => {
                          // 1. Pindahkan Notes
