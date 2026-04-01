@@ -1,7 +1,16 @@
 import * as d3 from 'd3';
 
 // View Mode: Menambahkan 'SETTINGS' sesuai permintaan fitur sebelumnya
-export type ViewMode = 'HOME' | 'EDITOR' | 'GRAPH' | 'SETTINGS';
+export type ViewMode = 'HOME' | 'EDITOR' | 'GRAPH' | 'SETTINGS' | 'TRACT';
+
+export interface Activity {
+  id: string;
+  name: string;
+  type: string;
+  timestamp: number;
+  description: string;
+  userId?: string;
+}
 
 export interface Note {
   id: string;
