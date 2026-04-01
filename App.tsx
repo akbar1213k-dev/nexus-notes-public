@@ -1,4 +1,4 @@
-import { X, Folder as FolderIcon } from 'lucide-react'; 
+import { X, Folder as FolderIcon, Activity } from 'lucide-react'; 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, Folder, ViewMode, EditorHandle } from './types';
 import { Editor } from './components/Editor';
@@ -671,7 +671,7 @@ export default function App() {
             return (
                 <div className="flex-1 p-6 flex flex-col items-center justify-center bg-white dark:bg-gray-900 transition-colors">
                     <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                        <ActivityIcon size={32} />
+                        <Activity size={32} />
                     </div>
                     <h2 className="text-2xl font-bold dark:text-white">TractApp Sedang Disiapkan...</h2>
                     <p className="text-gray-500 mt-2 text-center max-w-md">Pondasi berhasil! Kita akan merender UI TractApp secara penuh dengan integrasi fitur "@" di sini pada tahap selanjutnya.</p>
