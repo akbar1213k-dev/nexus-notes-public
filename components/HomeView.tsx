@@ -6,7 +6,7 @@ import {
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
-  History // <--- Tambahkan ini
+  History, Activity // <--- Tambahkan ini
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -21,6 +21,7 @@ interface HomeViewProps {
   onMoveItems: (noteIds: string[], folderIds: string[], targetFolderId: string | undefined) => void;
   onImportData?: (data: any) => void;
   onRestoreItems: (noteIds: string[], folderIds: string[]) => void;
+  onOpenTractApp: () => void;
   onPermanentDelete: (noteIds: string[], folderIds: string[]) => void;
 }
 
@@ -86,6 +87,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onMoveItems,
   onImportData,
   onRestoreItems,
+  onOpenTractApp,
   onPermanentDelete
 }) => {
   // Navigation State
@@ -861,6 +863,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-20">
             {fabExpanded && (
                 <>
+                  {/* 0. Tombol TRACT APP */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onOpenTractApp(); }} 
+                        className="flex items-center gap-2 pr-4 pl-2 py-2 bg-emerald-600 text-white rounded-full shadow-lg hover:bg-emerald-700 animate-in slide-in-from-bottom-5 fade-in duration-200"
+                    >
+                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                            <Activity size={20} />
+                        </div>
+                        <span className="font-medium whitespace-nowrap">TractApp</span>
+                    </button>
+                  
                     {/* 1. Tombol FOLDER (Selalu Muncul) */}
                     <button 
                         onClick={(e) => { e.stopPropagation(); triggerCreateFolder(); }} 
