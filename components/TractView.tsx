@@ -44,7 +44,7 @@ interface Activity {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
 
-export default function App() {
+export function TractView({ onGoHome }: { onGoHome?: () => void }) {
   const [activities, setActivities] = useState<Activity[]>(() => {
     const saved = localStorage.getItem('tractapp_activities');
     if (saved) return JSON.parse(saved);
