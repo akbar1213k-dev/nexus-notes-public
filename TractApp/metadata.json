@@ -1,0 +1,5 @@
+{
+  "name": "Activity Tracker",
+  "description": "Aplikasi tracking aktivitas dengan fitur input, statistik, dan tabel riwayat.",
+  "requestFramePermissions": []
+}
