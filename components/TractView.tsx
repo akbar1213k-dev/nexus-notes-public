@@ -47,9 +47,13 @@ interface Activity {
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
 
 export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?: string }) {
-  const [activities, setActivities] = useState<Activity[]>([]);
+  // PENYIMPANAN HYBRID: Load pertama kali dari LocalStorage (Bisa jalan saat offline)
+  const [activities, setActivities] = useState<Activity[]>(() => {
+    const saved = localStorage.getItem('tractapp_activities');
+    return saved ? JSON.parse(saved) : [];
+  });
 
-  // Sinkronisasi otomatis dengan Firebase
+  // Sinkronisasi otomatis dengan Firebase (Update data dari awan)
   useEffect(() => {
     if (!userId) return;
     const q = query(collection(db, 'activities'), where('userId', '==', userId));
@@ -163,6 +167,21 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
 
   const handleQuickSave = (suggName: string, suggType: string) => {
     const newActivity: Activity = {
+      id: Date.now().toString(),
+      name: suggName.trim(),
+      type: suggType.trim() || 'Lainnya',
+      timestamp: Date.now(),
+      description: description.trim(), 
+      userId: userId || '' 
+    };
+
+    // Simpan ke Firebase
+    if (userId) {
+      setDoc(doc(db, 'activities', newActivity.id), newActivity);
+    }
+
+    const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
+    setActivities(updatedActivities);
     
     // Perbarui daftar saran (pindahkan ke posisi paling baru/kiri)
     setActivitySuggestions(prev => {
