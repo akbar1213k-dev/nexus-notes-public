@@ -1,4 +1,4 @@
-import { X, Folder as FolderIcon, Activity } from 'lucide-react'; 
+import { X, Folder as FolderIcon } from 'lucide-react'; 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, Folder, ViewMode, EditorHandle } from './types';
 import { Editor } from './components/Editor';
