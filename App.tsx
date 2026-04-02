@@ -7,7 +7,7 @@ import { TopBar } from './components/TopBar';
 import { HomeView } from './components/HomeView';
 import { PreviewSheet } from './components/PreviewSheet';
 import { SettingsView } from './components/SettingsView';
-
+import { TractView } from './components/TractView';
 import { db, auth } from './services/firebase'; 
 import { 
   collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, updateDoc, where 
@@ -667,14 +667,9 @@ export default function App() {
 
     switch (viewMode) {
         case 'TRACT':
-            // Placeholder: File TractView.tsx akan kita buat di Tahap 2
             return (
-                <div className="flex-1 p-6 flex flex-col items-center justify-center bg-white dark:bg-gray-900 transition-colors">
-                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                        <Activity size={32} />
-                    </div>
-                    <h2 className="text-2xl font-bold dark:text-white">TractApp Sedang Disiapkan...</h2>
-                    <p className="text-gray-500 mt-2 text-center max-w-md">Pondasi berhasil! Kita akan merender UI TractApp secara penuh dengan integrasi fitur "@" di sini pada tahap selanjutnya.</p>
+                <div className="absolute inset-0 z-50 bg-white dark:bg-gray-950 overflow-hidden flex flex-col">
+                    <TractView onGoHome={() => setViewMode('HOME')} />
                 </div>
             );
         
@@ -768,7 +763,7 @@ export default function App() {
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
-                    onOpenTractApp={() => navigateTo('TRACT')}
+                    onOpenTractApp={() => setViewMode('TRACT')}
                     onPermanentDelete={handleHardDelete}
                     onMoveItems={(noteIds, folderIds, targetFolderId) => {
                          // 1. Pindahkan Notes
