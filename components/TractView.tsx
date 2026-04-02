@@ -291,62 +291,66 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     : '-';
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row">
-      {/* Sidebar Navigation */}
-      <aside className="w-full md:w-64 bg-white border-r border-slate-200 flex-shrink-0">
-        <div className="p-6 border-b border-slate-200 flex items-center gap-3">
+     <div className="h-full w-full bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row overflow-hidden">
+      {/* Menu Navigasi (Horizontal di Mobile, Vertikal di Desktop) */}
+      <aside className="w-full md:w-64 bg-white border-b md:border-r md:border-b-0 border-slate-200 flex-shrink-0 flex flex-col z-10 shadow-sm md:shadow-none">
+        <div className="p-4 md:p-6 border-b border-slate-100 flex items-center gap-3">
           {onGoHome && (
-            <button onClick={onGoHome} className="p-2 -ml-2 hover:bg-slate-100 rounded-lg transition-colors" title="Kembali ke Home">
-              <X size={20} className="text-slate-500" />
+            <button onClick={onGoHome} className="p-2 -ml-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors" title="Kembali ke Home">
+              <X size={18} className="text-slate-600" />
             </button>
           )}
-          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <ActivityIcon className="text-blue-600" />
-            ActivityTracker
+          <h1 className="text-lg md:text-xl font-bold text-slate-800 flex items-center gap-2">
+            <ActivityIcon className="text-blue-600" size={22} />
+            <span className="hidden sm:inline">ActivityTracker</span>
+            <span className="sm:hidden">Tracker</span>
           </h1>
         </div>
-        <nav className="p-4 space-y-2">
+        <nav className="p-2 md:p-4 flex flex-row md:flex-col gap-1 md:gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('input')}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+              "flex-1 md:w-full flex justify-center md:justify-start items-center gap-2 px-3 py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-colors whitespace-nowrap",
               activeTab === 'input' 
-                ? "bg-blue-50 text-blue-700" 
+                ? "bg-blue-600 text-white shadow-md" 
                 : "text-slate-600 hover:bg-slate-100"
             )}
           >
-            <Plus size={18} />
-            Input Aktivitas
+            <Plus size={16} />
+            <span className="hidden sm:inline">Input Aktivitas</span>
+            <span className="sm:hidden">Input</span>
           </button>
           <button
             onClick={() => setActiveTab('list')}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+              "flex-1 md:w-full flex justify-center md:justify-start items-center gap-2 px-3 py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-colors whitespace-nowrap",
               activeTab === 'list' 
-                ? "bg-blue-50 text-blue-700" 
+                ? "bg-blue-600 text-white shadow-md" 
                 : "text-slate-600 hover:bg-slate-100"
             )}
           >
-            <List size={18} />
-            Riwayat Aktivitas
+            <List size={16} />
+            <span className="hidden sm:inline">Riwayat Aktivitas</span>
+            <span className="sm:hidden">Riwayat</span>
           </button>
           <button
             onClick={() => setActiveTab('stats')}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+              "flex-1 md:w-full flex justify-center md:justify-start items-center gap-2 px-3 py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-colors whitespace-nowrap",
               activeTab === 'stats' 
-                ? "bg-blue-50 text-blue-700" 
+                ? "bg-blue-600 text-white shadow-md" 
                 : "text-slate-600 hover:bg-slate-100"
             )}
           >
-            <BarChart3 size={18} />
-            Statistik
+            <BarChart3 size={16} />
+            <span className="hidden sm:inline">Statistik</span>
+            <span className="sm:hidden">Stats</span>
           </button>
         </nav>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-6 md:p-8 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24">
         
         {/* TAB: INPUT */}
         {activeTab === 'input' && (
@@ -478,25 +482,25 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                 </span>
               </div>
               
-              <div className="flex flex-wrap gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <div>
+              <div className="grid grid-cols-2 md:flex md:flex-wrap gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                <div className="col-span-2 sm:col-span-1">
                   <label className="text-xs font-medium text-slate-500 block mb-1">Kumpulkan</label>
                   <select 
                     value={groupBy} 
                     onChange={e => setGroupBy(e.target.value as any)}
-                    className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                    className="w-full text-sm border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   >
                     <option value="none">Tidak ada</option>
                     <option value="month">Per Bulan</option>
                     <option value="type">Per Jenis</option>
                   </select>
                 </div>
-                <div>
+                <div className="col-span-1">
                   <label className="text-xs font-medium text-slate-500 block mb-1">Filter</label>
                   <select 
                     value={filterType} 
                     onChange={e => setFilterType(e.target.value)}
-                    className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                    className="w-full text-sm border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   >
                     <option value="All">Semua Jenis</option>
                     {uniqueActivityTypesForFilter.map(t => (
@@ -504,12 +508,12 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="col-span-1">
                   <label className="text-xs font-medium text-slate-500 block mb-1">Urutkan</label>
                   <select 
                     value={sortBy} 
                     onChange={e => setSortBy(e.target.value as any)}
-                    className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                    className="w-full text-sm border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   >
                     <option value="newest">Terbaru</option>
                     <option value="oldest">Terlama</option>
@@ -553,63 +557,52 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                         <h3 className="font-semibold text-slate-700">{groupName} <span className="text-sm font-normal text-slate-500 ml-2">({groupActs.length})</span></h3>
                       </div>
                     )}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-sm">
-                            <th className="px-6 py-4 font-medium">Waktu (Auto)</th>
-                            <th className="px-6 py-4 font-medium">Aktivitas</th>
-                            <th className="px-6 py-4 font-medium">Jenis</th>
-                            <th className="px-6 py-4 font-medium">Keterangan</th>
-                            <th className="px-6 py-4 font-medium text-right">Aksi</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {groupActs.map((activity) => (
-                            <tr key={activity.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">
-                                {format(activity.timestamp, 'dd MMM yyyy, HH:mm', { locale: id })}
-                              </td>
-                              <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                                {activity.name}
-                              </td>
-                              <td className="px-6 py-4 text-sm">
-                               <span className={cn(
-                                  "px-2.5 py-1 rounded-full text-xs font-medium",
-                                  activity.type === 'Olahraga' ? "bg-blue-100 text-blue-700" :
-                                  activity.type === 'Belajar' ? "bg-emerald-100 text-emerald-700" :
-                                  activity.type === 'Bekerja' ? "bg-amber-100 text-amber-700" :
-                                  activity.type === 'Hobi' ? "bg-purple-100 text-purple-700" :
-                                  "bg-slate-100 text-slate-700"
-                                )}>
-                                  {activity.type}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate">
-                                {activity.description || '-'}
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <button
-                                    onClick={() => openEditModal(activity)}
-                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                    title="Edit"
-                                  >
-                                    <Edit2 size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() => setDeletingId(activity.id)}
-                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                    title="Hapus"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+
+                    <div className="flex flex-col">
+                      {groupActs.map((activity) => (
+                        <div key={activity.id} className="border-t border-slate-100 p-4 hover:bg-slate-50 transition-colors flex flex-col gap-3">
+                          <div className="flex justify-between items-start gap-3">
+                            <div className="flex-1">
+                               <h4 className="font-bold text-slate-900 text-base leading-tight mb-1">{activity.name}</h4>
+                               <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                  <Clock size={12} />
+                                  <span>{format(activity.timestamp, 'dd MMM yyyy, HH:mm', { locale: id })}</span>
+                               </div>
+                            </div>
+                            <span className={cn(
+                                "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap",
+                                activity.type === 'Olahraga' ? "bg-blue-100 text-blue-700" :
+                                activity.type === 'Belajar' ? "bg-emerald-100 text-emerald-700" :
+                                activity.type === 'Bekerja' ? "bg-amber-100 text-amber-700" :
+                                activity.type === 'Hobi' ? "bg-purple-100 text-purple-700" :
+                                "bg-slate-100 text-slate-700"
+                              )}>
+                                {activity.type}
+                            </span>
+                          </div>
+                          
+                          {activity.description && (
+                            <p className="text-sm text-slate-600 bg-white border border-slate-100 p-3 rounded-lg shadow-sm">
+                               {activity.description}
+                            </p>
+                          )}
+                          
+                          <div className="flex items-center justify-end gap-2 mt-1">
+                            <button
+                              onClick={() => openEditModal(activity)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                            >
+                              <Edit2 size={14} /> Edit
+                            </button>
+                            <button
+                              onClick={() => setDeletingId(activity.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                            >
+                              <Trash2 size={14} /> Hapus
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
