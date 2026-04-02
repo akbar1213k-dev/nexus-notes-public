@@ -695,7 +695,7 @@ export default function App() {
         case 'TRACT':
             return (
                 <div className="absolute inset-0 z-50 bg-white dark:bg-gray-950 overflow-hidden flex flex-col">
-                    <TractView onGoHome={() => setViewMode('HOME')} userId={user?.uid} />
+                    <TractView onGoHome={() => navigateTo('HOME')} userId={user?.uid} />
                 </div>
             );
         
@@ -789,7 +789,7 @@ export default function App() {
                     onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
-                    onOpenTractApp={() => setViewMode('TRACT')}
+                    onOpenTractApp={() => navigateTo('TRACT')}
                     onPermanentDelete={handleHardDelete}
                     onMoveItems={(noteIds, folderIds, targetFolderId) => {
                          // 1. Pindahkan Notes
