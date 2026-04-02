@@ -669,7 +669,7 @@ export default function App() {
         case 'TRACT':
             return (
                 <div className="absolute inset-0 z-50 bg-white dark:bg-gray-950 overflow-hidden flex flex-col">
-                    <TractView onGoHome={() => setViewMode('HOME')} />
+                    <TractView onGoHome={() => setViewMode('HOME')} userId={user?.uid} />
                 </div>
             );
         
