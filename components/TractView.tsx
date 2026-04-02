@@ -27,6 +27,8 @@ import {
 } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { db } from '../services/firebase';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
 
 // Utility for Tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -44,16 +46,21 @@ interface Activity {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
 
-export function TractView({ onGoHome }: { onGoHome?: () => void }) {
-  const [activities, setActivities] = useState<Activity[]>(() => {
-    const saved = localStorage.getItem('tractapp_activities');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: '1', name: 'Lari Pagi', type: 'Olahraga', timestamp: Date.now() - 86400000 * 2, description: 'Lari keliling komplek 5km' },
-      { id: '2', name: 'Meeting Proyek', type: 'Bekerja', timestamp: Date.now() - 86400000, description: 'Diskusi fitur baru dengan tim' },
-      { id: '3', name: 'Membaca Buku', type: 'Belajar', timestamp: Date.now() - 3600000, description: 'Membaca buku Atomic Habits bab 1-3' }
-    ];
-  });
+export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?: string }) {
+  const [activities, setActivities] = useState<Activity[]>([]);
+
+  // Sinkronisasi otomatis dengan Firebase
+  useEffect(() => {
+    if (!userId) return;
+    const q = query(collection(db, 'activities'), where('userId', '==', userId));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedData = snapshot.docs.map(doc => doc.data() as Activity);
+        fetchedData.sort((a, b) => b.timestamp - a.timestamp); // Urutkan terbaru
+        setActivities(fetchedData);
+    });
+    return () => unsubscribe();
+  }, [userId]);
+  
   const [activeTab, setActiveTab] = useState<'input' | 'list' | 'stats'>('input');
   
   // Suggestions State
@@ -122,8 +129,14 @@ export function TractView({ onGoHome }: { onGoHome?: () => void }) {
       name: name.trim(),
       type,
       timestamp: Date.now(), // Auto-generated time
-      description: description.trim()
+      description: description.trim(),
+      userId: userId || '' // Tambahkan ID User
     };
+
+    // Simpan ke Firebase
+    if (userId) {
+      setDoc(doc(db, 'activities', newActivity.id), newActivity);
+    }
 
     const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
     setActivities(updatedActivities);
@@ -150,15 +163,6 @@ export function TractView({ onGoHome }: { onGoHome?: () => void }) {
 
   const handleQuickSave = (suggName: string, suggType: string) => {
     const newActivity: Activity = {
-      id: Date.now().toString(),
-      name: suggName.trim(),
-      type: suggType.trim() || 'Lainnya',
-      timestamp: Date.now(),
-      description: description.trim() // Mengambil teks keterangan saat ini (jika ada)
-    };
-
-    const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
-    setActivities(updatedActivities);
     
     // Perbarui daftar saran (pindahkan ke posisi paling baru/kiri)
     setActivitySuggestions(prev => {
@@ -182,13 +186,24 @@ export function TractView({ onGoHome }: { onGoHome?: () => void }) {
     e.preventDefault();
     if (!editName.trim() || !editingId) return;
 
+    const updatedActivity = {
+        id: editingId,
+        name: editName.trim(),
+        type: editType,
+        timestamp: editTimestamp,
+        description: editDescription.trim(),
+        userId: userId || ''
+    };
+
+    // Update di Firebase
+    if (userId) {
+        setDoc(doc(db, 'activities', editingId), updatedActivity, { merge: true });
+    }
+
     const updatedActivities = activities.map(act => 
-      act.id === editingId 
-        ? { ...act, name: editName.trim(), type: editType, timestamp: editTimestamp, description: editDescription.trim() }
-        : act
+      act.id === editingId ? updatedActivity : act
     );
     
-    // Mengurutkan berdasarkan waktu (terbaru di atas)
     updatedActivities.sort((a, b) => b.timestamp - a.timestamp);
 
     setActivities(updatedActivities);
@@ -205,6 +220,10 @@ export function TractView({ onGoHome }: { onGoHome?: () => void }) {
 
   const confirmDelete = () => {
     if (deletingId) {
+      // Hapus dari Firebase
+      if (userId) {
+         deleteDoc(doc(db, 'activities', deletingId));
+      }
       setActivities(activities.filter(a => a.id !== deletingId));
       setDeletingId(null);
     }
