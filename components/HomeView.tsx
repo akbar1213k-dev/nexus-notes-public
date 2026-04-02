@@ -6,7 +6,7 @@ import {
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
-  History, Activity // <--- Tambahkan ini
+  History, Activity
 } from 'lucide-react';
 
 interface HomeViewProps {
