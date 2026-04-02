@@ -205,7 +205,26 @@ export default function App() {
   }, [isDarkMode]);
 
   useEffect(() => {
-    window.history.replaceState({ mode: 'HOME', noteId: '' }, '', '');
+    // Membaca URL saat aplikasi pertama kali dibuka (Direct Link)
+    const path = window.location.pathname.toLowerCase();
+    let initialMode: ViewMode = 'HOME';
+    let initialNoteId = '';
+
+    if (path === '/tractapp') {
+        initialMode = 'TRACT';
+    } else if (path === '/settings') {
+        initialMode = 'SETTINGS';
+    } else if (path === '/graph') {
+        initialMode = 'GRAPH';
+    } else if (path.startsWith('/editor/')) {
+        initialMode = 'EDITOR';
+        initialNoteId = path.replace('/editor/', '');
+    }
+
+    setViewMode(initialMode);
+    setCurrentNoteId(initialNoteId);
+    window.history.replaceState({ mode: initialMode, noteId: initialNoteId }, '', path);
+
     const handlePopState = (event: PopStateEvent) => {
       if (event.state) {
         setViewMode(event.state.mode);
@@ -238,9 +257,16 @@ export default function App() {
     // --------------
     setViewMode(mode);
     setCurrentNoteId(noteId);
-    window.history.pushState({ mode, noteId }, '', '');
-  };
+    
+    // Mengubah URL Address Bar sesuai menu yang dibuka
+    let newPath = '/';
+    if (mode === 'TRACT') newPath = '/tractapp';
+    else if (mode === 'SETTINGS') newPath = '/settings';
+    else if (mode === 'GRAPH') newPath = '/graph';
+    else if (mode === 'EDITOR') newPath = `/editor/${noteId}`;
 
+    window.history.pushState({ mode, noteId }, '', newPath);
+  };
   // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
