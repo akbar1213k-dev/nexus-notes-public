@@ -256,7 +256,12 @@ export function TractView({ onGoHome }: { onGoHome?: () => void }) {
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row">
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-white border-r border-slate-200 flex-shrink-0">
-        <div className="p-6 border-b border-slate-200">
+        <div className="p-6 border-b border-slate-200 flex items-center gap-3">
+          {onGoHome && (
+            <button onClick={onGoHome} className="p-2 -ml-2 hover:bg-slate-100 rounded-lg transition-colors" title="Kembali ke Home">
+              <X size={20} className="text-slate-500" />
+            </button>
+          )}
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <ActivityIcon className="text-blue-600" />
             ActivityTracker
