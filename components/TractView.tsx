@@ -42,6 +42,10 @@ interface Activity {
   type: string;
   timestamp: number;
   description: string;
+  userId?: string;
+  startTime?: number;
+  endTime?: number;
+  duration?: number;
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
@@ -87,6 +91,9 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [name, setName] = useState('');
   const [type, setType] = useState<string>('');
   const [description, setDescription] = useState('');
+  const [startTimeInput, setStartTimeInput] = useState('');
+  const [endTimeInput, setEndTimeInput] = useState('');
+  const [durationInput, setDurationInput] = useState('');
   
   // Save to LocalStorage effects
   useEffect(() => {
@@ -106,8 +113,10 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState<string>('');
   const [editDescription, setEditDescription] = useState('');
-  const [editTimestamp, setEditTimestamp] = useState<number>(Date.now());
-
+  const [editStartTime, setEditStartTime] = useState('');
+  const [editEndTime, setEditEndTime] = useState('');
+  const [editDuration, setEditDuration] = useState('');
+  
   // List Controls State (Filter, Sort, Group)
   const [groupBy, setGroupBy] = useState<'none' | 'month' | 'type'>('none');
   const [filterType, setFilterType] = useState<string>('All');
@@ -128,24 +137,60 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     e.preventDefault();
     if (!name.trim()) return;
 
+    const now = Date.now();
+    let finalStartTime = now;
+    let finalEndTime: number | undefined = undefined;
+    let finalDuration: number | undefined = undefined;
+
+    const durNum = durationInput ? Number(durationInput) : undefined;
+    const startMs = startTimeInput ? new Date(startTimeInput).getTime() : undefined;
+    const endMs = endTimeInput ? new Date(endTimeInput).getTime() : undefined;
+
+    // RULE 3: Isi durasi saja -> Selesai = Waktu Simpan, Mulai mundur
+    if (durNum && !startMs && !endMs) {
+      finalEndTime = now;
+      finalDuration = durNum;
+      finalStartTime = now - (durNum * 60000);
+    } 
+    // RULE 4: Mulai & Selesai diisi -> Hitung durasi otomatis
+    else if (startMs && endMs) {
+      finalStartTime = startMs;
+      finalEndTime = endMs;
+      finalDuration = Math.max(0, Math.round((endMs - startMs) / 60000));
+    } 
+    // Mulai & Durasi diisi -> Selesai dihitung maju
+    else if (startMs && durNum) {
+      finalStartTime = startMs;
+      finalDuration = durNum;
+      finalEndTime = startMs + (durNum * 60000);
+    } 
+    // Hanya Mulai diisi
+    else if (startMs) {
+      finalStartTime = startMs;
+    }
+
     const newActivity: Activity = {
-      id: Date.now().toString(),
+      id: now.toString(),
       name: name.trim(),
       type,
-      timestamp: Date.now(), // Auto-generated time
+      timestamp: now,
       description: description.trim(),
-      userId: userId || '' // Tambahkan ID User
+      userId: userId || '',
+      startTime: finalStartTime,
+      endTime: finalEndTime,
+      duration: finalDuration
     };
 
-    // Simpan ke Firebase
     if (userId) {
-      setDoc(doc(db, 'activities', newActivity.id), newActivity);
+      setDoc(doc(db, 'activities', newActivity.id), newActivity).catch(err => {
+         console.error("Gagal simpan ke Firebase:", err);
+         alert("Gagal sinkronisasi ke awan! Error: " + err.message);
+      });
     }
 
     const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
     setActivities(updatedActivities);
     
-    // Perbarui daftar saran: pindahkan ke depan (kiri) jika sudah ada, atau tambahkan baru
     const trimmedName = name.trim();
     const trimmedType = type.trim() || 'Lainnya';
 
@@ -159,31 +204,31 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       return [trimmedType, ...filtered];
     });
 
-    setName('');
-    setDescription('');
-    setType('');
-    setActiveTab('list'); // Redirect to list after input
+    setName(''); setDescription(''); setType('');
+    setStartTimeInput(''); setEndTimeInput(''); setDurationInput('');
+    setActiveTab('list');
   };
 
   const handleQuickSave = (suggName: string, suggType: string) => {
+    const now = Date.now();
+    // RULE 1: Default tanpa input waktu (Waktu mulai = Waktu Simpan)
     const newActivity: Activity = {
-      id: Date.now().toString(),
+      id: now.toString(),
       name: suggName.trim(),
       type: suggType.trim() || 'Lainnya',
-      timestamp: Date.now(),
+      timestamp: now,
       description: description.trim(), 
-      userId: userId || '' 
+      userId: userId || '',
+      startTime: now
     };
 
-    // Simpan ke Firebase
     if (userId) {
-      setDoc(doc(db, 'activities', newActivity.id), newActivity);
+      setDoc(doc(db, 'activities', newActivity.id), newActivity).catch(err => console.error("Gagal:", err));
     }
 
     const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
     setActivities(updatedActivities);
     
-    // Perbarui daftar saran (pindahkan ke posisi paling baru/kiri)
     setActivitySuggestions(prev => {
       const filtered = prev.filter(s => s.name.toLowerCase() !== suggName.toLowerCase());
       return [{ name: suggName, type: suggType || 'Lainnya' }, ...filtered];
@@ -194,35 +239,51 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       return [suggType || 'Lainnya', ...filtered];
     });
 
-    // Reset form
-    setName('');
-    setDescription('');
-    setType('');
-    setActiveTab('list'); // Pindah ke tab riwayat
+    setName(''); setDescription(''); setType('');
+    setStartTimeInput(''); setEndTimeInput(''); setDurationInput('');
+    setActiveTab('list');
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName.trim() || !editingId) return;
 
-    const updatedActivity = {
+    const durNum = editDuration ? Number(editDuration) : undefined;
+    const startMs = editStartTime ? new Date(editStartTime).getTime() : undefined;
+    const endMs = editEndTime ? new Date(editEndTime).getTime() : undefined;
+
+    let finalStartTime = startMs;
+    let finalEndTime = endMs;
+    let finalDuration = durNum;
+
+    // RULE 2: Kalkulasi otomatis saat edit
+    if (startMs && endMs) {
+        finalDuration = Math.max(0, Math.round((endMs - startMs) / 60000));
+    } else if (startMs && durNum) {
+        finalEndTime = startMs + (durNum * 60000);
+    } else if (endMs && durNum) {
+        finalStartTime = endMs - (durNum * 60000);
+    }
+
+    const originalActivity = activities.find(a => a.id === editingId);
+
+    const updatedActivity: Activity = {
         id: editingId,
         name: editName.trim(),
         type: editType,
-        timestamp: editTimestamp,
+        timestamp: originalActivity ? originalActivity.timestamp : Date.now(),
         description: editDescription.trim(),
-        userId: userId || ''
+        userId: userId || '',
+        startTime: finalStartTime,
+        endTime: finalEndTime,
+        duration: finalDuration
     };
 
-    // Update di Firebase
     if (userId) {
-        setDoc(doc(db, 'activities', editingId), updatedActivity, { merge: true });
+        setDoc(doc(db, 'activities', editingId), updatedActivity, { merge: true }).catch(err => console.error("Gagal update:", err));
     }
 
-    const updatedActivities = activities.map(act => 
-      act.id === editingId ? updatedActivity : act
-    );
-    
+    const updatedActivities = activities.map(act => act.id === editingId ? updatedActivity : act);
     updatedActivities.sort((a, b) => b.timestamp - a.timestamp);
 
     setActivities(updatedActivities);
@@ -233,8 +294,10 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     setEditingId(activity.id);
     setEditName(activity.name);
     setEditType(activity.type);
-    setEditDescription(activity.description);
-    setEditTimestamp(activity.timestamp);
+    setEditDescription(activity.description || '');
+    setEditStartTime(activity.startTime ? format(activity.startTime, "yyyy-MM-dd'T'HH:mm") : '');
+    setEditEndTime(activity.endTime ? format(activity.endTime, "yyyy-MM-dd'T'HH:mm") : '');
+    setEditDuration(activity.duration ? activity.duration.toString() : '');
   };
 
   const confirmDelete = () => {
@@ -452,6 +515,45 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                   )}
                 </div>
 
+                {/* 3.5 Pengaturan Waktu Spesifik */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Waktu Mulai (Opsional)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={startTimeInput}
+                      onChange={(e) => setStartTimeInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Waktu Selesai (Opsional)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={endTimeInput}
+                      onChange={(e) => setEndTimeInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Durasi (Menit)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={durationInput}
+                      onChange={(e) => setDurationInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                      placeholder="Misal: 60"
+                    />
+                  </div>
+                </div>
+
                 {/* 4. Submit */}
                 <div className="pt-4">
                   <button
@@ -564,9 +666,16 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                           <div className="flex justify-between items-start gap-3">
                             <div className="flex-1">
                                <h4 className="font-bold text-slate-900 text-base leading-tight mb-1">{activity.name}</h4>
-                               <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                                  <Clock size={12} />
-                                  <span>{format(activity.timestamp, 'dd MMM yyyy, HH:mm', { locale: id })}</span>
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500">
+                                  <Clock size={12} className="text-blue-500" />
+                                  <span>
+                                    {format(activity.startTime || activity.timestamp, 'dd MMM yyyy')} • 
+                                    <span className="text-slate-800 ml-1">
+                                      {format(activity.startTime || activity.timestamp, 'HH:mm')}
+                                      {activity.endTime ? ` - ${format(activity.endTime, 'HH:mm')}` : ''}
+                                    </span>
+                                    {activity.duration ? ` (${activity.duration} menit)` : ''}
+                                  </span>
                                </div>
                             </div>
                             <span className={cn(
@@ -728,21 +837,35 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Waktu Aktivitas
-                </label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={format(editTimestamp, "yyyy-MM-dd'T'HH:mm")}
-                  onChange={(e) => {
-                    const newTime = new Date(e.target.value).getTime();
-                    // Cegah blank screen dengan mengecek validitas input tanggal
-                    if (!isNaN(newTime)) setEditTimestamp(newTime);
-                  }}
-                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Waktu Mulai</label>
+                  <input
+                    type="datetime-local"
+                    value={editStartTime}
+                    onChange={(e) => setEditStartTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Waktu Selesai</label>
+                  <input
+                    type="datetime-local"
+                    value={editEndTime}
+                    onChange={(e) => setEditEndTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Durasi (Mnt)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                  />
+                </div>
               </div>
 
               <div>
