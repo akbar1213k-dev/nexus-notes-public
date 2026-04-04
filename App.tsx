@@ -209,6 +209,7 @@ export default function App() {
     const path = window.location.pathname.toLowerCase();
     let initialMode: ViewMode = 'HOME';
     let initialNoteId = '';
+    let currentPath = path;
 
     if (path === '/tractapp') {
         initialMode = 'TRACT';
@@ -219,11 +220,15 @@ export default function App() {
     } else if (path.startsWith('/editor/')) {
         initialMode = 'EDITOR';
         initialNoteId = path.replace('/editor/', '');
+    } else {
+        // Jika path kosong (/) atau tidak dikenali, paksa ke /home
+        initialMode = 'HOME';
+        currentPath = '/home'; 
     }
 
     setViewMode(initialMode);
     setCurrentNoteId(initialNoteId);
-    window.history.replaceState({ mode: initialMode, noteId: initialNoteId }, '', path);
+    window.history.replaceState({ mode: initialMode, noteId: initialNoteId }, '', currentPath);
 
     const handlePopState = (event: PopStateEvent) => {
       if (event.state) {
@@ -259,7 +264,7 @@ export default function App() {
     setCurrentNoteId(noteId);
     
     // Mengubah URL Address Bar sesuai menu yang dibuka
-    let newPath = '/';
+    let newPath = '/home'; // Default menjadi /home
     if (mode === 'TRACT') newPath = '/tractapp';
     else if (mode === 'SETTINGS') newPath = '/settings';
     else if (mode === 'GRAPH') newPath = '/graph';
@@ -267,6 +272,32 @@ export default function App() {
 
     window.history.pushState({ mode, noteId }, '', newPath);
   };
+
+  // Efek Otomatis untuk Mengubah Judul Tab Browser
+  useEffect(() => {
+    switch (viewMode) {
+      case 'TRACT':
+        document.title = 'TractApp - Lacak Aktivitas';
+        break;
+      case 'HOME':
+        document.title = 'Beranda - Nexus Notes';
+        break;
+      case 'SETTINGS':
+        document.title = 'Pengaturan - Nexus Notes';
+        break;
+      case 'GRAPH':
+        document.title = 'Grafik Visual - Nexus Notes';
+        break;
+      case 'EDITOR':
+        // Kita juga bisa membuat ini lebih dinamis jika mau, tapi ini standar yang bagus
+        document.title = 'Editor Catatan - Nexus Notes'; 
+        break;
+      default:
+        document.title = 'Nexus Notes';
+        break;
+    }
+  }, [viewMode]);
+  
   // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
