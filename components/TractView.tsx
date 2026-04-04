@@ -127,21 +127,26 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const hasShownPopupRef = React.useRef(false);
 
-  const activeActivity = activities.find(a => a.isTimerActive);
+  // MENGAMBIL SEMUA AKTIVITAS YANG SEDANG AKTIF/DIJEDA
+  const activeActivities = activities.filter(a => a.isTimerActive);
 
+  // Efek 1: Hanya untuk memunculkan Pop-up pertama kali
   useEffect(() => {
-    // Tampilkan pop-up jika ada aktivitas yang aktif dan belum pernah ditampilkan di sesi ini
-    if (activeActivity && !hasShownPopupRef.current) {
+    if (activeActivities.length > 0 && !hasShownPopupRef.current) {
       setShowActiveTimerPopup(true);
       hasShownPopupRef.current = true;
+    }
+  }, [activities]);
 
+  // Efek 2: Khusus menghitung 2 detik (Tidak akan dibatalkan oleh Firebase!)
+  useEffect(() => {
+    if (showActiveTimerPopup) {
       const timer = setTimeout(() => {
         setShowActiveTimerPopup(false);
-      }, 2000); // Otomatis hilang dalam 2 detik jika tidak diklik
-
+      }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [activities, activeActivity]);
+  }, [showActiveTimerPopup]);
 
   const handlePopupAction = (activity: Activity, action: 'pause' | 'resume' | 'stop') => {
     handleTimerAction(activity, action);
@@ -1288,48 +1293,70 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
         </div>
       )}
 
-      {/* Pop-up Notifikasi Timer Aktif (Muncul saat pertama buka/refresh) */}
-      {showActiveTimerPopup && activeActivity && (() => {
-        const isPaused = activeActivity.isTimerActive && (activeActivity.pauses?.length || 0) > (activeActivity.resumes?.length || 0);
-        return (
-          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-[90%] max-w-sm animate-in slide-in-from-top-4 fade-in duration-300">
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Clock size={14} className={isPaused ? "text-amber-500" : "text-red-500 animate-pulse"} />
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    {isPaused ? "Waktu Dijeda" : "Sedang Merekam"}
-                  </span>
-                </div>
-                <h4 className="font-bold text-slate-800 text-sm truncate max-w-[250px]">{activeActivity.name}</h4>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {isPaused ? (
-                <button
-                  onClick={() => handlePopupAction(activeActivity, 'resume')}
-                  className="flex-1 px-3 py-2 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition-colors"
-                >
-                  ▶ Lanjutkan
-                </button>
-              ) : (
-                <button
-                  onClick={() => handlePopupAction(activeActivity, 'pause')}
-                  className="flex-1 px-3 py-2 text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors"
-                >
-                  ⏸ Jeda
-                </button>
-              )}
-              <button
-                onClick={() => handlePopupAction(activeActivity, 'stop')}
-                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-              >
-                ⏹ Berhenti
-              </button>
-            </div>
+      {/* Pop-up Notifikasi Timer Aktif (Multi-Aktivitas) */}
+      {showActiveTimerPopup && activeActivities.length > 0 && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 w-[90%] max-w-sm animate-in slide-in-from-top-4 fade-in duration-300 overflow-hidden">
+          
+          {/* Header Pop-up */}
+          <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              {activeActivities.length} Aktivitas Berjalan
+            </span>
+            <button 
+              onClick={() => setShowActiveTimerPopup(false)} 
+              className="text-slate-400 hover:text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-full p-1 transition-colors"
+            >
+              <X size={14} />
+            </button>
           </div>
-        );
-      })()}
+
+          {/* Daftar Aktivitas (Bisa di-scroll jika ada 3 atau lebih) */}
+          <div className="max-h-64 overflow-y-auto p-3 space-y-3">
+            {activeActivities.map(activity => {
+              const isPaused = activity.isTimerActive && (activity.pauses?.length || 0) > (activity.resumes?.length || 0);
+              return (
+                <div key={activity.id} className="bg-white border border-slate-100 rounded-xl p-3 shadow-sm relative">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Clock size={12} className={isPaused ? "text-amber-500" : "text-red-500 animate-pulse"} />
+                        <span className={cn("text-[10px] font-bold uppercase tracking-wider", isPaused ? "text-amber-600" : "text-red-600")}>
+                          {isPaused ? "Dijeda" : "Merekam"}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-sm truncate pr-2">{activity.name}</h4>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {isPaused ? (
+                      <button
+                        onClick={() => handlePopupAction(activity, 'resume')}
+                        className="flex-1 px-2 py-2 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition-colors flex justify-center"
+                      >
+                        ▶ Lanjut
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handlePopupAction(activity, 'pause')}
+                        className="flex-1 px-2 py-2 text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors flex justify-center"
+                      >
+                        ⏸ Jeda
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handlePopupAction(activity, 'stop')}
+                      className="flex-1 px-2 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex justify-center"
+                    >
+                      ⏹ Stop
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Toast Notifikasi Latar Belakang (Muncul 1 Detik) */}
       {toastMessage && (
