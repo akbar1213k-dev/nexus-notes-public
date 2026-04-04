@@ -70,12 +70,11 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   }, [userId]);
   
   const [activeTab, setActiveTab] = useState<'input' | 'list' | 'stats'>('input');
-  
-  // Suggestions State
+
+  // Suggestions State (Akan sinkron dengan Firebase)
   const [activitySuggestions, setActivitySuggestions] = useState<{name: string, type: string}[]>(() => {
     const saved = localStorage.getItem('tractapp_activity_suggestions');
-    if (saved) return JSON.parse(saved);
-    return [
+    return saved ? JSON.parse(saved) : [
       { name: 'Lari Pagi', type: 'Olahraga' },
       { name: 'Meeting Proyek', type: 'Bekerja' },
       { name: 'Membaca Buku', type: 'Belajar' }
@@ -83,9 +82,29 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   });
   const [typeSuggestions, setTypeSuggestions] = useState<string[]>(() => {
     const saved = localStorage.getItem('tractapp_type_suggestions');
-    if (saved) return JSON.parse(saved);
-    return ['Olahraga', 'Bekerja', 'Belajar', 'Hobi', 'Lainnya'];
+    return saved ? JSON.parse(saved) : ['Olahraga', 'Bekerja', 'Belajar', 'Hobi', 'Lainnya'];
   });
+
+  // Sinkronisasi Saran (Settings) dari Firebase
+  useEffect(() => {
+    if (!userId) return;
+    const unsub = onSnapshot(doc(db, 'tract_settings', userId), (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.activitySuggestions) setActivitySuggestions(data.activitySuggestions);
+            if (data.typeSuggestions) setTypeSuggestions(data.typeSuggestions);
+        }
+    });
+    return () => unsub();
+  }, [userId]);
+
+  const saveSettingsToFirebase = (newActSugg: any[], newTypeSugg: string[]) => {
+      if (!userId) return;
+      setDoc(doc(db, 'tract_settings', userId), {
+          activitySuggestions: newActSugg,
+          typeSuggestions: newTypeSugg
+      }, { merge: true }).catch(err => console.error("Gagal simpan settings:", err));
+  };
 
   // Form State
   const [name, setName] = useState('');
@@ -126,13 +145,17 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleDeleteActivitySuggestion = (nameToDelete: string) => {
-    setActivitySuggestions(activitySuggestions.filter(s => s.name !== nameToDelete));
+    const newSugg = activitySuggestions.filter(s => s.name !== nameToDelete);
+    setActivitySuggestions(newSugg);
+    saveSettingsToFirebase(newSugg, typeSuggestions);
   };
 
   const handleDeleteTypeSuggestion = (typeToDelete: string) => {
-    setTypeSuggestions(typeSuggestions.filter(t => t !== typeToDelete));
+    const newTypeSugg = typeSuggestions.filter(t => t !== typeToDelete);
+    setTypeSuggestions(newTypeSugg);
+    saveSettingsToFirebase(activitySuggestions, newTypeSugg);
   };
-
+  
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -165,7 +188,17 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       finalEndTime = startMs + (durNum * 60000);
     } 
     // Hanya Mulai diisi
-    else if (startMs) {
+    else iconst handleDeleteActivitySuggestion = (nameToDelete: string) => {
+    const newSugg = activitySuggestions.filter(s => s.name !== nameToDelete);
+    setActivitySuggestions(newSugg);
+    saveSettingsToFirebase(newSugg, typeSuggestions);
+  };
+
+  const handleDeleteTypeSuggestion = (typeToDelete: string) => {
+    const newTypeSugg = typeSuggestions.filter(t => t !== typeToDelete);
+    setTypeSuggestions(newTypeSugg);
+    saveSettingsToFirebase(activitySuggestions, newTypeSugg);
+  };f (startMs) {
       finalStartTime = startMs;
     }
 
@@ -194,15 +227,12 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     const trimmedName = name.trim();
     const trimmedType = type.trim() || 'Lainnya';
 
-    setActivitySuggestions(prev => {
-      const filtered = prev.filter(s => s.name.toLowerCase() !== trimmedName.toLowerCase());
-      return [{ name: trimmedName, type: trimmedType }, ...filtered];
-    });
-
-    setTypeSuggestions(prev => {
-      const filtered = prev.filter(t => t.toLowerCase() !== trimmedType.toLowerCase());
-      return [trimmedType, ...filtered];
-    });
+    const newActSugg = [{ name: trimmedName, type: trimmedType }, ...activitySuggestions.filter(s => s.name.toLowerCase() !== trimmedName.toLowerCase())].slice(0, 15);
+    const newTypeSugg = [trimmedType, ...typeSuggestions.filter(t => t.toLowerCase() !== trimmedType.toLowerCase())].slice(0, 15);
+    
+    setActivitySuggestions(newActSugg);
+    setTypeSuggestions(newTypeSugg);
+    saveSettingsToFirebase(newActSugg, newTypeSugg);
 
     setName(''); setDescription(''); setType('');
     setStartTimeInput(''); setEndTimeInput(''); setDurationInput('');
@@ -229,15 +259,12 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
     setActivities(updatedActivities);
     
-    setActivitySuggestions(prev => {
-      const filtered = prev.filter(s => s.name.toLowerCase() !== suggName.toLowerCase());
-      return [{ name: suggName, type: suggType || 'Lainnya' }, ...filtered];
-    });
-
-    setTypeSuggestions(prev => {
-      const filtered = prev.filter(t => t.toLowerCase() !== (suggType || 'Lainnya').toLowerCase());
-      return [suggType || 'Lainnya', ...filtered];
-    });
+    const newActSugg = [{ name: suggName, type: suggType || 'Lainnya' }, ...activitySuggestions.filter(s => s.name.toLowerCase() !== suggName.toLowerCase())].slice(0, 15);
+    const newTypeSugg = [suggType || 'Lainnya', ...typeSuggestions.filter(t => t.toLowerCase() !== (suggType || 'Lainnya').toLowerCase())].slice(0, 15);
+    
+    setActivitySuggestions(newActSugg);
+    setTypeSuggestions(newTypeSugg);
+    saveSettingsToFirebase(newActSugg, newTypeSugg);
 
     setName(''); setDescription(''); setType('');
     setStartTimeInput(''); setEndTimeInput(''); setDurationInput('');
@@ -353,6 +380,29 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     ? statsByType.reduce((prev, current) => (prev.value > current.value) ? prev : current).name 
     : '-';
 
+  // --- PENGGABUNGAN SARAN DINAMIS DARI RIWAYAT ---
+  const historyTypes = Array.from(new Set(activities.map(a => a.type).filter(Boolean)));
+  const combinedTypes = Array.from(new Set([...typeSuggestions, ...historyTypes]));
+  const visibleTypeSuggestions = combinedTypes
+      .filter(t => t.toLowerCase().includes(type.trim().toLowerCase()))
+      .slice(0, 15); // Tampilkan maksimal 15 saran
+
+  const historyActivitiesMap = new Map();
+  // Riwayat lebih diutamakan agar tipe terbaru yang dipakai
+  [...activities].reverse().forEach(a => {
+      historyActivitiesMap.set(a.name.toLowerCase(), { name: a.name, type: a.type });
+  });
+  activitySuggestions.forEach(s => {
+      if (!historyActivitiesMap.has(s.name.toLowerCase())) {
+          historyActivitiesMap.set(s.name.toLowerCase(), s);
+      }
+  });
+  const combinedActivities = Array.from(historyActivitiesMap.values());
+  const visibleActivitySuggestions = combinedActivities
+      .filter(a => a.name.toLowerCase().includes(name.trim().toLowerCase()))
+      .slice(0, 15);
+  // ----------------------------------------------
+
   return (
      <div className="h-full w-full bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row overflow-hidden">
       {/* Menu Navigasi (Horizontal di Mobile, Vertikal di Desktop) */}
@@ -435,10 +485,11 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                     className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="Contoh: Olahraga, Bekerja..."
                   />
+                
                   {/* Bubble Suggestions for Activity Types */}
-                  {typeSuggestions.length > 0 && (
+                  {visibleTypeSuggestions.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {typeSuggestions.map(actType => (
+                      {visibleTypeSuggestions.map(actType => (
                         <span key={actType} className="bg-emerald-50 border border-emerald-100 text-emerald-700 pl-3 pr-1 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 transition-colors">
                           <span 
                             className="cursor-pointer hover:underline"
@@ -451,7 +502,74 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                             type="button"
                             onDoubleClick={() => handleDeleteTypeSuggestion(actType)}
                             className="text-emerald-400 hover:bg-emerald-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
-                            title="Klik ganda (double click) untuk menghapus riwayat jenis ini"
+                            title="Klik ganda untuk menghapus dari daftar saran"
+                          >
+                            <X size={14} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Keterangan */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Keterangan
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
+                    placeholder="Tambahkan detail aktivitas..."
+                  />
+                </div>
+
+                {/* 3. Nama Aktivitas */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Nama Aktivitas
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    placeholder="Contoh: Lari pagi, Meeting klien..."
+                  />
+                  {/* Bubble Suggestions for Activity Names */}
+                  {visibleActivitySuggestions.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {visibleActivitySuggestions.map(sugg => (
+                        <span key={sugg.name} className="bg-blue-50 border border-blue-100 text-blue-700 pl-3 pr-1 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 transition-colors">
+                          <span 
+                            className="cursor-pointer hover:underline font-semibold"
+                            onClick={() => {
+                                // Klik nama akan mengisi form secara otomatis (memberi kesempatan isi durasi)
+                                setName(sugg.name);
+                                if (!type) setType(sugg.type);
+                            }}
+                            title="Klik untuk mengisi nama & jenis ke dalam form"
+                          >
+                            {sugg.name}
+                          </span>
+                          
+                          <button
+                            type="button"
+                            onClick={() => handleQuickSave(sugg.name, sugg.type)}
+                            className="bg-blue-600 text-white ml-2 px-2 py-0.5 rounded-md text-[10px] hover:bg-blue-700 transition-colors"
+                            title="Simpan langsung ke riwayat (Instan)"
+                          >
+                            Simpan
+                          </button>
+
+                          <button
+                            type="button"
+                            onDoubleClick={() => handleDeleteActivitySuggestion(sugg.name)}
+                            className="text-blue-400 hover:bg-blue-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
+                            title="Klik ganda untuk menghapus dari daftar saran"
                           >
                             <X size={14} />
                           </button>
