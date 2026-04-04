@@ -375,7 +375,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     setEditDuration(activity.duration ? activity.duration.toString() : '');
   };
 
-  const handleTimerAction = (activity: Activity, action: 'pause' | 'resume' | 'stop') => {
+  const handleTimerAction = (activity: Activity, action: 'pause' | 'resume' | 'stop' | 'restart') => {
     const now = Date.now();
     let updatedActivity = { ...activity };
 
@@ -838,14 +838,16 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                                                   )}>
                                                       {isPaused ? "Dijeda" : "Berjalan"}
                                                   </span>
-                                              )}
+                                             )}
                                           </>
                                       );
                                   })()}
+                                  <span 
+                                    onClick={() => setDetailActivity(activity)}
                                     className="cursor-pointer hover:text-blue-600 hover:underline"
                                     title="Klik untuk melihat tabel rincian waktu"
                                   >
-                                    {format(activity.startTime || activity.timestamp, 'dd MMM yyyy')} • 
+                                    {format(activity.startTime || activity.timestamp, 'dd MMM yyyy')} •
                                     <span className="text-slate-800 ml-1">
                                       {format(activity.startTime || activity.timestamp, 'HH:mm')}
                                       {activity.endTime ? ` - ${format(activity.endTime, 'HH:mm')}` : ''}
