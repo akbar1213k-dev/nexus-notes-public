@@ -229,17 +229,44 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     setActiveTab('list');
   };
 
-  const handleQuickSave = (suggName: string, suggType: string) => {
+    const handleQuickSave = (suggName: string, suggType: string) => {
     const now = Date.now();
-    // RULE 1: Default tanpa input waktu (Waktu mulai = Waktu Simpan)
+    let finalStartTime: number | null = now;
+    let finalEndTime: number | null = null;
+    let finalDuration: number | null = null;
+
+    const durNum = durationInput ? Number(durationInput) : null;
+    const startMs = startTimeInput ? new Date(startTimeInput).getTime() : null;
+    const endMs = endTimeInput ? new Date(endTimeInput).getTime() : null;
+
+    // Kalkulasi waktu (sama seperti handleSubmit) jika pengguna sempat mengisinya
+    if (durNum && !startMs && !endMs) {
+      finalEndTime = now;
+      finalDuration = durNum;
+      finalStartTime = now - (durNum * 60000);
+    } else if (startMs && endMs) {
+      finalStartTime = startMs;
+      finalEndTime = endMs;
+      finalDuration = Math.max(0, Math.round((endMs - startMs) / 60000));
+    } else if (startMs && durNum) {
+      finalStartTime = startMs;
+      finalDuration = durNum;
+      finalEndTime = startMs + (durNum * 60000);
+    } else if (startMs) {
+      finalStartTime = startMs;
+    }
+
     const newActivity: Activity = {
       id: now.toString(),
       name: suggName.trim(),
-      type: suggType.trim() || 'Lainnya',
+      // Jika pengguna sempat mengubah 'type' di form, pakai yang di form. Jika tidak, pakai saran dari bubble.
+      type: type.trim() || suggType.trim() || 'Lainnya',
       timestamp: now,
       description: description.trim(), 
       userId: userId || '',
-      startTime: now
+      startTime: finalStartTime,
+      endTime: finalEndTime,
+      duration: finalDuration
     };
 
     if (userId) {
@@ -369,10 +396,8 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const mostFrequentType = statsByType.length > 0 
     ? statsByType.reduce((prev, current) => (prev.value > current.value) ? prev : current).name 
     : '-';
-
+  
   // --- FILTER SARAN BUBBLE ---
-  // Kita langsung memfilter dari daftar saran yang ada di Settings/State
-  // agar ketika Anda menghapusnya, ia tidak akan muncul lagi dari riwayat.
   const visibleTypeSuggestions = typeSuggestions
       .filter(t => t.toLowerCase().includes(type.trim().toLowerCase()))
       .slice(0, 15); 
@@ -380,6 +405,12 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const visibleActivitySuggestions = activitySuggestions
       .filter(a => a.name.toLowerCase().includes(name.trim().toLowerCase()))
       .slice(0, 15);
+  
+  // --- DAFTAR AUTOCOMPLETE UNTUK INPUT (DARI RIWAYAT) ---
+  const historyTypesSet = new Set(activities.map(a => a.type).filter(Boolean));
+  const historyNamesSet = new Set(activities.map(a => a.name).filter(Boolean));
+  const autocompleteTypes = Array.from(historyTypesSet);
+  const autocompleteNames = Array.from(historyNamesSet);
   // ----------------------------------------------
 
   return (
@@ -450,7 +481,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
               <h2 className="text-2xl font-bold text-slate-800 mb-6">Tambah Aktivitas Baru</h2>
                 <form onSubmit={handleSubmit} className="space-y-6">
-                
+      
                 {/* 1. Jenis Aktivitas */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -459,11 +490,17 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                   <input
                     type="text"
                     required
+                    list="type-suggestions-list"
                     value={type}
                     onChange={(e) => setType(e.target.value)}
                     className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="Contoh: Olahraga, Bekerja..."
                   />
+                  <datalist id="type-suggestions-list">
+                    {autocompleteTypes.map((t, idx) => (
+                      <option key={idx} value={t} />
+                    ))}
+                  </datalist>
                 
                   {/* Bubble Suggestions for Activity Types */}
                   {visibleTypeSuggestions.length > 0 && (
@@ -473,7 +510,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                           <span 
                             className="cursor-pointer hover:underline"
                             onClick={() => setType(actType)}
-                            title="Klik untuk memakai jenis ini"
+                            title="Klik untuk mengisi jenis ini ke form"
                           >
                             {actType}
                           </span>
@@ -481,7 +518,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                             type="button"
                             onClick={() => handleDeleteTypeSuggestion(actType)}
                             className="text-emerald-400 hover:bg-emerald-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
-                            title="Klik untuk menghapus dari daftar saran"
+                            title="Klik untuk menghapus dari daftar bubble"
                           >
                             <X size={14} />
                           </button>
@@ -505,7 +542,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                   />
                 </div>
 
-                {/* 3. Nama Aktivitas */}
+                 {/* 3. Nama Aktivitas */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Nama Aktivitas
@@ -513,41 +550,36 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                   <input
                     type="text"
                     required
+                    list="name-suggestions-list"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="Contoh: Lari pagi, Meeting klien..."
                   />
+                  <datalist id="name-suggestions-list">
+                    {autocompleteNames.map((n, idx) => (
+                      <option key={idx} value={n} />
+                    ))}
+                  </datalist>
+
                   {/* Bubble Suggestions for Activity Names */}
                   {visibleActivitySuggestions.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {visibleActivitySuggestions.map(sugg => (
-                        <span key={sugg.name} className="bg-blue-50 border border-blue-100 text-blue-700 pl-3 pr-1 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 transition-colors">
+                        <span key={sugg.name} className="bg-blue-50 border border-blue-100 text-blue-700 pl-3 pr-1 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 transition-colors hover:bg-blue-100">
                           <span 
-                            className="cursor-pointer hover:underline font-semibold"
-                            onClick={() => {
-                                setName(sugg.name);
-                                if (!type) setType(sugg.type);
-                            }}
-                            title="Klik untuk mengisi nama & jenis ke dalam form"
+                            className="cursor-pointer font-semibold py-0.5"
+                            onClick={() => handleQuickSave(sugg.name, sugg.type)}
+                            title="Klik untuk LANGSUNG MENYIMPAN aktivitas ini"
                           >
                             {sugg.name}
                           </span>
-                          
-                          <button
-                            type="button"
-                            onClick={() => handleQuickSave(sugg.name, sugg.type)}
-                            className="bg-blue-600 text-white ml-2 px-2 py-0.5 rounded-md text-[10px] hover:bg-blue-700 transition-colors"
-                            title="Simpan langsung ke riwayat (Instan)"
-                          >
-                            Simpan
-                          </button>
 
                           <button
                             type="button"
                             onClick={() => handleDeleteActivitySuggestion(sugg.name)}
                             className="text-blue-400 hover:bg-blue-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
-                            title="Klik untuk menghapus dari daftar saran"
+                            title="Klik untuk menghapus dari daftar bubble"
                           >
                             <X size={14} />
                           </button>
@@ -555,7 +587,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                       ))}
                     </div>
                   )}
-                </div>         
+                </div>    
 
                 {/* 3.5 Pengaturan Waktu Spesifik */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
