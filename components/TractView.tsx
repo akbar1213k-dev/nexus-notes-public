@@ -126,6 +126,10 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [showActiveTimerPopup, setShowActiveTimerPopup] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const hasShownPopupRef = React.useRef(false);
+  
+  // State & Ref Baru untuk Sensor Interaksi Pop-up
+  const [isPopupInteracted, setIsPopupInteracted] = useState(false);
+  const popupTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // MENGAMBIL SEMUA AKTIVITAS YANG SEDANG AKTIF/DIJEDA
   const activeActivities = activities.filter(a => a.isTimerActive);
@@ -138,19 +142,36 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     }
   }, [activities]);
 
-  // Efek 2: Khusus menghitung 2 detik (Tidak akan dibatalkan oleh Firebase!)
+  // Efek 2: Menghitung 5 detik, BATAL OTOMATIS jika pengguna menyentuh pop-up
   useEffect(() => {
-    if (showActiveTimerPopup) {
-      const timer = setTimeout(() => {
+    if (showActiveTimerPopup && !isPopupInteracted) {
+      popupTimerRef.current = setTimeout(() => {
         setShowActiveTimerPopup(false);
-      }, 5000); // waktu pop op popup pop-up notifikasi
-      return () => clearTimeout(timer);
+        setIsPopupInteracted(false); // Reset status
+      }, 5000); // 5 Detik
+      return () => {
+        if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
+      };
     }
-  }, [showActiveTimerPopup]);
+  }, [showActiveTimerPopup, isPopupInteracted]);
+
+  // Fungsi Deteksi Sentuhan
+  const handlePopupInteraction = () => {
+    if (!isPopupInteracted) {
+      setIsPopupInteracted(true);
+      if (popupTimerRef.current) clearTimeout(popupTimerRef.current); // Hentikan hitungan mundur!
+    }
+  };
+
+  // Fungsi Menutup Pop-up secara Manual
+  const closePopup = () => {
+    setShowActiveTimerPopup(false);
+    setIsPopupInteracted(false);
+  };
 
   const handlePopupAction = (activity: Activity, action: 'pause' | 'resume' | 'stop') => {
     handleTimerAction(activity, action);
-    setShowActiveTimerPopup(false); // Langsung tutup pop-up
+    closePopup(); // Langsung tutup pop-up
     
     // Tampilkan notifikasi kecil (toast) selama 1 detik
     const msgs = {
@@ -1295,7 +1316,12 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
 
       {/* Pop-up Notifikasi Timer Aktif (Multi-Aktivitas) */}
       {showActiveTimerPopup && activeActivities.length > 0 && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 w-[90%] max-w-sm animate-in slide-in-from-top-4 fade-in duration-300 overflow-hidden">
+        <div 
+          className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 w-[90%] max-w-sm animate-in slide-in-from-top-4 fade-in duration-300 overflow-hidden"
+          onMouseEnter={handlePopupInteraction}
+          onTouchStart={handlePopupInteraction}
+          onWheel={handlePopupInteraction}
+        >
           
           {/* Header Pop-up */}
           <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
@@ -1303,8 +1329,9 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
               {activeActivities.length} Aktivitas Berjalan
             </span>
             <button 
-              onClick={() => setShowActiveTimerPopup(false)} 
+              onClick={closePopup} 
               className="text-slate-400 hover:text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-full p-1 transition-colors"
+              title="Tutup Notifikasi"
             >
               <X size={14} />
             </button>
@@ -1355,6 +1382,18 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
               );
             })}
           </div>
+
+          {/* Tombol Tutup Besar (Muncul dari bawah HANYA JIKA user menyentuh popup) */}
+          {isPopupInteracted && (
+            <div className="bg-slate-50 p-3 border-t border-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+               <button 
+                 onClick={closePopup}
+                 className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-bold rounded-xl transition-colors"
+               >
+                 Tutup Notifikasi
+               </button>
+            </div>
+          )}
         </div>
       )}
 
