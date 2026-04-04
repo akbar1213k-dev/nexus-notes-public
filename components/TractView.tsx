@@ -121,6 +121,41 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [detailActivity, setDetailActivity] = useState<Activity | null>(null);
   const [showRestartOption, setShowRestartOption] = useState<string | null>(null);
+
+  // State untuk Pop-up Notifikasi & Toast (Pesan Singkat)
+  const [showActiveTimerPopup, setShowActiveTimerPopup] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const hasShownPopupRef = React.useRef(false);
+
+  const activeActivity = activities.find(a => a.isTimerActive);
+
+  useEffect(() => {
+    // Tampilkan pop-up jika ada aktivitas yang aktif dan belum pernah ditampilkan di sesi ini
+    if (activeActivity && !hasShownPopupRef.current) {
+      setShowActiveTimerPopup(true);
+      hasShownPopupRef.current = true;
+
+      const timer = setTimeout(() => {
+        setShowActiveTimerPopup(false);
+      }, 2000); // Otomatis hilang dalam 2 detik jika tidak diklik
+
+      return () => clearTimeout(timer);
+    }
+  }, [activities, activeActivity]);
+
+  const handlePopupAction = (activity: Activity, action: 'pause' | 'resume' | 'stop') => {
+    handleTimerAction(activity, action);
+    setShowActiveTimerPopup(false); // Langsung tutup pop-up
+    
+    // Tampilkan notifikasi kecil (toast) selama 1 detik
+    const msgs = {
+        pause: "Waktu dijeda",
+        resume: "Waktu dilanjutkan",
+        stop: "Waktu dihentikan"
+    };
+    setToastMessage(`${msgs[action]} ✓`);
+    setTimeout(() => setToastMessage(null), 1000);
+  };
   
   // Save to LocalStorage effects
   useEffect(() => {
@@ -1252,6 +1287,58 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
           </div>
         </div>
       )}
+
+      {/* Pop-up Notifikasi Timer Aktif (Muncul saat pertama buka/refresh) */}
+      {showActiveTimerPopup && activeActivity && (() => {
+        const isPaused = activeActivity.isTimerActive && (activeActivity.pauses?.length || 0) > (activeActivity.resumes?.length || 0);
+        return (
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-[90%] max-w-sm animate-in slide-in-from-top-4 fade-in duration-300">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock size={14} className={isPaused ? "text-amber-500" : "text-red-500 animate-pulse"} />
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    {isPaused ? "Waktu Dijeda" : "Sedang Merekam"}
+                  </span>
+                </div>
+                <h4 className="font-bold text-slate-800 text-sm truncate max-w-[250px]">{activeActivity.name}</h4>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {isPaused ? (
+                <button
+                  onClick={() => handlePopupAction(activeActivity, 'resume')}
+                  className="flex-1 px-3 py-2 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition-colors"
+                >
+                  ▶ Lanjutkan
+                </button>
+              ) : (
+                <button
+                  onClick={() => handlePopupAction(activeActivity, 'pause')}
+                  className="flex-1 px-3 py-2 text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors"
+                >
+                  ⏸ Jeda
+                </button>
+              )}
+              <button
+                onClick={() => handlePopupAction(activeActivity, 'stop')}
+                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                ⏹ Berhenti
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Toast Notifikasi Latar Belakang (Muncul 1 Detik) */}
+      {toastMessage && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[110] bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium animate-in fade-in slide-in-from-bottom-4 duration-200 shadow-xl flex items-center gap-2">
+          <ActivityIcon size={14} className="text-blue-400" />
+          {toastMessage}
+        </div>
+      )}
+
     </div>
   );
 }
