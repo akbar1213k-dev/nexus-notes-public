@@ -370,25 +370,14 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     ? statsByType.reduce((prev, current) => (prev.value > current.value) ? prev : current).name 
     : '-';
 
-  // --- PENGGABUNGAN SARAN DINAMIS DARI RIWAYAT ---
-  const historyTypes = Array.from(new Set(activities.map(a => a.type).filter(Boolean)));
-  const combinedTypes = Array.from(new Set([...typeSuggestions, ...historyTypes]));
-  const visibleTypeSuggestions = combinedTypes
+  // --- FILTER SARAN BUBBLE ---
+  // Kita langsung memfilter dari daftar saran yang ada di Settings/State
+  // agar ketika Anda menghapusnya, ia tidak akan muncul lagi dari riwayat.
+  const visibleTypeSuggestions = typeSuggestions
       .filter(t => t.toLowerCase().includes(type.trim().toLowerCase()))
-      .slice(0, 15); // Tampilkan maksimal 15 saran
+      .slice(0, 15); 
 
-  const historyActivitiesMap = new Map();
-  // Riwayat lebih diutamakan agar tipe terbaru yang dipakai
-  [...activities].reverse().forEach(a => {
-      historyActivitiesMap.set(a.name.toLowerCase(), { name: a.name, type: a.type });
-  });
-  activitySuggestions.forEach(s => {
-      if (!historyActivitiesMap.has(s.name.toLowerCase())) {
-          historyActivitiesMap.set(s.name.toLowerCase(), s);
-      }
-  });
-  const combinedActivities = Array.from(historyActivitiesMap.values());
-  const visibleActivitySuggestions = combinedActivities
+  const visibleActivitySuggestions = activitySuggestions
       .filter(a => a.name.toLowerCase().includes(name.trim().toLowerCase()))
       .slice(0, 15);
   // ----------------------------------------------
@@ -460,7 +449,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
           <div className="max-w-2xl mx-auto">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
               <h2 className="text-2xl font-bold text-slate-800 mb-6">Tambah Aktivitas Baru</h2>
-              <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-6">
                 
                 {/* 1. Jenis Aktivitas */}
                 <div>
@@ -490,9 +479,9 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                           </span>
                           <button
                             type="button"
-                            onDoubleClick={() => handleDeleteTypeSuggestion(actType)}
+                            onClick={() => handleDeleteTypeSuggestion(actType)}
                             className="text-emerald-400 hover:bg-emerald-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
-                            title="Klik ganda untuk menghapus dari daftar saran"
+                            title="Klik untuk menghapus dari daftar saran"
                           >
                             <X size={14} />
                           </button>
@@ -537,7 +526,6 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                           <span 
                             className="cursor-pointer hover:underline font-semibold"
                             onClick={() => {
-                                // Klik nama akan mengisi form secara otomatis (memberi kesempatan isi durasi)
                                 setName(sugg.name);
                                 if (!type) setType(sugg.type);
                             }}
@@ -557,9 +545,9 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
 
                           <button
                             type="button"
-                            onDoubleClick={() => handleDeleteActivitySuggestion(sugg.name)}
+                            onClick={() => handleDeleteActivitySuggestion(sugg.name)}
                             className="text-blue-400 hover:bg-blue-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
-                            title="Klik ganda untuk menghapus dari daftar saran"
+                            title="Klik untuk menghapus dari daftar saran"
                           >
                             <X size={14} />
                           </button>
@@ -567,61 +555,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                       ))}
                     </div>
                   )}
-                </div>
-
-                {/* 2. Keterangan */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Keterangan
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
-                    placeholder="Tambahkan detail aktivitas..."
-                  />
-                </div>
-
-                {/* 3. Nama Aktivitas */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Nama Aktivitas
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    placeholder="Contoh: Lari pagi, Meeting klien..."
-                  />
-                  {/* Bubble Suggestions for Activity Names */}
-                  {activitySuggestions.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {activitySuggestions.map(sugg => (
-                        <span key={sugg.name} className="bg-blue-50 border border-blue-100 text-blue-700 pl-3 pr-1 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 transition-colors">
-                          <span 
-                            className="cursor-pointer hover:underline font-semibold"
-                            onClick={() => handleQuickSave(sugg.name, sugg.type)}
-                            title="Klik untuk langsung menyimpan aktivitas ini secara otomatis"
-                          >
-                            {sugg.name}
-                          </span>
-                          
-                          <button
-                            type="button"
-                            onDoubleClick={() => handleDeleteActivitySuggestion(sugg.name)}
-                            className="text-blue-400 hover:bg-blue-200 hover:text-red-500 p-1 rounded-full transition-colors ml-1"
-                            title="Klik ganda (double click) untuk menghapus riwayat nama ini"
-                          >
-                            <X size={14} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                </div>         
 
                 {/* 3.5 Pengaturan Waktu Spesifik */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
