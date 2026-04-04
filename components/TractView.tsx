@@ -8,8 +8,11 @@ import {
   Trash2, 
   Clock,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  Upload
 } from 'lucide-react';
+
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { 
@@ -591,6 +594,84 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   };
   // ----------------------------------------------
 
+  // --- FITUR EKSPOR & IMPOR ---
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleExportData = () => {
+    // Mengekspor semua data aktivitas, lengkap dengan waktu dan sesi jedanya
+    const dataToExport = JSON.stringify(activities, null, 2);
+    const blob = new Blob([dataToExport], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TractApp_Backup_${format(Date.now(), 'yyyyMMdd_HHmmss')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    setToastMessage("Berhasil mengekspor data aktivitas ✓");
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const fileReader = new FileReader();
+      fileReader.onload = async (e) => {
+        const content = e.target?.result as string;
+        const importedData = JSON.parse(content);
+        
+        if (Array.isArray(importedData)) {
+          if (!confirm(`Apakah Anda yakin ingin mengimpor ${importedData.length} data aktivitas? Data lama dengan ID yang sama akan ditimpa.`)) {
+             if (fileInputRef.current) fileInputRef.current.value = '';
+             return;
+          }
+
+          let successCount = 0;
+          const newLocalActivities = [...activities];
+          
+          for (const act of importedData) {
+            // Validasi sederhana: pastikan datanya memiliki id dan name
+            if (act.id && act.name) { 
+              const finalAct = { ...act, userId: userId || '' };
+              
+              // Simpan ke Firebase jika sedang login
+              if (userId) {
+                await setDoc(doc(db, 'activities', act.id), finalAct, { merge: true }).catch(err => console.error(err));
+              }
+
+              // Update array lokal untuk antisipasi offline
+              const existingIndex = newLocalActivities.findIndex(a => a.id === act.id);
+              if (existingIndex >= 0) {
+                 newLocalActivities[existingIndex] = finalAct;
+              } else {
+                 newLocalActivities.push(finalAct);
+              }
+              successCount++;
+            }
+          }
+          
+          // Set manual untuk mempercepat pembaruan UI sebelum listener firebase memproses
+          newLocalActivities.sort((a, b) => b.timestamp - a.timestamp);
+          setActivities(newLocalActivities);
+          
+          setToastMessage(`Berhasil mengimpor ${successCount} aktivitas ✓`);
+          setTimeout(() => setToastMessage(null), 3000);
+        } else {
+          alert("Format file tidak valid. Pastikan ini adalah file backup JSON TractApp.");
+        }
+      };
+      fileReader.readAsText(file);
+    } catch (error) {
+      console.error("Gagal impor:", error);
+      alert("Terjadi kesalahan saat membaca file. Pastikan file JSON tersebut benar.");
+    }
+    
+    // Reset input file agar dapat digunakan mengimpor file yang sama lagi
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };                                        
+
   return (
      <div className="h-full w-full bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row overflow-hidden">
       {/* Menu Navigasi (Horizontal di Mobile, Vertikal di Desktop) */}
@@ -841,13 +922,42 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">Riwayat Aktivitas</h2>
-                <span 
-                  onClick={() => setShowDataModal(true)}
-                  className="bg-blue-100 text-blue-800 hover:bg-blue-200 cursor-pointer text-xs font-semibold px-3 py-1 rounded-full mt-2 inline-block transition-colors shadow-sm"
-                  title="Klik untuk mengelola relasi Nama dan Jenis Aktivitas"
-                >
-                  {processedActivities.length} Ditampilkan ({activities.length} Total) ⚙️
-                </span>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span 
+                    onClick={() => setShowDataModal(true)}
+                    className="bg-blue-100 text-blue-800 hover:bg-blue-200 cursor-pointer text-xs font-semibold px-3 py-1 rounded-full inline-block transition-colors shadow-sm"
+                    title="Klik untuk mengelola relasi Nama dan Jenis Aktivitas"
+                  >
+                    {processedActivities.length} Ditampilkan ({activities.length} Total) ⚙️
+                  </span>
+                  
+                  {/* Tombol Ekspor */}
+                  <button 
+                    onClick={handleExportData}
+                    className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 cursor-pointer text-xs font-semibold px-3 py-1 rounded-full inline-flex items-center gap-1 transition-colors shadow-sm"
+                    title="Ekspor Riwayat sebagai JSON"
+                  >
+                    <Download size={12} /> Ekspor
+                  </button>
+                  
+                  {/* Tombol Impor */}
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-purple-100 text-purple-800 hover:bg-purple-200 cursor-pointer text-xs font-semibold px-3 py-1 rounded-full inline-flex items-center gap-1 transition-colors shadow-sm"
+                    title="Impor Riwayat dari JSON"
+                  >
+                    <Upload size={12} /> Impor
+                  </button>
+                  
+                  {/* Input File Tersembunyi */}
+                  <input 
+                    type="file" 
+                    accept=".json" 
+                    ref={fileInputRef} 
+                    onChange={handleImportData} 
+                    className="hidden" 
+                  />
+                </div>
               </div>
               
               <div className="grid grid-cols-2 md:flex md:flex-wrap gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
