@@ -825,16 +825,30 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                                <h4 className="font-bold text-slate-900 text-base leading-tight mb-1">{activity.name}</h4>
                               
                               <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500">
-                                  <Clock size={12} className={activity.isTimerActive ? "text-red-500 animate-pulse" : "text-blue-500"} />
-                                  <span 
-                                    onClick={() => setDetailActivity(activity)}
+                                  {/* Logika Status Timer */}
+                                  {(() => {
+                                      const isPaused = activity.isTimerActive && (activity.pauses?.length || 0) > (activity.resumes?.length || 0);
+                                      return (
+                                          <>
+                                              <Clock size={12} className={activity.isTimerActive ? (isPaused ? "text-amber-500" : "text-red-500 animate-pulse") : "text-blue-500"} />
+                                              {activity.isTimerActive && (
+                                                  <span className={cn(
+                                                      "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight leading-none",
+                                                      isPaused ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                                                  )}>
+                                                      {isPaused ? "Dijeda" : "Berjalan"}
+                                                  </span>
+                                              )}
+                                          </>
+                                      );
+                                  })()}
                                     className="cursor-pointer hover:text-blue-600 hover:underline"
                                     title="Klik untuk melihat tabel rincian waktu"
                                   >
                                     {format(activity.startTime || activity.timestamp, 'dd MMM yyyy')} • 
                                     <span className="text-slate-800 ml-1">
                                       {format(activity.startTime || activity.timestamp, 'HH:mm')}
-                                      {activity.endTime ? ` - ${format(activity.endTime, 'HH:mm')}` : (activity.isTimerActive ? ' - Berjalan...' : '')}
+                                      {activity.endTime ? ` - ${format(activity.endTime, 'HH:mm')}` : ''}
                                     </span>
                                     {activity.duration ? ` (${activity.duration} menit)` : ''}
                                   </span>
