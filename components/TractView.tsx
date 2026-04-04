@@ -43,9 +43,9 @@ interface Activity {
   timestamp: number;
   description: string;
   userId?: string;
-  startTime?: number;
-  endTime?: number;
-  duration?: number;
+  startTime?: number | null;
+  endTime?: number | null;
+  duration?: number | null;
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
@@ -138,13 +138,13 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     if (!name.trim()) return;
 
     const now = Date.now();
-    let finalStartTime = now;
-    let finalEndTime: number | undefined = undefined;
-    let finalDuration: number | undefined = undefined;
+    let finalStartTime: number | null = now;
+    let finalEndTime: number | null = null;
+    let finalDuration: number | null = null;
 
-    const durNum = durationInput ? Number(durationInput) : undefined;
-    const startMs = startTimeInput ? new Date(startTimeInput).getTime() : undefined;
-    const endMs = endTimeInput ? new Date(endTimeInput).getTime() : undefined;
+    const durNum = durationInput ? Number(durationInput) : null;
+    const startMs = startTimeInput ? new Date(startTimeInput).getTime() : null;
+    const endMs = endTimeInput ? new Date(endTimeInput).getTime() : null;
 
     // RULE 3: Isi durasi saja -> Selesai = Waktu Simpan, Mulai mundur
     if (durNum && !startMs && !endMs) {
@@ -248,13 +248,13 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     e.preventDefault();
     if (!editName.trim() || !editingId) return;
 
-    const durNum = editDuration ? Number(editDuration) : undefined;
-    const startMs = editStartTime ? new Date(editStartTime).getTime() : undefined;
-    const endMs = editEndTime ? new Date(editEndTime).getTime() : undefined;
+    const durNum = editDuration ? Number(editDuration) : null;
+    const startMs = editStartTime ? new Date(editStartTime).getTime() : null;
+    const endMs = editEndTime ? new Date(editEndTime).getTime() : null;
 
-    let finalStartTime = startMs;
-    let finalEndTime = endMs;
-    let finalDuration = durNum;
+    let finalStartTime: number | null = startMs;
+    let finalEndTime: number | null = endMs;
+    let finalDuration: number | null = durNum;
 
     // RULE 2: Kalkulasi otomatis saat edit
     if (startMs && endMs) {
@@ -289,7 +289,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     setActivities(updatedActivities);
     setEditingId(null);
   };
-
+  
   const openEditModal = (activity: Activity) => {
     setEditingId(activity.id);
     setEditName(activity.name);
