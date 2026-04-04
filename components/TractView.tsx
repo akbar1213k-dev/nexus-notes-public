@@ -149,7 +149,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       popupTimerRef.current = setTimeout(() => {
         setShowActiveTimerPopup(false);
         setIsPopupInteracted(false); // Reset status
-      }, 5000); // 5 Detik
+      }, 2000); // 2 Detik
       return () => {
         if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
       };
