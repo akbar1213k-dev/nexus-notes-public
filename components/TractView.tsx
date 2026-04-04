@@ -188,17 +188,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       finalEndTime = startMs + (durNum * 60000);
     } 
     // Hanya Mulai diisi
-    else iconst handleDeleteActivitySuggestion = (nameToDelete: string) => {
-    const newSugg = activitySuggestions.filter(s => s.name !== nameToDelete);
-    setActivitySuggestions(newSugg);
-    saveSettingsToFirebase(newSugg, typeSuggestions);
-  };
-
-  const handleDeleteTypeSuggestion = (typeToDelete: string) => {
-    const newTypeSugg = typeSuggestions.filter(t => t !== typeToDelete);
-    setTypeSuggestions(newTypeSugg);
-    saveSettingsToFirebase(activitySuggestions, newTypeSugg);
-  };f (startMs) {
+    else if (startMs) {
       finalStartTime = startMs;
     }
 
