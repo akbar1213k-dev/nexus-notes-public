@@ -121,6 +121,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [detailActivity, setDetailActivity] = useState<Activity | null>(null);
   const [showRestartOption, setShowRestartOption] = useState<string | null>(null);
+  const [showDataModal, setShowDataModal] = useState(false); // <-- STATE UNTUK MODAL DATA
 
   // State untuk Pop-up Notifikasi & Toast (Pesan Singkat)
   const [showActiveTimerPopup, setShowActiveTimerPopup] = useState(false);
@@ -545,6 +546,49 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const historyNamesSet = new Set(activities.map(a => a.name).filter(Boolean));
   const autocompleteTypes = Array.from(historyTypesSet);
   const autocompleteNames = Array.from(historyNamesSet);
+
+  // --- LOGIKA DATA MANAJEMEN (MODAL RELASI) ---
+  const uniqueDataMap = new Map<string, string>();
+  // Ambil dari riwayat terlebih dahulu agar yang terbaru yang terpilih
+  [...activities].reverse().forEach(a => uniqueDataMap.set(a.name, a.type));
+  // Tambahkan dari suggestion jika belum masuk
+  activitySuggestions.forEach(s => {
+      if (!uniqueDataMap.has(s.name)) uniqueDataMap.set(s.name, s.type);
+  });
+  // Sortir sesuai abjad nama aktivitas
+  const allUniqueData = Array.from(uniqueDataMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+  const handleUpdateMapping = (nameToUpdate: string, newType: string) => {
+      if (!newType.trim()) return;
+      
+      // 1. Update Suggestions (agar input selanjutnya otomatis menggunakan jenis baru)
+      const updatedSuggestions = activitySuggestions.map(s =>
+          s.name === nameToUpdate ? { ...s, type: newType } : s
+      );
+      if (!updatedSuggestions.some(s => s.name === nameToUpdate)) {
+          updatedSuggestions.push({ name: nameToUpdate, type: newType });
+      }
+
+      const updatedTypeSuggestions = [...typeSuggestions];
+      if (!updatedTypeSuggestions.includes(newType)) {
+          updatedTypeSuggestions.push(newType);
+      }
+
+      setActivitySuggestions(updatedSuggestions);
+      setTypeSuggestions(updatedTypeSuggestions);
+      saveSettingsToFirebase(updatedSuggestions, updatedTypeSuggestions);
+
+      // 2. Update Masal di Riwayat (Semua aktivitas lampau dengan nama ini akan berubah jenisnya)
+      if (userId) {
+          const activitiesToUpdate = activities.filter(a => a.name === nameToUpdate && a.type !== newType);
+          activitiesToUpdate.forEach(act => {
+              setDoc(doc(db, 'activities', act.id), { type: newType }, { merge: true }).catch(e => console.error(e));
+          });
+      }
+      
+      setToastMessage(`Berhasil mengubah jenis untuk "${nameToUpdate}" ✓`);
+      setTimeout(() => setToastMessage(null), 2000);
+  };
   // ----------------------------------------------
 
   return (
@@ -797,8 +841,12 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">Riwayat Aktivitas</h2>
-                <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full mt-2 inline-block">
-                  {processedActivities.length} Ditampilkan ({activities.length} Total)
+                <span 
+                  onClick={() => setShowDataModal(true)}
+                  className="bg-blue-100 text-blue-800 hover:bg-blue-200 cursor-pointer text-xs font-semibold px-3 py-1 rounded-full mt-2 inline-block transition-colors shadow-sm"
+                  title="Klik untuk mengelola relasi Nama dan Jenis Aktivitas"
+                >
+                  {processedActivities.length} Ditampilkan ({activities.length} Total) ⚙️
                 </span>
               </div>
               
@@ -1397,9 +1445,67 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
         </div>
       )}
 
+      {/* Data Management Modal (Hubungan Nama & Jenis) */}
+      {showDataModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Manajemen Data Aktivitas</h3>
+                <p className="text-xs text-slate-500 mt-1">Ubah relasi jenis aktivitas. Perubahan akan diterapkan ke semua riwayat secara masal.</p>
+              </div>
+              <button 
+                onClick={() => setShowDataModal(false)}
+                className="text-slate-400 hover:text-slate-600 bg-white p-1.5 rounded-full shadow-sm border border-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto p-5 flex-1 bg-slate-50/50">
+              <div className="space-y-3">
+                {allUniqueData.map(([actName, actType], idx) => (
+                  <div key={idx} className="bg-white border border-slate-200 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm hover:border-blue-300 transition-colors">
+                    <span className="font-semibold text-slate-700 text-sm flex-1">{actName}</span>
+                    <div className="flex items-center gap-2 sm:w-1/2">
+                      <span className="text-xs text-slate-400">Jenis:</span>
+                      <input
+                        type="text"
+                        list="modal-type-suggestions"
+                        defaultValue={actType}
+                        onBlur={(e) => {
+                          if (e.target.value !== actType) {
+                             handleUpdateMapping(actName, e.target.value);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                             e.currentTarget.blur(); // Menekan Enter akan langsung menyimpan
+                          }
+                        }}
+                        className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-xs bg-slate-50 focus:bg-white transition-colors"
+                        placeholder="Ketik jenis..."
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <datalist id="modal-type-suggestions">
+                {autocompleteTypes.map((t, idx) => (
+                  <option key={`mod-${idx}`} value={t} />
+                ))}
+              </datalist>
+            </div>
+            <div className="p-4 border-t border-slate-100 bg-white text-center">
+               <span className="text-[10px] text-slate-400 font-medium">💡 Ubah teks jenis aktivitas di atas, klik di sembarang tempat (luar kotak) atau tekan Enter untuk menyimpan.</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notifikasi Latar Belakang (Muncul 1 Detik) */}
       {toastMessage && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[110] bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium animate-in fade-in slide-in-from-bottom-4 duration-200 shadow-xl flex items-center gap-2">
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[130] bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium animate-in fade-in slide-in-from-bottom-4 duration-200 shadow-xl flex items-center gap-2">
           <ActivityIcon size={14} className="text-blue-400" />
           {toastMessage}
         </div>
