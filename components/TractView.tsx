@@ -143,7 +143,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     if (showActiveTimerPopup) {
       const timer = setTimeout(() => {
         setShowActiveTimerPopup(false);
-      }, 2000);
+      }, 5000); // waktu pop op popup pop-up notifikasi
       return () => clearTimeout(timer);
     }
   }, [showActiveTimerPopup]);
