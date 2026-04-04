@@ -120,6 +120,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   // State Baru untuk Timer & Tabel Detail
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [detailActivity, setDetailActivity] = useState<Activity | null>(null);
+  const [showRestartOption, setShowRestartOption] = useState<string | null>(null);
   
   // Save to LocalStorage effects
   useEffect(() => {
@@ -371,24 +372,32 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
         updatedActivity.pauses = [...(activity.pauses || []), now];
     } else if (action === 'resume') {
         updatedActivity.resumes = [...(activity.resumes || []), now];
+   
     } else if (action === 'stop') {
         updatedActivity.isTimerActive = false;
         updatedActivity.endTime = now;
         
-        // Kalkulasi Durasi Bersih (Total waktu dikurangi total waktu jeda)
+        // Kalkulasi Durasi Bersih
         const startMs = activity.startTime || activity.timestamp;
         const pauses = activity.pauses || [];
         const resumes = activity.resumes || [];
-        
         let totalPauseMs = 0;
         for (let i = 0; i < pauses.length; i++) {
             const p = pauses[i];
-            const r = resumes[i] || now; // Jika aktivitas dihentikan saat sedang dijeda
+            const r = resumes[i] || now;
             totalPauseMs += (r - p);
         }
-        
         const activeMs = (now - startMs) - totalPauseMs;
         updatedActivity.duration = Math.max(0, Math.round(activeMs / 60000));
+    } else if (action === 'restart') {
+        updatedActivity.isTimerActive = true;
+        // Pindahkan endTime lama ke array pauses agar sesi sebelumnya tercatat selesai
+        if (activity.endTime) {
+            updatedActivity.pauses = [...(activity.pauses || []), activity.endTime];
+        }
+        updatedActivity.resumes = [...(activity.resumes || []), now];
+        updatedActivity.endTime = null;
+        updatedActivity.duration = null;
     }
 
     if (userId) {
@@ -839,35 +848,63 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                             </p>
                           )}
 
-  
+   
                            <div className="flex items-center justify-end gap-2 mt-1">
+                            {/* Tombol Kontrol Saat Timer Aktif */}
                             {activity.isTimerActive && (
                                 <div className="flex items-center gap-2 mr-auto bg-slate-100 p-1 rounded-lg">
                                     {(!activity.pauses || activity.pauses.length === (activity.resumes?.length || 0)) ? (
                                         <button
                                           onClick={() => handleTimerAction(activity, 'pause')}
-                                          className="px-3 py-1 text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md shadow-sm transition-colors"
+                                          className="px-3 py-1 text-[10px] sm:text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md shadow-sm transition-colors"
                                         >
                                           ⏸ Jeda
                                         </button>
                                     ) : (
                                         <button
                                           onClick={() => handleTimerAction(activity, 'resume')}
-                                          className="px-3 py-1 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-md shadow-sm transition-colors"
+                                          className="px-3 py-1 text-[10px] sm:text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-md shadow-sm transition-colors"
                                         >
                                           ▶ Lanjutkan
                                         </button>
                                     )}
                                     <button
                                       onClick={() => handleTimerAction(activity, 'stop')}
-                                      className="px-3 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-md shadow-sm transition-colors"
+                                      className="px-3 py-1 text-[10px] sm:text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-md shadow-sm transition-colors"
                                     >
                                       ⏹ Berhenti
                                     </button>
                                 </div>
                             )}
+
+                            {/* Tombol Opsi Mulai Kembali (Muncul jika Timer sudah Berhenti & bukan input manual murni) */}
+                            {!activity.isTimerActive && (activity.startTime || activity.resumes?.length) && (
+                                <div className="flex items-center gap-1">
+                                    {showRestartOption === activity.id ? (
+                                        <button
+                                            onClick={() => {
+                                                handleTimerAction(activity, 'restart');
+                                                setShowRestartOption(null);
+                                            }}
+                                            className="px-3 py-1.5 text-[10px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg animate-in slide-in-from-right-2 duration-200"
+                                        >
+                                            🔄 Mulai Kembali
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => setShowRestartOption(activity.id)}
+                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            title="Opsi Lanjutan"
+                                        >
+                                            <Clock size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             <button
                               onClick={() => openEditModal(activity)}
+                  
                               
                               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
                             >
