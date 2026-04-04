@@ -276,6 +276,13 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       finalStartTime = startMs;
     }
 
+    // Tembakan Khusus Fitur Hitung Waktu (Agar sinkron dengan status tombol "Sedang Merekam")
+    if (isTimerActive) {
+      finalStartTime = now;
+      finalEndTime = null;
+      finalDuration = null;
+    }
+
     const newActivity: Activity = {
       id: now.toString(),
       name: suggName.trim(),
@@ -286,7 +293,10 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       userId: userId || '',
       startTime: finalStartTime,
       endTime: finalEndTime,
-      duration: finalDuration
+      duration: finalDuration,
+      isTimerActive: isTimerActive, // <-- MEMBAWA STATUS TIMER
+      pauses: [],                   // <-- MENYIAPKAN ARRAY JEDA
+      resumes: []                   // <-- MENYIAPKAN ARRAY LANJUT
     };
 
     if (userId) {
@@ -305,6 +315,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
 
     setName(''); setDescription(''); setType('');
     setStartTimeInput(''); setEndTimeInput(''); setDurationInput('');
+    setIsTimerActive(false); // <-- Matikan tombol rekam di form
     setActiveTab('list');
   };
 
