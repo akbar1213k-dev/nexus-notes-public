@@ -803,18 +803,24 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                           <div className="flex justify-between items-start gap-3">
                             <div className="flex-1">
                                <h4 className="font-bold text-slate-900 text-base leading-tight mb-1">{activity.name}</h4>
+                              
                               <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500">
-                                  <Clock size={12} className="text-blue-500" />
-                                  <span>
+                                  <Clock size={12} className={activity.isTimerActive ? "text-red-500 animate-pulse" : "text-blue-500"} />
+                                  <span 
+                                    onClick={() => setDetailActivity(activity)}
+                                    className="cursor-pointer hover:text-blue-600 hover:underline"
+                                    title="Klik untuk melihat tabel rincian waktu"
+                                  >
                                     {format(activity.startTime || activity.timestamp, 'dd MMM yyyy')} • 
                                     <span className="text-slate-800 ml-1">
                                       {format(activity.startTime || activity.timestamp, 'HH:mm')}
-                                      {activity.endTime ? ` - ${format(activity.endTime, 'HH:mm')}` : ''}
+                                      {activity.endTime ? ` - ${format(activity.endTime, 'HH:mm')}` : (activity.isTimerActive ? ' - Berjalan...' : '')}
                                     </span>
                                     {activity.duration ? ` (${activity.duration} menit)` : ''}
                                   </span>
                                </div>
                             </div>
+                            
                             <span className={cn(
                                 "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap",
                                 activity.type === 'Olahraga' ? "bg-blue-100 text-blue-700" :
@@ -832,10 +838,37 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                                {activity.description}
                             </p>
                           )}
-                          
-                          <div className="flex items-center justify-end gap-2 mt-1">
+
+  
+                           <div className="flex items-center justify-end gap-2 mt-1">
+                            {activity.isTimerActive && (
+                                <div className="flex items-center gap-2 mr-auto bg-slate-100 p-1 rounded-lg">
+                                    {(!activity.pauses || activity.pauses.length === (activity.resumes?.length || 0)) ? (
+                                        <button
+                                          onClick={() => handleTimerAction(activity, 'pause')}
+                                          className="px-3 py-1 text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md shadow-sm transition-colors"
+                                        >
+                                          ⏸ Jeda
+                                        </button>
+                                    ) : (
+                                        <button
+                                          onClick={() => handleTimerAction(activity, 'resume')}
+                                          className="px-3 py-1 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-md shadow-sm transition-colors"
+                                        >
+                                          ▶ Lanjutkan
+                                        </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleTimerAction(activity, 'stop')}
+                                      className="px-3 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-md shadow-sm transition-colors"
+                                    >
+                                      ⏹ Berhenti
+                                    </button>
+                                </div>
+                            )}
                             <button
                               onClick={() => openEditModal(activity)}
+                              
                               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
                             >
                               <Edit2 size={14} /> Edit
@@ -1051,6 +1084,80 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
         </div>
       )}
 
+       {/* Time Detail Modal */}
+      {detailActivity && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Clock size={18}/> Rincian Waktu</h3>
+              <button 
+                onClick={() => setDetailActivity(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6">
+              <h4 className="font-bold text-blue-600 mb-4">{detailActivity.name}</h4>
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wider">
+                          <tr>
+                              <th className="px-4 py-3 font-medium border-b">Sesi</th>
+                              <th className="px-4 py-3 font-medium border-b">Mulai/Lanjut</th>
+                              <th className="px-4 py-3 font-medium border-b">Jeda/Stop</th>
+                              <th className="px-4 py-3 font-medium border-b text-right">Durasi</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                          {/* Sesi 1 (Awal) */}
+                          <tr className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-slate-500 font-medium">Sesi 1</td>
+                              <td className="px-4 py-3">{format(detailActivity.startTime || detailActivity.timestamp, 'HH:mm')}</td>
+                              <td className="px-4 py-3">
+                                  {detailActivity.pauses && detailActivity.pauses.length > 0 
+                                    ? format(detailActivity.pauses[0], 'HH:mm') 
+                                    : (detailActivity.endTime ? format(detailActivity.endTime, 'HH:mm') : 'Berjalan...')}
+                              </td>
+                              <td className="px-4 py-3 text-right font-medium">
+                                  {(() => {
+                                      const end = (detailActivity.pauses && detailActivity.pauses.length > 0) ? detailActivity.pauses[0] : (detailActivity.endTime || Date.now());
+                                      const mins = Math.round((end - (detailActivity.startTime || detailActivity.timestamp)) / 60000);
+                                      return `${Math.max(0, mins)} mnt`;
+                                  })()}
+                              </td>
+                          </tr>
+                          
+                          {/* Sesi Lanjutan (Looping) */}
+                          {detailActivity.resumes?.map((resumeTime, index) => {
+                              const nextPause = detailActivity.pauses?.[index + 1];
+                              const end = nextPause || detailActivity.endTime || (detailActivity.isTimerActive ? Date.now() : null);
+                              const mins = end ? Math.round((end - resumeTime) / 60000) : 0;
+                              return (
+                                  <tr key={index} className="hover:bg-slate-50">
+                                      <td className="px-4 py-3 text-slate-500 font-medium">Sesi {index + 2}</td>
+                                      <td className="px-4 py-3">{format(resumeTime, 'HH:mm')}</td>
+                                      <td className="px-4 py-3">{end ? format(end, 'HH:mm') : 'Berjalan...'}</td>
+                                      <td className="px-4 py-3 text-right font-medium">{end ? `${Math.max(0, mins)} mnt` : '-'}</td>
+                                  </tr>
+                              )
+                          })}
+                      </tbody>
+                      {detailActivity.duration != null && (
+                          <tfoot className="bg-blue-50 font-bold text-slate-800 border-t border-blue-100">
+                              <tr>
+                                  <td colSpan={3} className="px-4 py-3 text-right uppercase text-xs tracking-wider text-blue-600">Total Durasi Bersih:</td>
+                                  <td className="px-4 py-3 text-right text-blue-700 text-base">{detailActivity.duration} mnt</td>
+                              </tr>
+                          </tfoot>
+                      )}
+                  </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+       
       {/* Delete Confirmation Modal */}
       {deletingId && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
