@@ -467,10 +467,9 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
         updatedActivity.duration = Math.max(0, Math.round(activeMs / 60000));
     } else if (action === 'restart') {
         updatedActivity.isTimerActive = true;
-        // Pindahkan endTime lama ke array pauses agar sesi sebelumnya tercatat selesai
-        if (activity.endTime) {
-            updatedActivity.pauses = [...(activity.pauses || []), activity.endTime];
-        }
+        // Pindahkan endTime lama (atau waktu mulai jika kosong) ke array pauses agar sesi sebelumnya tercatat selesai
+        const previousEnd = activity.endTime || activity.startTime || activity.timestamp;
+        updatedActivity.pauses = [...(activity.pauses || []), previousEnd];
         updatedActivity.resumes = [...(activity.resumes || []), now];
         updatedActivity.endTime = null;
         updatedActivity.duration = null;
@@ -1099,7 +1098,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                             {/* Tombol Kontrol Saat Timer Aktif */}
                             {activity.isTimerActive && (
                                 <div className="flex items-center gap-2 mr-auto bg-slate-100 p-1 rounded-lg">
-                                    {(!activity.pauses || activity.pauses.length === (activity.resumes?.length || 0)) ? (
+                                    {(!activity.pauses || activity.pauses.length <= (activity.resumes?.length || 0)) ? (
                                         <button
                                           onClick={() => handleTimerAction(activity, 'pause')}
                                           className="px-3 py-1 text-[10px] sm:text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md shadow-sm transition-colors"
