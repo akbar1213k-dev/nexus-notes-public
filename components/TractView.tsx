@@ -1368,8 +1368,14 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
 
        {/* Time Detail Modal */}
       {detailActivity && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div 
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+          onClick={() => setDetailActivity(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Clock size={18}/> Rincian Waktu</h3>
               <button 
@@ -1556,8 +1562,14 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
 
       {/* Data Management Modal (Hubungan Nama & Jenis) */}
       {showDataModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
+        <div 
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[120]"
+          onClick={() => setShowDataModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <div>
                 <h3 className="text-lg font-bold text-slate-800">Manajemen Data Aktivitas</h3>
