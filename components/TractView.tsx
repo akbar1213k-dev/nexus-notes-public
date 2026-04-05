@@ -217,6 +217,10 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   // Delete Modal State
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // --- STATE BARU UNTUK FITUR PILIH DATA ---
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  
   const handleDeleteActivitySuggestion = (nameToDelete: string) => {
     const newSugg = activitySuggestions.filter(s => s.name !== nameToDelete);
     setActivitySuggestions(newSugg);
@@ -669,7 +673,49 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
     
     // Reset input file agar dapat digunakan mengimpor file yang sama lagi
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };                                        
+  };                 
+
+  // --- FUNGSI BARU UNTUK FITUR PILIH DATA ---
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === processedActivities.length) {
+      setSelectedIds([]); // Batal pilih semua
+    } else {
+      setSelectedIds(processedActivities.map(a => a.id)); // Pilih semua yang tampil
+    }
+  };
+
+  const handleExportSelected = () => {
+    if (selectedIds.length === 0) return;
+    const dataToExport = activities.filter(a => selectedIds.includes(a.id));
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TractApp_Partial_Backup_${format(Date.now(), 'yyyyMMdd_HHmmss')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    setToastMessage(`Berhasil mengekspor ${dataToExport.length} data pilihan ✓`);
+    setTimeout(() => setToastMessage(null), 2000);
+    setIsSelectionMode(false);
+    setSelectedIds([]);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) return;
+    if (window.confirm(`Apakah Anda yakin ingin menghapus ${selectedIds.length} aktivitas yang dipilih? Tindakan ini permanen.`)) {
+      if (userId) {
+        selectedIds.forEach(id => {
+           deleteDoc(doc(db, 'activities', id)).catch(e => console.error(e));
+        });
+      }
+      setActivities(prev => prev.filter(a => !selectedIds.includes(a.id)));
+      setSelectedIds([]);
+      setIsSelectionMode(false);
+      setToastMessage(`${selectedIds.length} data berhasil dihapus ✓`);
+      setTimeout(() => setToastMessage(null), 2000);
+    }
+  };
 
   return (
      <div className="h-full w-full bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row overflow-hidden">
@@ -959,9 +1005,62 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 md:flex md:flex-wrap gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="text-xs font-medium text-slate-500 block mb-1">Kumpulkan</label>
+              <div className="grid grid-cols-2 md:flex md:flex-wrap gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm items-end">
+  <div className="col-span-2 sm:col-span-1">
+    <label className="text-xs font-medium text-slate-500 block mb-1">Kumpulkan</label>
+    <select 
+      value={groupBy} 
+      onChange={e => setGroupBy(e.target.value as any)}
+      className="w-full text-sm border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+    >
+      <option value="none">Tidak ada</option>
+      <option value="month">Per Bulan</option>
+      <option value="type">Per Jenis</option>
+    </select>
+  </div>
+  <div className="col-span-1">
+    <label className="text-xs font-medium text-slate-500 block mb-1">Filter</label>
+    <select 
+      value={filterType} 
+      onChange={e => setFilterType(e.target.value)}
+      className="w-full text-sm border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+    >
+      <option value="All">Semua Jenis</option>
+      {uniqueActivityTypesForFilter.map(t => (
+        <option key={t} value={t}>{t}</option>
+      ))}
+    </select>
+  </div>
+  <div className="col-span-1">
+    <label className="text-xs font-medium text-slate-500 block mb-1">Urutkan</label>
+    <select 
+      value={sortBy} 
+      onChange={e => setSortBy(e.target.value as any)}
+      className="w-full text-sm border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+    >
+      <option value="newest">Terbaru</option>
+      <option value="oldest">Terlama</option>
+      <option value="nameAsc">Nama (A-Z)</option>
+      <option value="nameDesc">Nama (Z-A)</option>
+    </select>
+  </div>
+  
+  {/* TOMBOL PILIH DATA BARU */}
+  <div className="col-span-2 md:col-span-1 md:ml-auto w-full md:w-auto mt-2 md:mt-0">
+    <button
+      onClick={() => {
+        setIsSelectionMode(!isSelectionMode);
+        if (isSelectionMode) setSelectedIds([]); // Reset jika dibatalkan
+      }}
+      className={cn(
+        "w-full text-sm font-semibold px-4 py-2 rounded-lg transition-colors border shadow-sm h-[38px] flex justify-center items-center gap-2", 
+        isSelectionMode ? "bg-slate-200 text-slate-800 border-slate-300" : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
+      )}
+    >
+      {isSelectionMode ? <><X size={16}/> Batal Pilih</> : "☑ Pilih Data"}
+    </button>
+  </div>
+</div>
                   <select 
                     value={groupBy} 
                     onChange={e => setGroupBy(e.target.value as any)}
@@ -1001,6 +1100,38 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
               </div>
             </div>
 
+             </div> {/* <-- Ini penutup dari div Header List */}
+
+            {/* BAR KOTAK BIRU AKSI PILIHAN */}
+            {isSelectionMode && processedActivities.length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-6 flex flex-wrap items-center justify-between gap-3 shadow-sm animate-in fade-in duration-200">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-blue-800 bg-blue-100 px-3 py-1 rounded-full">
+                    {selectedIds.length} Dipilih
+                  </span>
+                  <button onClick={handleToggleSelectAll} className="text-sm font-semibold text-blue-600 hover:text-blue-800 underline">
+                    {selectedIds.length === processedActivities.length ? "Batal Semua" : "Pilih Semua"}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    disabled={selectedIds.length === 0}
+                    onClick={handleExportSelected}
+                    className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors flex justify-center items-center gap-1 shadow-sm"
+                  >
+                    <Download size={14} /> Ekspor Pilihan
+                  </button>
+                  <button
+                    disabled={selectedIds.length === 0}
+                    onClick={handleDeleteSelected}
+                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors flex justify-center items-center gap-1 shadow-sm"
+                  >
+                    <Trash2 size={14} /> Hapus Pilihan
+                  </button>
+                </div>
+              </div>
+            )}
+
             {activities.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1039,8 +1170,23 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                       {groupActs.map((activity) => (
                         <div key={activity.id} className="border-t border-slate-100 p-4 hover:bg-slate-50 transition-colors flex flex-col gap-3">
                           <div className="flex justify-between items-start gap-3">
-                            <div className="flex-1">
-                               <h4 className="font-bold text-slate-900 text-base leading-tight mb-1">{activity.name}</h4>
+  {/* CHECKBOX UNTUK MODE PILIH DATA */}
+  {isSelectionMode && (
+    <div className="pt-0.5">
+      <input
+        type="checkbox"
+        checked={selectedIds.includes(activity.id)}
+        onChange={(e) => {
+          if (e.target.checked) setSelectedIds(prev => [...prev, activity.id]);
+          else setSelectedIds(prev => prev.filter(id => id !== activity.id));
+        }}
+        className="w-5 h-5 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 cursor-pointer transition-all"
+      />
+    </div>
+  )}
+  
+  <div className="flex-1">
+     <h4 className="font-bold text-slate-900 text-base leading-tight mb-1">{activity.name}</h4>
                               
                               <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500">
                                   {/* Logika Status Timer */}
