@@ -127,6 +127,67 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
   const [showRestartOption, setShowRestartOption] = useState<string | null>(null);
   const [showDataModal, setShowDataModal] = useState(false); // <-- STATE UNTUK MODAL DATA
 
+  // State & Logika untuk Edit Sesi di Rincian Waktu
+  const [editingSessionIndex, setEditingSessionIndex] = useState<number | null>(null);
+  const [editSessionStart, setEditSessionStart] = useState('');
+  const [editSessionEnd, setEditSessionEnd] = useState('');
+  const [editSessionNote, setEditSessionNote] = useState('');
+
+  const handleSaveSessionEdit = () => {
+      if (!detailActivity || editingSessionIndex === null) return;
+      
+      let updated = { ...detailActivity };
+      const startMs = new Date(editSessionStart).getTime();
+      const endMs = editSessionEnd ? new Date(editSessionEnd).getTime() : null;
+
+      let notes = [...(updated.sessionNotes || [])];
+      notes[editingSessionIndex] = editSessionNote;
+      updated.sessionNotes = notes;
+
+      if (editingSessionIndex === 0) {
+          updated.startTime = startMs;
+          if (updated.pauses && updated.pauses.length > 0) {
+              if (endMs) updated.pauses[0] = endMs;
+          } else if (!updated.isTimerActive) {
+              updated.endTime = endMs;
+          }
+      } else {
+          const rIndex = editingSessionIndex - 1;
+          const pIndex = editingSessionIndex;
+
+          if (updated.resumes && updated.resumes.length > rIndex) {
+              updated.resumes[rIndex] = startMs;
+          }
+          if (updated.pauses && updated.pauses.length > pIndex) {
+              if (endMs) updated.pauses[pIndex] = endMs;
+          } else if (!updated.isTimerActive) {
+              updated.endTime = endMs;
+          }
+      }
+
+      // Menghitung ulang total durasi jika timer sudah berhenti
+      if (!updated.isTimerActive && updated.endTime) {
+          const sMs = updated.startTime || updated.timestamp;
+          const pauses = updated.pauses || [];
+          const resumes = updated.resumes || [];
+          let totalPauseMs = 0;
+          for (let i = 0; i < pauses.length; i++) {
+              const p = pauses[i];
+              const r = resumes[i] || updated.endTime;
+              totalPauseMs += (r - p);
+          }
+          const activeMs = (updated.endTime - sMs) - totalPauseMs;
+          updated.duration = Math.max(0, Math.round(activeMs / 60000));
+      }
+
+      if (userId) {
+          setDoc(doc(db, 'activities', updated.id), updated, { merge: true }).catch(err => console.error(err));
+      }
+      setActivities(prev => prev.map(a => a.id === updated.id ? updated : a));
+      setDetailActivity(updated);
+      setEditingSessionIndex(null);
+  };
+
   // State untuk Pop-up Notifikasi & Toast (Pesan Singkat)
   const [showActiveTimerPopup, setShowActiveTimerPopup] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
