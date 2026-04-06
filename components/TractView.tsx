@@ -57,7 +57,91 @@ interface Activity {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
 
-export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?: string }) {
+export function TractView({ 
+  onGoHome, 
+  userId,
+  notes = [],
+  onLinkClick
+}: { 
+  onGoHome?: () => void; 
+  userId?: string;
+  notes?: any[];
+  onLinkClick?: (id: string) => void;
+}) {
+
+  // ==========================================
+  // --- STATE & LOGIKA MENTION CATATAN (@.) ---
+  // ==========================================
+  const [showMention, setShowMention] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionTarget, setMentionTarget] = useState<'new' | 'edit' | 'session'>('new');
+  const [mentionCursorPos, setMentionCursorPos] = useState<number | null>(null);
+
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>, target: 'new' | 'edit' | 'session') => {
+      const val = e.target.value;
+      if (target === 'new') setDescription(val);
+      else if (target === 'edit') setEditDescription(val);
+      else if (target === 'session') setEditSessionNote(val);
+
+      const cursorPos = e.target.selectionStart || 0;
+      const textBeforeCursor = val.substring(0, cursorPos);
+      
+      const atIndex = textBeforeCursor.lastIndexOf('@.');
+      if (atIndex !== -1) {
+          const textAfterAt = textBeforeCursor.substring(atIndex + 2);
+          if (!textAfterAt.includes(' ')) {
+              setMentionQuery(textAfterAt.toLowerCase());
+              setShowMention(true);
+              setMentionTarget(target);
+              setMentionCursorPos(atIndex);
+              return;
+          }
+      }
+      setShowMention(false);
+  };
+
+  const handleSelectMention = (noteId: string, noteTitle: string) => {
+      const tag = `[[note:${noteId}|${noteTitle}]] `;
+      
+      let currentText = '';
+      let setter: any;
+      if (mentionTarget === 'new') { currentText = description; setter = setDescription; }
+      else if (mentionTarget === 'edit') { currentText = editDescription; setter = setEditDescription; }
+      else if (mentionTarget === 'session') { currentText = editSessionNote; setter = setEditSessionNote; }
+
+      if (mentionCursorPos !== null) {
+          const before = currentText.substring(0, mentionCursorPos);
+          const afterAt = currentText.substring(mentionCursorPos);
+          const spaceIndex = afterAt.indexOf(' ');
+          const endIdx = spaceIndex === -1 ? currentText.length : mentionCursorPos + spaceIndex;
+          const after = currentText.substring(endIdx);
+          
+          setter(before + tag + after);
+      }
+      setShowMention(false);
+  };
+
+  const renderRichText = (text: string) => {
+      if (!text) return null;
+      const parts = text.split(/(\[\[note:[^|]+\|[^\]]+\]\])/g);
+      return parts.map((part, i) => {
+          const match = part.match(/\[\[note:([^|]+)\|([^\]]+)\]\]/);
+          if (match) {
+              return (
+                  <span 
+                      key={i} 
+                      onClick={(e) => { e.stopPropagation(); onLinkClick?.(match[1]); }}
+                      className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded cursor-pointer hover:bg-blue-100 font-bold inline-flex items-center"
+                      title="Buka Catatan"
+                  >
+                      @{match[2]}
+                  </span>
+              );
+          }
+          return <span key={i}>{part}</span>;
+      });
+  };
+  // ==========================================
   // PENYIMPANAN HYBRID: Load pertama kali dari LocalStorage (Bisa jalan saat offline)
   const [activities, setActivities] = useState<Activity[]>(() => {
     const saved = localStorage.getItem('tractapp_activities');
@@ -1258,7 +1342,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                           
                           {activity.description && (
                             <p className="text-sm text-slate-600 bg-white border border-slate-100 p-3 rounded-lg shadow-sm">
-                               {activity.description}
+                               {renderRichText(activity.description)}
                             </p>
                           )}
 
@@ -1629,7 +1713,7 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                                           <td className="px-3 py-3 text-slate-700">
                                               {format(ses.start, 'HH:mm')} - {ses.end ? format(ses.end, 'HH:mm') : <span className="text-red-500 animate-pulse font-bold">Berjalan...</span>}
                                           </td>
-                                          <td className="px-3 py-3 text-slate-600 max-w-[150px] truncate" title={ses.note}>{ses.note || '-'}</td>
+                                          <td className="px-3 py-3 text-slate-600 max-w-[150px] truncate" title={ses.note}>{renderRichText(ses.note) || '-'}</td>
                                           <td className="px-3 py-3 text-right font-bold text-slate-700">{ses.end ? `${mins} mnt` : '-'}</td>
                                           <td className="px-3 py-3 text-center">
                                               <button 
@@ -1841,6 +1925,32 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
                <span className="text-[10px] text-slate-400 font-medium">💡 Ubah teks jenis aktivitas di atas, klik di sembarang tempat (luar kotak) atau tekan Enter untuk menyimpan.</span>
             </div>
           </div>
+        </div>
+      )}
+
+       {/* Pop-up Mention Keterangan (@.) */}
+      {showMention && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/20 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setShowMention(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[60vh] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                <div className="bg-slate-50 p-3 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                    <span>Pilih Catatan untuk Ditautkan</span>
+                    <button onClick={() => setShowMention(false)}><X size={14} /></button>
+                </div>
+                <div className="overflow-y-auto p-2 flex-1 space-y-1 bg-white">
+                    {notes.filter(n => n.title.toLowerCase().includes(mentionQuery)).map(n => (
+                        <button
+                            key={n.id}
+                            onClick={() => handleSelectMention(n.id, n.title)}
+                            className="w-full text-left px-3 py-2.5 hover:bg-blue-50 text-slate-800 text-sm font-medium rounded-lg transition-colors truncate border border-transparent hover:border-blue-100"
+                        >
+                            {n.title || 'Untitled'}
+                        </button>
+                    ))}
+                    {notes.filter(n => n.title.toLowerCase().includes(mentionQuery)).length === 0 && (
+                        <div className="p-4 text-center text-slate-500 text-sm">Tidak ada catatan ditemukan.</div>
+                    )}
+                </div>
+            </div>
         </div>
       )}
 
