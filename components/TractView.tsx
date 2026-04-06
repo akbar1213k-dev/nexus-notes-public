@@ -52,6 +52,7 @@ interface Activity {
   isTimerActive?: boolean;
   pauses?: number[];
   resumes?: number[];
+  sessionNotes?: string[]; // <-- TEMPAT PENYIMPANAN BARU UNTUK KETERANGAN SESI
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
@@ -1477,72 +1478,123 @@ export function TractView({ onGoHome, userId }: { onGoHome?: () => void, userId?
       {detailActivity && (
         <div 
           className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-          onClick={() => setDetailActivity(null)}
+          onClick={() => { setDetailActivity(null); setEditingSessionIndex(null); }}
         >
           <div 
-            className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50">
+            <div className="flex justify-between items-center p-4 md:p-6 border-b border-slate-100 bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Clock size={18}/> Rincian Waktu</h3>
               <button 
-                onClick={() => setDetailActivity(null)}
+                onClick={() => { setDetailActivity(null); setEditingSessionIndex(null); }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-4 md:p-6">
               <h4 className="font-bold text-blue-600 mb-4">{detailActivity.name}</h4>
-              <div className="overflow-hidden rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wider">
+              
+              {/* PENAMBAHAN: overflow-x-auto & min-w-[550px] agar tabel bisa digeser di HP! */}
+              <div className="overflow-x-auto rounded-xl border border-slate-200 pb-1">
+                  <table className="w-full text-left text-xs whitespace-nowrap min-w-[550px]">
+                      <thead className="bg-slate-100 text-slate-600 uppercase tracking-wider">
                           <tr>
-                              <th className="px-4 py-3 font-medium border-b">Sesi</th>
-                              <th className="px-4 py-3 font-medium border-b">Mulai/Lanjut</th>
-                              <th className="px-4 py-3 font-medium border-b">Jeda/Stop</th>
-                              <th className="px-4 py-3 font-medium border-b text-right">Durasi</th>
+                              <th className="px-3 py-3 font-medium border-b">Sesi</th>
+                              <th className="px-3 py-3 font-medium border-b">Waktu</th>
+                              <th className="px-3 py-3 font-medium border-b">Keterangan</th>
+                              <th className="px-3 py-3 font-medium border-b text-right">Durasi</th>
+                              <th className="px-3 py-3 font-medium border-b text-center">Aksi</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                          {/* Sesi 1 (Awal) */}
-                          <tr className="hover:bg-slate-50">
-                              <td className="px-4 py-3 text-slate-500 font-medium">Sesi 1</td>
-                              <td className="px-4 py-3">{format(detailActivity.startTime || detailActivity.timestamp, 'HH:mm')}</td>
-                              <td className="px-4 py-3">
-                                  {detailActivity.pauses && detailActivity.pauses.length > 0 
-                                    ? format(detailActivity.pauses[0], 'HH:mm') 
-                                    : (detailActivity.endTime ? format(detailActivity.endTime, 'HH:mm') : 'Berjalan...')}
-                              </td>
-                              <td className="px-4 py-3 text-right font-medium">
-                                  {(() => {
-                                      const end = (detailActivity.pauses && detailActivity.pauses.length > 0) ? detailActivity.pauses[0] : (detailActivity.endTime || Date.now());
-                                      const mins = Math.round((end - (detailActivity.startTime || detailActivity.timestamp)) / 60000);
-                                      return `${Math.max(0, mins)} mnt`;
-                                  })()}
-                              </td>
-                          </tr>
-                          
-                          {/* Sesi Lanjutan (Looping) */}
-                          {detailActivity.resumes?.map((resumeTime, index) => {
-                              const nextPause = detailActivity.pauses?.[index + 1];
-                              const end = nextPause || detailActivity.endTime || (detailActivity.isTimerActive ? Date.now() : null);
-                              const mins = end ? Math.round((end - resumeTime) / 60000) : 0;
-                              return (
-                                  <tr key={index} className="hover:bg-slate-50">
-                                      <td className="px-4 py-3 text-slate-500 font-medium">Sesi {index + 2}</td>
-                                      <td className="px-4 py-3">{format(resumeTime, 'HH:mm')}</td>
-                                      <td className="px-4 py-3">{end ? format(end, 'HH:mm') : 'Berjalan...'}</td>
-                                      <td className="px-4 py-3 text-right font-medium">{end ? `${Math.max(0, mins)} mnt` : '-'}</td>
-                                  </tr>
-                              )
-                          })}
+                          {(() => {
+                              const sessions = [];
+                              const pauses = detailActivity.pauses || [];
+                              const resumes = detailActivity.resumes || [];
+                              const notes = detailActivity.sessionNotes || [];
+                              
+                              sessions.push({
+                                  index: 0,
+                                  start: detailActivity.startTime || detailActivity.timestamp,
+                                  end: pauses.length > 0 ? pauses[0] : detailActivity.endTime,
+                                  note: notes[0] || '',
+                                  isRunning: detailActivity.isTimerActive && pauses.length === 0
+                              });
+
+                              resumes.forEach((res, i) => {
+                                  const pIdx = i + 1;
+                                  sessions.push({
+                                      index: pIdx,
+                                      start: res,
+                                      end: pauses.length > pIdx ? pauses[pIdx] : detailActivity.endTime,
+                                      note: notes[pIdx] || '',
+                                      isRunning: detailActivity.isTimerActive && pauses.length === pIdx
+                                  });
+                              });
+
+                              return sessions.map((ses) => {
+                                  const mins = ses.end ? Math.max(0, Math.round((ses.end - ses.start) / 60000)) : 0;
+                                  const isEditing = editingSessionIndex === ses.index;
+
+                                  // Jika tombol Edit diklik (Muncul Form)
+                                  if (isEditing) {
+                                      return (
+                                          <tr key={ses.index} className="bg-blue-50/50">
+                                              <td className="px-3 py-2 text-slate-500 font-medium">Sesi {ses.index + 1}</td>
+                                              <td className="px-3 py-2 flex flex-col gap-1">
+                                                  <input type="datetime-local" value={editSessionStart} onChange={e => setEditSessionStart(e.target.value)} className="text-[10px] p-1 border border-slate-300 rounded outline-none focus:border-blue-500" />
+                                                  <input type="datetime-local" value={editSessionEnd} onChange={e => setEditSessionEnd(e.target.value)} className="text-[10px] p-1 border border-slate-300 rounded outline-none focus:border-blue-500" disabled={ses.isRunning} title={ses.isRunning ? "Sedang Berjalan..." : ""} />
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                  <input type="text" placeholder="Catatan sesi..." value={editSessionNote} onChange={e => setEditSessionNote(e.target.value)} className="text-[10px] p-1.5 border border-slate-300 rounded w-full min-w-[120px] outline-none focus:border-blue-500"/>
+                                              </td>
+                                              <td className="px-3 py-2 text-right text-slate-400">-</td>
+                                              <td className="px-3 py-2 text-center">
+                                                  <div className="flex justify-center gap-1">
+                                                      <button onClick={handleSaveSessionEdit} className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition-colors">Simpan</button>
+                                                      <button onClick={() => setEditingSessionIndex(null)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded text-[10px] font-bold transition-colors">Batal</button>
+                                                  </div>
+                                              </td>
+                                          </tr>
+                                      )
+                                  }
+
+                                  // Tampilan Normal (Read-Only)
+                                  return (
+                                      <tr key={ses.index} className="hover:bg-slate-50 transition-colors">
+                                          <td className="px-3 py-3 text-slate-500 font-medium">Sesi {ses.index + 1}</td>
+                                          <td className="px-3 py-3 text-slate-700">
+                                              {format(ses.start, 'HH:mm')} - {ses.end ? format(ses.end, 'HH:mm') : <span className="text-red-500 animate-pulse font-bold">Berjalan...</span>}
+                                          </td>
+                                          <td className="px-3 py-3 text-slate-600 max-w-[150px] truncate" title={ses.note}>{ses.note || '-'}</td>
+                                          <td className="px-3 py-3 text-right font-bold text-slate-700">{ses.end ? `${mins} mnt` : '-'}</td>
+                                          <td className="px-3 py-3 text-center">
+                                              <button 
+                                                onClick={() => {
+                                                    setEditingSessionIndex(ses.index);
+                                                    setEditSessionStart(format(ses.start, "yyyy-MM-dd'T'HH:mm"));
+                                                    setEditSessionEnd(ses.end ? format(ses.end, "yyyy-MM-dd'T'HH:mm") : '');
+                                                    setEditSessionNote(ses.note);
+                                                }}
+                                                className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-1.5 rounded transition-colors inline-flex justify-center"
+                                                title="Edit Sesi Ini"
+                                              >
+                                                  <Edit2 size={14}/>
+                                              </button>
+                                          </td>
+                                      </tr>
+                                  )
+                              });
+                          })()}
                       </tbody>
                       {detailActivity.duration != null && (
-                          <tfoot className="bg-blue-50 font-bold text-slate-800 border-t border-blue-100">
+                          <tfoot className="bg-blue-50 border-t border-blue-200">
                               <tr>
-                                  <td colSpan={3} className="px-4 py-3 text-right uppercase text-xs tracking-wider text-blue-600">Total Durasi Bersih:</td>
-                                  <td className="px-4 py-3 text-right text-blue-700 text-base">{detailActivity.duration} mnt</td>
+                                  <td colSpan={3} className="px-3 py-3 text-right font-bold uppercase tracking-wider text-blue-700 text-[10px]">Total Durasi Bersih:</td>
+                                  <td className="px-3 py-3 text-right font-black text-blue-800 text-base">{detailActivity.duration} mnt</td>
+                                  <td></td>
                               </tr>
                           </tfoot>
                       )}
