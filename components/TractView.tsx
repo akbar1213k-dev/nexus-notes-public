@@ -1588,15 +1588,17 @@ export function TractView({
               </div>
 
               <div>
+                <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Keterangan
                 </label>
                 <textarea
                   rows={3}
                   value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
+                  onChange={(e) => handleDescriptionChange(e, 'edit')}
                   className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
                 />
+              </div>
               </div>
 
               <div className="pt-2 flex gap-3">
@@ -1693,7 +1695,7 @@ export function TractView({
                                                   <input type="datetime-local" value={editSessionEnd} onChange={e => setEditSessionEnd(e.target.value)} className="text-[10px] p-1 border border-slate-300 rounded outline-none focus:border-blue-500" disabled={ses.isRunning} title={ses.isRunning ? "Sedang Berjalan..." : ""} />
                                               </td>
                                               <td className="px-3 py-2">
-                                                  <input type="text" placeholder="Catatan sesi..." value={editSessionNote} onChange={e => setEditSessionNote(e.target.value)} className="text-[10px] p-1.5 border border-slate-300 rounded w-full min-w-[120px] outline-none focus:border-blue-500"/>
+                                                  <input type="text" placeholder="Catatan sesi..." value={editSessionNote} onChange={(e) => handleDescriptionChange(e, 'session')} className="text-[10px] p-1.5 border border-slate-300 rounded w-full min-w-[120px] outline-none focus:border-blue-500"/>
                                               </td>
                                               <td className="px-3 py-2 text-right text-slate-400">-</td>
                                               <td className="px-3 py-2 text-center">
