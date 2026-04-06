@@ -726,7 +726,12 @@ export default function App() {
         case 'TRACT':
             return (
                 <div className="absolute inset-0 z-50 bg-white dark:bg-gray-950 overflow-hidden flex flex-col">
-                    <TractView onGoHome={() => navigateTo('HOME')} userId={user?.uid} />
+                    <TractView 
+                        onGoHome={() => navigateTo('HOME')} 
+                        userId={user?.uid} 
+                        notes={notes} 
+                        onLinkClick={(id) => navigateTo('EDITOR', id)} 
+                    />
                 </div>
             );
         
