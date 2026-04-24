@@ -212,66 +212,138 @@ export function TractView({
   const [showDataModal, setShowDataModal] = useState(false); // <-- STATE UNTUK MODAL DATA
 
   // State & Logika untuk Edit Sesi di Rincian Waktu
-  const [editingSessionIndex, setEditingSessionIndex] = useState<number | null>(null);
-  const [editSessionStart, setEditSessionStart] = useState('');
-  const [editSessionEnd, setEditSessionEnd] = useState('');
-  const [editSessionNote, setEditSessionNote] = useState('');
+  const [editingSessionIndex, setEditingSessionIndex] = useState<number | null>(null);
+  const [editSessionStart, setEditSessionStart] = useState('');
+  const [editSessionEnd, setEditSessionEnd] = useState('');
+  const [editSessionNote, setEditSessionNote] = useState('');
 
-  const handleSaveSessionEdit = () => {
-      if (!detailActivity || editingSessionIndex === null) return;
-      
-      let updated = { ...detailActivity };
-      const startMs = new Date(editSessionStart).getTime();
-      const endMs = editSessionEnd ? new Date(editSessionEnd).getTime() : null;
+  // Fungsi untuk mengonversi data aktivitas kompleks menjadi array sesi yang mudah dikelola
+  const buildSessionsArray = (activity: Activity) => {
+      const sessions: { start: number, end: number | null, note: string }[] = [];
+      const pauses = activity.pauses || [];
+      const resumes = activity.resumes || [];
+      const notes = activity.sessionNotes || [];
+      
+      sessions.push({
+          start: activity.startTime || activity.timestamp,
+          end: pauses.length > 0 ? pauses[0] : activity.endTime,
+          note: notes[0] || ''
+      });
 
-      let notes = [...(updated.sessionNotes || [])];
-      notes[editingSessionIndex] = editSessionNote;
-      updated.sessionNotes = notes;
+      resumes.forEach((res, i) => {
+          const pIdx = i + 1;
+          sessions.push({
+              start: res,
+              end: pauses.length > pIdx ? pauses[pIdx] : activity.endTime,
+              note: notes[pIdx] || ''
+          });
+      });
+      return sessions;
+  };
 
-      if (editingSessionIndex === 0) {
-          updated.startTime = startMs;
-          if (updated.pauses && updated.pauses.length > 0) {
-              if (endMs) updated.pauses[0] = endMs;
-          } else if (!updated.isTimerActive) {
-              updated.endTime = endMs;
-          }
-      } else {
-          const rIndex = editingSessionIndex - 1;
-          const pIndex = editingSessionIndex;
+  // Fungsi inti: Menyimpan array sesi kembali ke bentuk aktivitas dan sinkronisasi Waktu Selesai (endTime)
+  const saveSessionsToActivity = (updatedSessions: {start: number, end: number | null, note: string}[]) => {
+      if (!detailActivity || updatedSessions.length === 0) return;
+      
+      // Mengurutkan sesi berdasarkan waktu mulai untuk mencegah data berantakan
+      updatedSessions.sort((a, b) => a.start - b.start);
 
-          if (updated.resumes && updated.resumes.length > rIndex) {
-              updated.resumes[rIndex] = startMs;
-          }
-          if (updated.pauses && updated.pauses.length > pIndex) {
-              if (endMs) updated.pauses[pIndex] = endMs;
-          } else if (!updated.isTimerActive) {
-              updated.endTime = endMs;
-          }
-      }
+      let updated = { ...detailActivity };
+      updated.startTime = updatedSessions[0].start;
+      updated.sessionNotes = updatedSessions.map(s => s.note);
 
-      // Menghitung ulang total durasi jika timer sudah berhenti
-      if (!updated.isTimerActive && updated.endTime) {
-          const sMs = updated.startTime || updated.timestamp;
-          const pauses = updated.pauses || [];
-          const resumes = updated.resumes || [];
-          let totalPauseMs = 0;
-          for (let i = 0; i < pauses.length; i++) {
-              const p = pauses[i];
-              const r = resumes[i] || updated.endTime;
-              totalPauseMs += (r - p);
-          }
-          const activeMs = (updated.endTime - sMs) - totalPauseMs;
-          updated.duration = Math.max(0, Math.round(activeMs / 60000));
-      }
+      const newPauses: number[] = [];
+      const newResumes: number[] = [];
+      let isAnyRunning = false;
+      let finalEndTime: number | null = null;
+      let activeMs = 0;
 
-      if (userId) {
-          setDoc(doc(db, 'activities', updated.id), updated, { merge: true }).catch(err => console.error(err));
-      }
-      setActivities(prev => prev.map(a => a.id === updated.id ? updated : a));
-      setDetailActivity(updated);
-      setEditingSessionIndex(null);
-  };
+      for (let i = 0; i < updatedSessions.length; i++) {
+          const ses = updatedSessions[i];
+          if (i > 0) newResumes.push(ses.start);
+          
+          if (ses.end) {
+              activeMs += (ses.end - ses.start);
+              if (i < updatedSessions.length - 1) {
+                  newPauses.push(ses.end);
+              } else {
+                  finalEndTime = ses.end; // Otomatis menjadi waktu selesai aktivitas
+              }
+          } else {
+              isAnyRunning = true;
+          }
+      }
 
+      // Sinkronisasi status timer dan kalkulasi ulang durasi
+      if (!isAnyRunning && finalEndTime) {
+          updated.isTimerActive = false;
+          updated.endTime = finalEndTime;
+          updated.duration = Math.max(0, Math.round(activeMs / 60000));
+      } else {
+          updated.isTimerActive = true;
+          updated.endTime = null;
+          updated.duration = null;
+      }
+
+      updated.pauses = newPauses;
+      updated.resumes = newResumes;
+
+      if (userId) {
+          setDoc(doc(db, 'activities', updated.id), updated, { merge: true }).catch(err => console.error(err));
+      }
+      setActivities(prev => prev.map(a => a.id === updated.id ? updated : a));
+      setDetailActivity(updated);
+      setEditingSessionIndex(null);
+  };
+
+  const handleSaveSessionEdit = () => {
+      if (!detailActivity || editingSessionIndex === null) return;
+      const currentSessions = buildSessionsArray(detailActivity);
+      
+      const startMs = new Date(editSessionStart).getTime();
+      const endMs = editSessionEnd ? new Date(editSessionEnd).getTime() : null;
+
+      currentSessions[editingSessionIndex] = {
+          start: startMs,
+          end: endMs,
+          note: editSessionNote
+      };
+      
+      saveSessionsToActivity(currentSessions);
+  };
+
+  const handleAddSession = () => {
+      if (!detailActivity) return;
+      const currentSessions = buildSessionsArray(detailActivity);
+      const now = Date.now();
+      
+      // Jika sesi terakhir masih berjalan, sistem menutupnya di waktu sekarang
+      if (currentSessions.length > 0 && !currentSessions[currentSessions.length - 1].end) {
+           currentSessions[currentSessions.length - 1].end = now;
+      }
+
+      // Menambahkan sesi baru default 1 menit
+      currentSessions.push({
+          start: now,
+          end: now + 60000, 
+          note: ''
+      });
+      saveSessionsToActivity(currentSessions);
+  };
+
+  const handleDeleteSession = (indexToDelete: number) => {
+      if (!detailActivity) return;
+      const currentSessions = buildSessionsArray(detailActivity);
+      if (currentSessions.length <= 1) {
+          alert("Tidak dapat menghapus satu-satunya sesi. Hapus seluruh aktivitas jika perlu.");
+          return;
+      }
+      if (confirm("Apakah Anda yakin ingin menghapus sesi ini? Waktu total akan dihitung ulang secara otomatis.")) {
+          currentSessions.splice(indexToDelete, 1);
+          saveSessionsToActivity(currentSessions);
+      }
+  };
+  
   // State untuk Pop-up Notifikasi & Toast (Pesan Singkat)
   const [showActiveTimerPopup, setShowActiveTimerPopup] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1641,7 +1713,12 @@ export function TractView({
               </button>
             </div>
             <div className="p-4 md:p-6">
-              <h4 className="font-bold text-blue-600 mb-4">{detailActivity.name}</h4>
+              <div className="flex justify-between items-center mb-4">
+                  <h4 className="font-bold text-blue-600">{detailActivity.name}</h4>
+                  <button onClick={handleAddSession} className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors">
+                      <Plus size={14} /> Tambah Sesi
+                  </button>
+              </div>
               
               {/* PENAMBAHAN: overflow-x-auto & min-w-[550px] agar tabel bisa digeser di HP! */}
               <div className="overflow-x-auto rounded-xl border border-slate-200 pb-1">
@@ -1718,18 +1795,27 @@ export function TractView({
                                           <td className="px-3 py-3 text-slate-600 max-w-[150px] truncate" title={ses.note}>{renderRichText(ses.note) || '-'}</td>
                                           <td className="px-3 py-3 text-right font-bold text-slate-700">{ses.end ? `${mins} mnt` : '-'}</td>
                                           <td className="px-3 py-3 text-center">
-                                              <button 
-                                                onClick={() => {
-                                                    setEditingSessionIndex(ses.index);
-                                                    setEditSessionStart(format(ses.start, "yyyy-MM-dd'T'HH:mm"));
-                                                    setEditSessionEnd(ses.end ? format(ses.end, "yyyy-MM-dd'T'HH:mm") : '');
-                                                    setEditSessionNote(ses.note);
-                                                }}
-                                                className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-1.5 rounded transition-colors inline-flex justify-center"
-                                                title="Edit Sesi Ini"
-                                              >
-                                                  <Edit2 size={14}/>
-                                              </button>
+                                              <div className="flex justify-center gap-1.5">
+                                                  <button 
+                                                    onClick={() => {
+                                                        setEditingSessionIndex(ses.index);
+                                                        setEditSessionStart(format(ses.start, "yyyy-MM-dd'T'HH:mm"));
+                                                        setEditSessionEnd(ses.end ? format(ses.end, "yyyy-MM-dd'T'HH:mm") : '');
+                                                        setEditSessionNote(ses.note);
+                                                    }}
+                                                    className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-1.5 rounded transition-colors inline-flex justify-center"
+                                                    title="Edit Sesi Ini"
+                                                  >
+                                                      <Edit2 size={14}/>
+                                                  </button>
+                                                  <button 
+                                                    onClick={() => handleDeleteSession(ses.index)}
+                                                    className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition-colors inline-flex justify-center"
+                                                    title="Hapus Sesi Ini"
+                                                  >
+                                                      <Trash2 size={14}/>
+                                                  </button>
+                                              </div>
                                           </td>
                                       </tr>
                                   )
