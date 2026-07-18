@@ -68,17 +68,24 @@ export const TopBar: React.FC<TopBarProps> = ({
                     Nexus Notes
                 </span>
             </div>
-        ) : (
-            // TOMBOL KEMBALI (Untuk halaman lain)
-            <div className="flex items-center gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
+       ) : (
+            // TOMBOL KEMBALI & HOME (Untuk halaman lain)
+            <div className="flex items-center gap-4 animate-in fade-in slide-in-from-left-2 duration-300">
                 <button 
                     onClick={onGoHome} 
-                    className="flex items-center gap-1 pr-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    className="flex items-center gap-2 pr-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 >
                     <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-full">
                         <ChevronLeft size={20} />
                     </div>
                     <span className="font-semibold text-sm hidden sm:inline">Kembali</span>
+                </button>
+
+                <button 
+                    onClick={onGoHome} 
+                    className="text-2xl font-medium text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors tracking-wide border-none bg-transparent"
+                >
+                    home
                 </button>
             </div>
         )}
