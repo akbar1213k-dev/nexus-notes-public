@@ -139,41 +139,70 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
       nodeDegrees[l.target as string] = (nodeDegrees[l.target as string] || 0) + 1;
     });
 
-    // --- ALGORITMA BARU: MENGHITUNG LAPISAN (KEDALAMAN) DARI CATATAN AKTIF ---
+    // --- ALGORITMA BARU: MENGHITUNG LAPISAN (KEDALAMAN) NODE ---
+    // A. Buat daftar tetangga (Undirected Graph) untuk pelacakan jarak
+    const adjList: Record<string, string[]> = {};
+    nodes.forEach(n => adjList[n.id] = []);
+    links.forEach(l => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        if(adjList[s]) adjList[s].push(t);
+        if(adjList[t]) adjList[t].push(s); 
+    });
+
+    // B. Tentukan Titik Awal (Root/Akar)
+    const queue: {id: string, depth: number}[] = [];
+    const visited = new Set<string>();
+    
     if (activeNoteId) {
-        // A. Buat daftar tetangga untuk masing-masing titik
-        const adjList: Record<string, string[]> = {};
-        nodes.forEach(n => adjList[n.id] = []);
-        links.forEach(l => {
-            const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-            const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-            if(adjList[s]) adjList[s].push(t);
-            if(adjList[t]) adjList[t].push(s); 
+        // Jika dibuka dari Catatan spesifik, jadikan catatan itu pusatnya
+        queue.push({id: activeNoteId, depth: 0});
+        visited.add(activeNoteId);
+    } else {
+        // Jika dibuka dari Home (Global), jadikan folder "Lainnya / Root" sebagai pusat (Akar)
+        const rootNodes = nodes.filter(n => n.folder !== "Keterhubungan" && n.folder !== "Sampah");
+        rootNodes.forEach(rn => {
+            queue.push({id: rn.id, depth: 0});
+            visited.add(rn.id);
         });
 
-        // B. Melacak jarak seperti riak air
-        const queue: {id: string, depth: number}[] = [{id: activeNoteId, depth: 0}];
-        const visited = new Set<string>([activeNoteId]);
-        const nodeDepths: Record<string, number> = {};
-        
-        while(queue.length > 0) {
-            const current = queue.shift()!;
-            nodeDepths[current.id] = current.depth;
-            
-            if(adjList[current.id]) {
-                adjList[current.id].forEach(neighbor => {
-                    if(!visited.has(neighbor)) {
-                        visited.add(neighbor);
-                        queue.push({id: neighbor, depth: current.depth + 1});
-                    }
-                });
-            }
+        // Fallback: Jika tidak ada Root sama sekali, cari node yg tidak pernah ditunjuk
+        if (queue.length === 0) {
+            const incoming: Record<string, number> = {};
+            nodes.forEach(n => incoming[n.id] = 0);
+            links.forEach(l => {
+                const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+                if (incoming[t] !== undefined) incoming[t]++;
+            });
+            nodes.forEach(n => {
+                if (incoming[n.id] === 0) {
+                    queue.push({id: n.id, depth: 0});
+                    visited.add(n.id);
+                }
+            });
         }
-        // C. Simpan data kedalaman ke dalam kotak catatan agar bisa diwarnai nanti
-        nodes.forEach(n => {
-            n.depth = nodeDepths[n.id];
-        });
     }
+
+    // C. Melacak jarak seperti riak air (BFS)
+    const nodeDepths: Record<string, number> = {};
+    while(queue.length > 0) {
+        const current = queue.shift()!;
+        nodeDepths[current.id] = current.depth;
+        
+        if(adjList[current.id]) {
+            adjList[current.id].forEach(neighbor => {
+                if(!visited.has(neighbor)) {
+                    visited.add(neighbor);
+                    queue.push({id: neighbor, depth: current.depth + 1});
+                }
+            });
+        }
+    }
+
+    // D. Simpan data kedalaman ke dalam node
+    nodes.forEach(n => {
+        n.depth = nodeDepths[n.id];
+    });
 
     d3.select(svgRef.current).selectAll("*").remove();
     
@@ -280,41 +309,32 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
    // --- LOGIKA WARNA & STYLE ---
     // Helper untuk menentukan warna background
     const getFillColor = (d: D3Node) => {
-      // 1. Folder Sampah (Merah)
-      if (d.folder === "Sampah") {
-        return isDarkMode ? "#450a0a" : "#fef2f2"; 
-      }
-      // 2. Folder Keterhubungan (Berlapis berdasarkan jarak/depth)
+      if (d.folder === "Sampah") return isDarkMode ? "#450a0a" : "#fef2f2"; 
+      
+      // Lapisan Warna untuk Folder Keterhubungan
       if (d.folder === "Keterhubungan") {
         if (d.depth === undefined) return isDarkMode ? "#064e3b" : "#d1fae5"; // Default (Tidak nyambung)
-        if (d.depth === 1) return isDarkMode ? "#065f46" : "#a7f3d0"; // Lapisan 1 (Emerald medium)
-        if (d.depth === 2) return isDarkMode ? "#115e59" : "#99f6e4"; // Lapisan 2 (Teal / Hijau Kebiruan)
-        if (d.depth === 3) return isDarkMode ? "#164e63" : "#cffafe"; // Lapisan 3 (Cyan / Biru Muda)
-        return isDarkMode ? "#0c4a6e" : "#e0f2fe"; // Lapisan 4+ (Sky Blue / Biru Langit)
+        // Gradasi warna yang LEBIH MENCOLOK perbedaannya
+        if (d.depth <= 1) return isDarkMode ? "#065f46" : "#6ee7b7"; // Lapisan 1: Emerald (Hijau Kuat)
+        if (d.depth === 2) return isDarkMode ? "#115e59" : "#99f6e4"; // Lapisan 2: Teal (Hijau Kebiruan)
+        if (d.depth === 3) return isDarkMode ? "#164e63" : "#a5f3fc"; // Lapisan 3: Cyan (Biru Muda Terang)
+        return isDarkMode ? "#0c4a6e" : "#bae6fd"; // Lapisan 4+: Sky (Biru Langit)
       }
-      // 3. Default/Root (Abu/Putih)
       return isDarkMode ? "#1f2937" : "#e2e8f0";
     };
 
     // Helper untuk menentukan warna border (Stroke)
     const getStrokeColor = (d: D3Node) => {
-      // 1. Active - Prioritas Utama (Biru/Indigo)
-      if (d.id === activeNoteId) {
-        return isDarkMode ? "#818cf8" : "#4338ca"; 
-      }
-      // 2. Folder Sampah (Merah)
-      if (d.folder === "Sampah") {
-        return isDarkMode ? "#f87171" : "#ef4444"; 
-      }
-      // 3. Folder Keterhubungan (Stroke senada dengan lapisan)
+      if (d.id === activeNoteId) return isDarkMode ? "#818cf8" : "#4338ca"; 
+      if (d.folder === "Sampah") return isDarkMode ? "#f87171" : "#ef4444"; 
+      
       if (d.folder === "Keterhubungan") {
-        if (d.depth === undefined) return isDarkMode ? "#34d399" : "#059669"; // Default
-        if (d.depth === 1) return isDarkMode ? "#10b981" : "#047857"; // Lapisan 1
-        if (d.depth === 2) return isDarkMode ? "#14b8a6" : "#0f766e"; // Lapisan 2
-        if (d.depth === 3) return isDarkMode ? "#06b6d4" : "#0e7490"; // Lapisan 3
-        return isDarkMode ? "#0ea5e9" : "#0369a1"; // Lapisan 4+
+        if (d.depth === undefined) return isDarkMode ? "#34d399" : "#059669"; 
+        if (d.depth <= 1) return isDarkMode ? "#10b981" : "#047857"; // Border Lapisan 1
+        if (d.depth === 2) return isDarkMode ? "#14b8a6" : "#0f766e"; // Border Lapisan 2
+        if (d.depth === 3) return isDarkMode ? "#06b6d4" : "#0e7490"; // Border Lapisan 3
+        return isDarkMode ? "#0ea5e9" : "#0369a1"; // Border Lapisan 4+
       }
-      // 4. Default (Abu)
       return isDarkMode ? "#374151" : "#94a3b8";
     };
     
@@ -444,7 +464,7 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClic
              if (d.folder === "Sampah") return isDarkMode ? "#f87171" : "#ef4444";
              if (d.folder === "Keterhubungan") {
                  if (d.depth === undefined) return isDarkMode ? "#34d399" : "#059669"; 
-                 if (d.depth === 1) return isDarkMode ? "#10b981" : "#047857"; 
+                 if (d.depth <= 1) return isDarkMode ? "#10b981" : "#047857"; 
                  if (d.depth === 2) return isDarkMode ? "#14b8a6" : "#0f766e"; 
                  if (d.depth === 3) return isDarkMode ? "#06b6d4" : "#0e7490"; 
                  return isDarkMode ? "#0ea5e9" : "#0369a1"; 
