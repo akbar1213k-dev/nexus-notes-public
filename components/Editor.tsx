@@ -1729,6 +1729,19 @@ const handleEditorClick = (e: React.MouseEvent) => {
                             const originalIdx = (history.length - 1) - reverseIdx;
                             const isCurrent = originalIdx === historyIndex;
                             
+                            // Logika Sederhana untuk Mencari Perbedaan (Diff)
+                            const currentText = contentSnapshot.replace(/<[^>]*>?/gm, '').trim();
+                            const prevSnapshot = originalIdx > 0 ? history[originalIdx - 1] : "";
+                            const prevText = prevSnapshot.replace(/<[^>]*>?/gm, '').trim();
+                            
+                            const currentWords = currentText.split(/\s+/).filter(w => w);
+                            const prevWords = prevText.split(/\s+/).filter(w => w);
+                            
+                            // Kata yang ada di versi ini, tapi tidak ada di versi sebelumnya (Ditambah)
+                            const addedWords = currentWords.filter(w => !prevWords.includes(w)).join(' ');
+                            // Kata yang ada di versi sebelumnya, tapi tidak ada di versi ini (Dihapus)
+                            const removedWords = prevWords.filter(w => !currentWords.includes(w)).join(' ');
+
                             return (
                                 <button 
                                     key={originalIdx}
@@ -1759,9 +1772,24 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                         )}
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
-                                        {/* Menghapus tag HTML murni hanya untuk tampilan pratinjau agar bersih dibaca */}
-                                        {contentSnapshot.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
+                                        {currentText.substring(0, 100) || "(Kosong)"}
                                     </div>
+                                    
+                                    {/* TAMPILAN PERUBAHAN (HIJAU: DITAMBAH, MERAH: DIHAPUS) */}
+                                    {(addedWords || removedWords) && (
+                                        <div className="text-[11px] font-medium mt-1 flex flex-col gap-1 bg-white dark:bg-gray-900 p-2 rounded border dark:border-gray-700">
+                                            {addedWords && (
+                                                <span className="text-green-600 dark:text-green-400">
+                                                    + Ditambah: {addedWords.substring(0, 50)}{addedWords.length > 50 ? '...' : ''}
+                                                </span>
+                                            )}
+                                            {removedWords && (
+                                                <span className="text-red-600 dark:text-red-400">
+                                                    - Dihapus: {removedWords.substring(0, 50)}{removedWords.length > 50 ? '...' : ''}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
                                 </button>
                             );
                         })
