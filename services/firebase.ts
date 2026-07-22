@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth } from "firebase/auth"; 
 
 const firebaseConfig = {
@@ -13,5 +13,14 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+// Mengaktifkan sistem hybrid (Offline Persistence)
+enableIndexedDbPersistence(db)
+  .catch((err) => {
+    if (err.code == 'failed-precondition') {
+      console.warn('Gagal mengaktifkan cache: Banyak tab aplikasi terbuka.');
+    } else if (err.code == 'unimplemented') {
+      console.warn('Browser ini tidak mendukung cache lokal Firebase.');
+    }
+  });
 export const auth = getAuth(app); 
 // GoogleAuthProvider dihapus
