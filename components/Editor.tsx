@@ -135,7 +135,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
 
   // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
-  const [history, setHistory] = useState<string[]>([]);
+  // Ubah tipe array agar menyimpan objek { content, time }
+  const [history, setHistory] = useState<{content: string, time: number}[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   
@@ -163,7 +164,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           }
           
           // Jika tidak ada history (atau sudah basi), jadikan konten saat ini sebagai titik awal
-          setHistory([note.content]);
+          // SET WAKTU AWAL SAAT PERTAMA KALI DIBUKA
+          setHistory([{ content: note.content, time: Date.now() }]);
           setHistoryIndex(0);
       };
       
@@ -406,7 +408,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const performUndo = () => {
       if (historyIndex > 0) {
           const newIndex = historyIndex - 1;
-          const restoredContent = history[newIndex];
+          // Panggil properti .content dari objek history
+          const restoredContent = history[newIndex].content;
           setHistoryIndex(newIndex);
           onUpdate({ ...note, content: restoredContent });
           
@@ -419,7 +422,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const performRedo = () => {
       if (historyIndex < history.length - 1) {
           const newIndex = historyIndex + 1;
-          const restoredContent = history[newIndex];
+          // Panggil properti .content dari objek history
+          const restoredContent = history[newIndex].content;
           setHistoryIndex(newIndex);
           onUpdate({ ...note, content: restoredContent });
           
@@ -754,16 +758,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       
       isTypingTimer.current = setTimeout(() => {
           setHistory(prev => {
-              // Jika kita habis melakukan Undo (misal dari C ke B), lalu mengetik hal baru (D)
-              // Maka masa depan (C) harus dibuang, jadinya A -> B -> D
+              // Potong masa depan jika kita mengetik setelah melakukan undo
               const currentHistory = prev.slice(0, historyIndex + 1);
               
-              // Cek agar tidak merekam hal yang sama persis dua kali berturut-turut
-              if (currentHistory[currentHistory.length - 1] === newContent) return prev;
+              // Cek agar tidak merekam hal yang sama persis
+              if (currentHistory.length > 0 && currentHistory[currentHistory.length - 1].content === newContent) return prev;
               
-              const newVersions = [...currentHistory, newContent];
+              // SIMPAN KONTEN BERSAMA WAKTU SAAT INI
+              const newVersions = [...currentHistory, { content: newContent, time: Date.now() }];
               
-              // Batasi maksimal 50 versi agar memori lokal tidak jebol
+              // Batasi maksimal 50 versi
               if (newVersions.length > 50) newVersions.shift(); 
               
               setHistoryIndex(newVersions.length - 1);
@@ -1724,10 +1728,15 @@ const handleEditorClick = (e: React.MouseEvent) => {
                         <div className="text-center text-gray-500 py-8 text-sm">Belum ada riwayat perubahan.</div>
                     ) : (
                         /* Kita balik urutannya (reverse) agar versi TERBARU muncul paling atas */
-                        [...history].reverse().map((contentSnapshot, reverseIdx) => {
+                        [...history].reverse().map((historySnapshot, reverseIdx) => {
                             // Hitung nomor indeks aslinya
                             const originalIdx = (history.length - 1) - reverseIdx;
                             const isCurrent = originalIdx === historyIndex;
+                            
+                            // Format Waktu ke Jam:Menit:Detik (Format WIB)
+                            const timeString = new Date(historySnapshot.time).toLocaleTimeString('id-ID', {
+                                hour: '2-digit', minute: '2-digit', second: '2-digit'
+                            });
                             
                             return (
                                 <button 
@@ -1735,7 +1744,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     onClick={() => {
                                         // Aksi utama: Melompat ke versi ini!
                                         setHistoryIndex(originalIdx);
-                                        onUpdate({ ...note, content: contentSnapshot });
+                                        onUpdate({ ...note, content: historySnapshot.content });
                                         setShowHistoryModal(false);
                                         
                                         // Fokuskan kursor otomatis
@@ -1749,9 +1758,15 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     }`}
                                 >
                                     <div className="flex justify-between items-center w-full">
-                                        <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
-                                            Versi {originalIdx + 1}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
+                                                Versi {originalIdx + 1}
+                                            </span>
+                                            {/* MENAMPILKAN WAKTU DI SEBELAH VERSI */}
+                                            <span className="text-xs font-mono text-gray-500 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">
+                                                {timeString}
+                                            </span>
+                                        </div>
                                         {isCurrent && (
                                             <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                                                 Saat Ini
@@ -1760,7 +1775,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
                                         {/* Menghapus tag HTML murni hanya untuk tampilan pratinjau agar bersih dibaca */}
-                                        {contentSnapshot.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
+                                        {historySnapshot.content.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
                                     </div>
                                 </button>
                             );
