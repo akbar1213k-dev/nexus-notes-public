@@ -721,8 +721,11 @@ export default function App() {
     }
 
     // Layar loading penahan kita hapus sepenuhnya agar aplikasi langsung terbuka (0 detik).
-    // Data akan langsung terisi dalam sepersekian milidetik dari memori lokal (Cache-First).
-
+    // Data akan langsung terisi dalam sepersekian milidetik dari memori lokal (Cache-First). (hapus */ dibawah ini jika ingin digunakan)
+    /*
+    if (!isReady) return <div className="flex h-full items-center justify-center text-gray-400 font-medium">Memuat data...</div>;
+    */
+  
     switch (viewMode) {
         case 'TRACT':
             return (
