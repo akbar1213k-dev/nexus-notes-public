@@ -135,8 +135,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
 
   // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
-  // Ubah tipe array agar menyimpan objek { content, time }
-  const [history, setHistory] = useState<{content: string, time: number}[]>([]);
+  const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   
@@ -164,8 +163,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           }
           
           // Jika tidak ada history (atau sudah basi), jadikan konten saat ini sebagai titik awal
-          // SET WAKTU AWAL SAAT PERTAMA KALI DIBUKA
-          setHistory([{ content: note.content, time: Date.now() }]);
+          setHistory([note.content]);
           setHistoryIndex(0);
       };
       
@@ -408,10 +406,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const performUndo = () => {
       if (historyIndex > 0) {
           const newIndex = historyIndex - 1;
-          const snapshot = history[newIndex] as any;
-          // PERBAIKAN: Deteksi otomatis format lama vs format baru
-          const restoredContent = typeof snapshot === 'string' ? snapshot : snapshot.content;
-          
+          const restoredContent = history[newIndex];
           setHistoryIndex(newIndex);
           onUpdate({ ...note, content: restoredContent });
           
@@ -424,24 +419,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const performRedo = () => {
       if (historyIndex < history.length - 1) {
           const newIndex = historyIndex + 1;
-          const snapshot = history[newIndex] as any;
-          // PERBAIKAN: Deteksi otomatis format lama vs format baru
-          const restoredContent = typeof snapshot === 'string' ? snapshot : snapshot.content;
-          
-          setHistoryIndex(newIndex);
-          onUpdate({ ...note, content: restoredContent });
-          
-          // Fokuskan kembali kursor
-          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
-          else if (!isCodeView && editorRef.current) editorRef.current.focus();
-      }
-  };
-
-  const performRedo = () => {
-      if (historyIndex < history.length - 1) {
-          const newIndex = historyIndex + 1;
-          // Panggil properti .content dari objek history
-          const restoredContent = history[newIndex].content;
+          const restoredContent = history[newIndex];
           setHistoryIndex(newIndex);
           onUpdate({ ...note, content: restoredContent });
           
@@ -776,16 +754,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       
       isTypingTimer.current = setTimeout(() => {
           setHistory(prev => {
-              // Potong masa depan jika kita mengetik setelah melakukan undo
+              // Jika kita habis melakukan Undo (misal dari C ke B), lalu mengetik hal baru (D)
+              // Maka masa depan (C) harus dibuang, jadinya A -> B -> D
               const currentHistory = prev.slice(0, historyIndex + 1);
               
-              // Cek agar tidak merekam hal yang sama persis
-              if (currentHistory.length > 0 && currentHistory[currentHistory.length - 1].content === newContent) return prev;
+              // Cek agar tidak merekam hal yang sama persis dua kali berturut-turut
+              if (currentHistory[currentHistory.length - 1] === newContent) return prev;
               
-              // SIMPAN KONTEN BERSAMA WAKTU SAAT INI
-              const newVersions = [...currentHistory, { content: newContent, time: Date.now() }];
+              const newVersions = [...currentHistory, newContent];
               
-              // Batasi maksimal 50 versi
+              // Batasi maksimal 50 versi agar memori lokal tidak jebol
               if (newVersions.length > 50) newVersions.shift(); 
               
               setHistoryIndex(newVersions.length - 1);
@@ -1745,21 +1723,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     {history.length === 0 ? (
                         <div className="text-center text-gray-500 py-8 text-sm">Belum ada riwayat perubahan.</div>
                     ) : (
-          
                         /* Kita balik urutannya (reverse) agar versi TERBARU muncul paling atas */
-                        [...history].reverse().map((historySnapshot: any, reverseIdx) => {
+                        [...history].reverse().map((contentSnapshot, reverseIdx) => {
                             // Hitung nomor indeks aslinya
                             const originalIdx = (history.length - 1) - reverseIdx;
                             const isCurrent = originalIdx === historyIndex;
-                            
-                            // PERBAIKAN: Deteksi apakah ini data lama (string) atau data baru (objek)
-                            const contentText = typeof historySnapshot === 'string' ? historySnapshot : (historySnapshot?.content || "");
-                            const timeStamp = typeof historySnapshot === 'object' && historySnapshot.time ? historySnapshot.time : null;
-
-                            // Format Waktu ke Jam:Menit:Detik (Format WIB)
-                            const timeString = timeStamp 
-                                ? new Date(timeStamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                                : "Waktu tidak direkam";
                             
                             return (
                                 <button 
@@ -1767,7 +1735,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     onClick={() => {
                                         // Aksi utama: Melompat ke versi ini!
                                         setHistoryIndex(originalIdx);
-                                        onUpdate({ ...note, content: contentText });
+                                        onUpdate({ ...note, content: contentSnapshot });
                                         setShowHistoryModal(false);
                                         
                                         // Fokuskan kursor otomatis
@@ -1781,15 +1749,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     }`}
                                 >
                                     <div className="flex justify-between items-center w-full">
-                                        <div className="flex items-center gap-2">
-                                            <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
-                                                Versi {originalIdx + 1}
-                                            </span>
-                                            {/* MENAMPILKAN WAKTU DI SEBELAH VERSI */}
-                                            <span className="text-xs font-mono text-gray-500 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">
-                                                {timeString}
-                                            </span>
-                                        </div>
+                                        <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
+                                            Versi {originalIdx + 1}
+                                        </span>
                                         {isCurrent && (
                                             <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                                                 Saat Ini
@@ -1798,12 +1760,12 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
                                         {/* Menghapus tag HTML murni hanya untuk tampilan pratinjau agar bersih dibaca */}
-                                        {contentText.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
+                                        {contentSnapshot.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
                                     </div>
                                 </button>
                             );
                         })
-                      )}
+                    )}
                 </div>
             </div>
         </div>
