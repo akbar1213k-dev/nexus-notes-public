@@ -408,12 +408,30 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const performUndo = () => {
       if (historyIndex > 0) {
           const newIndex = historyIndex - 1;
-          // Panggil properti .content dari objek history
-          const restoredContent = history[newIndex].content;
+          const snapshot = history[newIndex] as any;
+          // PERBAIKAN: Deteksi otomatis format lama vs format baru
+          const restoredContent = typeof snapshot === 'string' ? snapshot : snapshot.content;
+          
           setHistoryIndex(newIndex);
           onUpdate({ ...note, content: restoredContent });
           
           // Fokuskan kembali kursor agar user tidak bingung
+          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+          else if (!isCodeView && editorRef.current) editorRef.current.focus();
+      }
+  };
+
+  const performRedo = () => {
+      if (historyIndex < history.length - 1) {
+          const newIndex = historyIndex + 1;
+          const snapshot = history[newIndex] as any;
+          // PERBAIKAN: Deteksi otomatis format lama vs format baru
+          const restoredContent = typeof snapshot === 'string' ? snapshot : snapshot.content;
+          
+          setHistoryIndex(newIndex);
+          onUpdate({ ...note, content: restoredContent });
+          
+          // Fokuskan kembali kursor
           if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
           else if (!isCodeView && editorRef.current) editorRef.current.focus();
       }
@@ -1727,16 +1745,21 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     {history.length === 0 ? (
                         <div className="text-center text-gray-500 py-8 text-sm">Belum ada riwayat perubahan.</div>
                     ) : (
+          
                         /* Kita balik urutannya (reverse) agar versi TERBARU muncul paling atas */
-                        [...history].reverse().map((historySnapshot, reverseIdx) => {
+                        [...history].reverse().map((historySnapshot: any, reverseIdx) => {
                             // Hitung nomor indeks aslinya
                             const originalIdx = (history.length - 1) - reverseIdx;
                             const isCurrent = originalIdx === historyIndex;
                             
+                            // PERBAIKAN: Deteksi apakah ini data lama (string) atau data baru (objek)
+                            const contentText = typeof historySnapshot === 'string' ? historySnapshot : (historySnapshot?.content || "");
+                            const timeStamp = typeof historySnapshot === 'object' && historySnapshot.time ? historySnapshot.time : null;
+
                             // Format Waktu ke Jam:Menit:Detik (Format WIB)
-                            const timeString = new Date(historySnapshot.time).toLocaleTimeString('id-ID', {
-                                hour: '2-digit', minute: '2-digit', second: '2-digit'
-                            });
+                            const timeString = timeStamp 
+                                ? new Date(timeStamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                                : "Waktu tidak direkam";
                             
                             return (
                                 <button 
@@ -1744,7 +1767,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     onClick={() => {
                                         // Aksi utama: Melompat ke versi ini!
                                         setHistoryIndex(originalIdx);
-                                        onUpdate({ ...note, content: historySnapshot.content });
+                                        onUpdate({ ...note, content: contentText });
                                         setShowHistoryModal(false);
                                         
                                         // Fokuskan kursor otomatis
@@ -1775,12 +1798,12 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
                                         {/* Menghapus tag HTML murni hanya untuk tampilan pratinjau agar bersih dibaca */}
-                                        {historySnapshot.content.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
+                                        {contentText.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
                                     </div>
                                 </button>
                             );
                         })
-                    )}
+                      )}
                 </div>
             </div>
         </div>
