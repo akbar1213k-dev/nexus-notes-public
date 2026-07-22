@@ -132,6 +132,42 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
 
+  // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Fungsi untuk Memuat History dari Brankas Lokal saat Catatan Dibuka
+  useEffect(() => {
+      const loadHistory = () => {
+          const storageKey = `nexus_history_${note.id}`;
+          const savedData = localStorage.getItem(storageKey);
+          
+          if (savedData) {
+              try {
+                  const { timestamp, pastVersions } = JSON.parse(savedData);
+                  // Cek apakah usianya belum 24 Jam (24 * 60 * 60 * 1000 milidetik)
+                  if (Date.now() - timestamp < 86400000) {
+                      setHistory(pastVersions);
+                      setHistoryIndex(pastVersions.length - 1);
+                      return; // Berhasil dimuat
+                  } else {
+                      // Sudah basi (lebih 24 jam), buang!
+                      localStorage.removeItem(storageKey);
+                  }
+              } catch (e) {
+                  console.error("Gagal membaca history", e);
+              }
+          }
+          
+          // Jika tidak ada history (atau sudah basi), jadikan konten saat ini sebagai titik awal
+          setHistory([note.content]);
+          setHistoryIndex(0);
+      };
+      
+      loadHistory();
+  }, [note.id]); // Berjalan tiap kali kamu ganti/buka catatan
+
   // --- FUNGSI CUT (PERBAIKAN: Salin HTML sebelum dihapus) ---
   const handleCutContent = async () => {
     if (editorRef.current) {
@@ -364,22 +400,30 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     return new Blob(byteArrays, { type: contentType });
   };
 
-  // --- PERBAIKAN LOGIKA UNDO/REDO ---
-  // Fungsi dipisahkan agar bisa dipanggil oleh tombol TopBar (via ref) 
-  // DAN tombol Toolbar Bawah (onClick)
+  // --- MESIN WAKTU: SISTEM UNDO/REDO BUATAN SENDIRI ---
   const performUndo = () => {
-      if (editorRef.current) {
-          editorRef.current.focus(); // Pastikan fokus kembali ke editor (Fix Desktop)
-          document.execCommand('undo');
-          handleInput();
+      if (historyIndex > 0) {
+          const newIndex = historyIndex - 1;
+          const restoredContent = history[newIndex];
+          setHistoryIndex(newIndex);
+          onUpdate({ ...note, content: restoredContent });
+          
+          // Fokuskan kembali kursor agar user tidak bingung
+          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+          else if (!isCodeView && editorRef.current) editorRef.current.focus();
       }
   };
 
   const performRedo = () => {
-      if (editorRef.current) {
-          editorRef.current.focus(); // Pastikan fokus kembali ke editor (Fix Desktop)
-          document.execCommand('redo');
-          handleInput();
+      if (historyIndex < history.length - 1) {
+          const newIndex = historyIndex + 1;
+          const restoredContent = history[newIndex];
+          setHistoryIndex(newIndex);
+          onUpdate({ ...note, content: restoredContent });
+          
+          // Fokuskan kembali kursor
+          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+          else if (!isCodeView && editorRef.current) editorRef.current.focus();
       }
   };
 
@@ -696,11 +740,41 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
 
     // --- LANGKAH TERAKHIR: SIMPAN KE STATE (ONUPDATE) ---
-    // PENTING: Kita ambil innerHTML SEKARANG, setelah manipulasi penghapusan titik selesai.
-    // Dengan begini, data yang masuk ke 'note.content' sudah sama persis dengan yang ada di layar.
-    // useEffect tidak akan melihat perbedaan, sehingga tidak akan mereset kursor.
     const content = editorRef.current.innerHTML;
     onUpdate({ ...note, content });
+    recordHistory(content); // Rekam perubahan ke dalam Mesin Waktu
+  };
+
+  // --- FUNGSI BARU: Perekam Mesin Waktu (Debounced) ---
+  const recordHistory = (newContent: string) => {
+      // Tunggu user berhenti mengetik 1 detik sebelum merekam, agar history tidak dipenuhi per huruf
+      if (isTypingTimer.current) clearTimeout(isTypingTimer.current);
+      
+      isTypingTimer.current = setTimeout(() => {
+          setHistory(prev => {
+              // Jika kita habis melakukan Undo (misal dari C ke B), lalu mengetik hal baru (D)
+              // Maka masa depan (C) harus dibuang, jadinya A -> B -> D
+              const currentHistory = prev.slice(0, historyIndex + 1);
+              
+              // Cek agar tidak merekam hal yang sama persis dua kali berturut-turut
+              if (currentHistory[currentHistory.length - 1] === newContent) return prev;
+              
+              const newVersions = [...currentHistory, newContent];
+              
+              // Batasi maksimal 50 versi agar memori lokal tidak jebol
+              if (newVersions.length > 50) newVersions.shift(); 
+              
+              setHistoryIndex(newVersions.length - 1);
+              
+              // Simpan ke Brankas Lokal dengan Stempel Waktu (24 Jam)
+              localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
+                  timestamp: Date.now(),
+                  pastVersions: newVersions
+              }));
+              
+              return newVersions;
+          });
+      }, 1000); // 1 detik delay
   };
 
   const checkSelectionContext = () => {
@@ -1281,7 +1355,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     ref={codeEditorRef} // <--- TAMBAHKAN REF INI
                     className="w-full min-h-[50vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y"
                     value={note.content}
-                    onChange={(e) => onUpdate({ ...note, content: e.target.value })}
+                    onChange={(e) => {
+                        const newCodeContent = e.target.value;
+                        onUpdate({ ...note, content: newCodeContent });
+                        recordHistory(newCodeContent); // Panggil alat rekam kita di Mode Kode!
+                    }}
                     placeholder="Tulis kode HTML di sini..."
                 />
             ) : (
