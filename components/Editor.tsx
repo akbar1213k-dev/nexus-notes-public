@@ -8,9 +8,8 @@ import {
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
-  Search, X, ChevronUp, ChevronDown // <--- Icon Pencarian
+  Search, X, ChevronUp, ChevronDown, History // <--- Icon History
 } from 'lucide-react';
-
 interface EditorProps {
   note: Note;
   allNotes: Note[];
@@ -122,6 +121,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showTools, setShowTools] = useState(false);
   // --- STATE BARU: Mode Kode (HTML) ---
   const [isCodeView, setIsCodeView] = useState(false);
+
+  // --- STATE BARU: Tampilkan Modal Riwayat Mesin Waktu ---
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // --- STATE PENCARIAN (PROXIMITY SEARCH) ---
   type SearchMatch = { isCode: false, range: Range } | { isCode: true, start: number, end: number };
@@ -1598,6 +1600,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 <button onMouseDown={preventFocusLoss} onClick={performRedo} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-gray-700 dark:text-gray-300" title="Redo">
                     <Redo size={18} />
                 </button>
+                <button onMouseDown={preventFocusLoss} onClick={() => setShowHistoryModal(true)} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-indigo-600 dark:text-indigo-400" title="Lihat Riwayat Ketikan">
+                    <History size={18} />
+                </button>
 
                 <button onMouseDown={preventFocusLoss} onClick={() => {
                    const text = document.createTextNode('@');
@@ -1696,6 +1701,72 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 >
                     Batal
                 </button>
+            </div>
+        </div>
+      )}
+
+      {/* --- DIALOG RIWAYAT UNDO / REDO (MESIN WAKTU) --- */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+                <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+                    <div className="flex items-center gap-2">
+                        <History size={20} className="text-indigo-600 dark:text-indigo-400" />
+                        <h3 className="font-bold text-lg dark:text-white">Riwayat Mesin Waktu</h3>
+                    </div>
+                    <button onClick={() => setShowHistoryModal(false)} className="text-gray-400 hover:text-red-500 bg-gray-200 dark:bg-gray-700 p-1 rounded-full transition-colors">
+                        <X size={18} />
+                    </button>
+                </div>
+                
+                <div className="p-4 overflow-y-auto flex-1 space-y-3 bg-gray-50 dark:bg-gray-900/20">
+                    {history.length === 0 ? (
+                        <div className="text-center text-gray-500 py-8 text-sm">Belum ada riwayat perubahan.</div>
+                    ) : (
+                        /* Kita balik urutannya (reverse) agar versi TERBARU muncul paling atas */
+                        [...history].reverse().map((contentSnapshot, reverseIdx) => {
+                            // Hitung nomor indeks aslinya
+                            const originalIdx = (history.length - 1) - reverseIdx;
+                            const isCurrent = originalIdx === historyIndex;
+                            
+                            return (
+                                <button 
+                                    key={originalIdx}
+                                    onClick={() => {
+                                        // Aksi utama: Melompat ke versi ini!
+                                        setHistoryIndex(originalIdx);
+                                        onUpdate({ ...note, content: contentSnapshot });
+                                        setShowHistoryModal(false);
+                                        
+                                        // Fokuskan kursor otomatis
+                                        if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+                                        else if (!isCodeView && editorRef.current) editorRef.current.focus();
+                                    }}
+                                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col gap-2 ${
+                                        isCurrent 
+                                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' 
+                                        : 'border-transparent bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 shadow-sm'
+                                    }`}
+                                >
+                                    <div className="flex justify-between items-center w-full">
+                                        <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
+                                            Versi {originalIdx + 1}
+                                        </span>
+                                        {isCurrent && (
+                                            <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                                                Saat Ini
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
+                                        {/* Menghapus tag HTML murni hanya untuk tampilan pratinjau agar bersih dibaca */}
+                                        {contentSnapshot.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
+                                    </div>
+                                </button>
+                            );
+                        })
+                    )}
+                </div>
             </div>
         </div>
       )}
