@@ -1787,33 +1787,6 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                         {historyItem.content.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
                                     </div>
                                 </button>
-                                        setShowHistoryModal(false);
-                                        
-                                        // Fokuskan kursor otomatis
-                                        if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
-                                        else if (!isCodeView && editorRef.current) editorRef.current.focus();
-                                    }}
-                                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col gap-2 ${
-                                        isCurrent 
-                                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' 
-                                        : 'border-transparent bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 shadow-sm'
-                                    }`}
-                                >
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
-                                            Versi {originalIdx + 1}
-                                        </span>
-                                        {isCurrent && (
-                                            <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                                                Saat Ini
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
-                                        {/* Menghapus tag HTML murni hanya untuk tampilan pratinjau agar bersih dibaca */}
-                                        {contentSnapshot.replace(/<[^>]*>?/gm, '').substring(0, 100) || "(Kosong)"}
-                                    </div>
-                                </button>
                             );
                         })
                     )}
