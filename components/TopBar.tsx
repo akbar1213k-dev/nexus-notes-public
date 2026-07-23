@@ -16,14 +16,15 @@ interface TopBarProps {
   isAutoSync: boolean;
   onManualSync: () => void;
   onOpenSettings: () => void;
-  onGoHome: () => void;      
-  onToggleMode: () => void; 
+  onGoHome: () => void;
+  onForceHome: () => void;      
+  onToggleMode: () => void;
   onDeleteNote?: () => void;
   onMoveNote?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
-  mode, onGoHome,
+  mode, onGoHome, onForceHome,
   isDarkMode, onToggleTheme,
   syncStatus, isAutoSync, onManualSync, onOpenSettings,
   onToggleMode,
@@ -83,7 +84,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </button>
 
                 <button 
-                    onClick={() => window.location.href = '/'} 
+                    onClick={onForceHome} 
                     className="flex items-center gap-2 pr-3 py-2 text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-none bg-transparent"
                 >
                     <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
