@@ -869,6 +869,15 @@ export default function App() {
         onOpenSettings={() => navigateTo('SETTINGS')}
         onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
         onForceHome={() => navigateTo('HOME')} 
+        onGoToParent={() => {
+            // Algoritma: Cari 1 Catatan yang isi kontennya memiliki ID catatan kita saat ini
+            const parentNote = notes.find(n => n.content.includes(`data-id="${currentNoteId}"`));
+            if (parentNote) {
+                navigateTo('EDITOR', parentNote.id);
+            } else {
+                alert("Catatan ini belum memiliki Induk (Belum ditautkan dari catatan manapun).");
+            }
+        }}
         onDeleteNote={handleDeleteCurrentNote}
         onMoveNote={() => setShowEditorMoveDialog(true)}
       />
