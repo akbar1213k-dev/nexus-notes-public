@@ -867,8 +867,9 @@ export default function App() {
         isAutoSync={isAutoSync} 
         onManualSync={handleManualSync} 
         onOpenSettings={() => navigateTo('SETTINGS')}
-          onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
-          onDeleteNote={handleDeleteCurrentNote}
+        onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
+        onForceHome={() => navigateTo('HOME')} 
+        onDeleteNote={handleDeleteCurrentNote}
         onMoveNote={() => setShowEditorMoveDialog(true)}
       />
       
