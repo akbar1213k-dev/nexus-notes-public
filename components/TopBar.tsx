@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ChevronLeft, Moon, Sun, Cloud, Check, WifiOff, Settings, Save, Network,
-  MoreVertical, Trash2, FolderInput, Home
+  MoreVertical, Trash2, FolderInput, Home, CornerLeftUp
 } from 'lucide-react';
 import { ViewMode } from '../types';
 
@@ -17,14 +17,15 @@ interface TopBarProps {
   onManualSync: () => void;
   onOpenSettings: () => void;
   onGoHome: () => void;
-  onForceHome: () => void;      
+  onForceHome: () => void;
+  onGoToParent?: () => void;
   onToggleMode: () => void;
   onDeleteNote?: () => void;
   onMoveNote?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
-  mode, onGoHome, onForceHome,
+  mode, onGoHome, onForceHome, onGoToParent,
   isDarkMode, onToggleTheme,
   syncStatus, isAutoSync, onManualSync, onOpenSettings,
   onToggleMode,
@@ -70,12 +71,12 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </span>
             </div>
       ) : (
-            // TOMBOL KEMBALI & HOME (Untuk halaman lain)
+            // TOMBOL KEMBALI, NAIK CABANG & HOME (Untuk halaman lain)
             <div className="flex items-center gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
                 <button 
                     onClick={onGoHome} 
                     className="flex items-center gap-2 pr-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                    title="Kembali"
+                    title="Kembali ke Riwayat"
                 >
                     <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-full">
                         <ChevronLeft size={20} />
@@ -83,9 +84,24 @@ export const TopBar: React.FC<TopBarProps> = ({
                     <span className="font-semibold text-sm hidden sm:inline">Kembali</span>
                 </button>
 
+                {/* TOMBOL CABANG NAIK (Hanya muncul jika di halaman EDITOR dan fungsinya tersedia) */}
+                {mode === 'EDITOR' && onGoToParent && (
+                    <button 
+                        onClick={onGoToParent} 
+                        className="flex items-center gap-2 pr-3 py-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+                        title="Naik ke Catatan Induk"
+                    >
+                        <div className="p-1.5 bg-indigo-50 dark:bg-indigo-900/40 rounded-full flex items-center justify-center">
+                            <CornerLeftUp size={18} />
+                        </div>
+                        <span className="font-semibold text-sm hidden sm:inline">Naik</span>
+                    </button>
+                )}
+
                 <button 
                     onClick={onForceHome} 
                     className="flex items-center gap-2 pr-3 py-2 text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-none bg-transparent"
+                    title="Ke Halaman Utama"
                 >
                     <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
                         <Home size={18} className="text-gray-600 dark:text-gray-300" />
