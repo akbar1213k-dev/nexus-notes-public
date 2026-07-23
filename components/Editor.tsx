@@ -434,18 +434,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           else if (!isCodeView && editorRef.current) editorRef.current.focus();
       }
   };
-  const performRedo = () => {
-      if (historyIndex < history.length - 1) {
-          const newIndex = historyIndex + 1;
-          const restoredContent = history[newIndex];
-          setHistoryIndex(newIndex);
-          onUpdate({ ...note, content: restoredContent });
-          
-          // Fokuskan kembali kursor
-          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
-          else if (!isCodeView && editorRef.current) editorRef.current.focus();
-      }
-  };
+  
 
   // Expose undo/redo to parent via Ref
   useImperativeHandle(ref, () => ({
