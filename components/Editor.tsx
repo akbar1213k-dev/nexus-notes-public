@@ -819,25 +819,17 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         }
     }
 
-    // Buat elemen Chip
-    const chip = document.createElement('span');
-    chip.className = 'mention-chip';
-    chip.contentEditable = 'false';
-    chip.dataset.id = targetNoteId; // ID catatan tujuan disimpan di sini
-    chip.textContent = `@${targetTitle}`;
-    
-    cursorRange.insertNode(chip);
-    cursorRange.setStartAfter(chip);
-    cursorRange.setEndAfter(chip);
-    
-    // Tambahkan spasi setelah chip agar tidak "terjebak"
-    const space = document.createTextNode('\u00A0');
-    cursorRange.insertNode(space);
-    cursorRange.setStartAfter(space);
-    cursorRange.setEndAfter(space);
-    
-    selection?.removeAllRanges();
-    selection?.addRange(cursorRange);
+    // 1. Pastikan posisi kursor di browser sudah akurat setelah '@' dihapus
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(cursorRange);
+    }
+
+    // 2. Ganti DOM Manipulation manual dengan execCommand
+    // Metode ini mencegah HTML pecah/berantakan saat kita menyisipkan elemen
+    // ke dalam tag yang sudah kompleks seperti baris checkbox (todo-item).
+    const chipHtml = `<span class="mention-chip" contenteditable="false" data-id="${targetNoteId}">@${targetTitle}</span>&nbsp;`;
+    document.execCommand('insertHTML', false, chipHtml);
 
     setShowMentionList(false);
     handleInput();
