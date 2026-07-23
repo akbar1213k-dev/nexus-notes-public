@@ -720,11 +720,9 @@ export default function App() {
         );
     }
 
-    // Layar loading penahan kita hapus sepenuhnya agar aplikasi langsung terbuka (0 detik).
     // Data akan langsung terisi dalam sepersekian milidetik dari memori lokal (Cache-First). (hapus */ dibawah ini jika ingin digunakan)
-    /*
     if (!isReady) return <div className="flex h-full items-center justify-center text-gray-400 font-medium">Memuat data...</div>;
-    */
+    
   
     switch (viewMode) {
         case 'TRACT':
@@ -778,7 +776,8 @@ export default function App() {
         
         case 'EDITOR': 
             const n = notes.find(x => x.id === currentNoteId);
-            if (!n) return <div>404</div>;
+            // Jika data belum siap (isReady = false), tampilkan loading. Jika sudah siap tapi data tetap tidak ada, baru tampilkan 404.
+            if (!n) return !isReady ? <div className="p-6 text-gray-400">Membuka catatan...</div> : <div>Catatan tidak ditemukan (404)</div>;
             return (
                 <Editor 
                     ref={editorRef} 
