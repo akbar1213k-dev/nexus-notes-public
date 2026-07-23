@@ -135,8 +135,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
 
   // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<any[]>([]); 
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null); // State untuk buka/tutup rincian
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Fungsi untuk Memuat History dari Brankas Lokal saat Catatan Dibuka
@@ -150,8 +151,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
                   const { timestamp, pastVersions } = JSON.parse(savedData);
                   // Cek apakah usianya belum 24 Jam (24 * 60 * 60 * 1000 milidetik)
                   if (Date.now() - timestamp < 86400000) {
-                      setHistory(pastVersions);
-                      setHistoryIndex(pastVersions.length - 1);
+                      // Migrasi otomatis jika data lama masih berupa string (Teks biasa)
+                      const formattedVersions = typeof pastVersions[0] === 'string' 
+                          ? pastVersions.map((v: string) => ({ content: v, timestamp: timestamp }))
+                          : pastVersions;
+
+                      setHistory(formattedVersions);
+                      setHistoryIndex(formattedVersions.length - 1);
                       return; // Berhasil dimuat
                   } else {
                       // Sudah basi (lebih 24 jam), buang!
@@ -163,7 +169,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           }
           
           // Jika tidak ada history (atau sudah basi), jadikan konten saat ini sebagai titik awal
-          setHistory([note.content]);
+          setHistory([{ content: note.content, timestamp: Date.now() }]);
           setHistoryIndex(0);
       };
       
@@ -406,7 +412,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const performUndo = () => {
       if (historyIndex > 0) {
           const newIndex = historyIndex - 1;
-          const restoredContent = history[newIndex];
+          const restoredContent = history[newIndex].content; // <-- PANGGIL KONTEN SAJA
           setHistoryIndex(newIndex);
           onUpdate({ ...note, content: restoredContent });
           
@@ -416,6 +422,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       }
   };
 
+  const performRedo = () => {
+      if (historyIndex < history.length - 1) {
+          const newIndex = historyIndex + 1;
+          const restoredContent = history[newIndex].content; // <-- PANGGIL KONTEN SAJA
+          setHistoryIndex(newIndex);
+          onUpdate({ ...note, content: restoredContent });
+          
+          // Fokuskan kembali kursor
+          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+          else if (!isCodeView && editorRef.current) editorRef.current.focus();
+      }
+  };
   const performRedo = () => {
       if (historyIndex < history.length - 1) {
           const newIndex = historyIndex + 1;
@@ -759,12 +777,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
               const currentHistory = prev.slice(0, historyIndex + 1);
               
               // Cek agar tidak merekam hal yang sama persis dua kali berturut-turut
-              if (currentHistory[currentHistory.length - 1] === newContent) return prev;
+              if (currentHistory.length > 0 && currentHistory[currentHistory.length - 1].content === newContent) return prev;
               
-              const newVersions = [...currentHistory, newContent];
+              // TAMBAHAN: Kita rekam teks BERSAMAAN dengan waktu persis ia diketik (hingga milidetik)
+              const newVersions = [...currentHistory, { content: newContent, timestamp: Date.now() }];
               
               // Batasi maksimal 50 versi agar memori lokal tidak jebol
-              if (newVersions.length > 50) newVersions.shift(); 
+              if (newVersions.length > 50) newVersions.shift();
               
               setHistoryIndex(newVersions.length - 1);
               
@@ -1716,73 +1735,119 @@ const handleEditorClick = (e: React.MouseEvent) => {
                         <div className="text-center text-gray-500 py-8 text-sm">Belum ada riwayat perubahan.</div>
                     ) : (
                         /* Kita balik urutannya (reverse) agar versi TERBARU muncul paling atas */
-                        [...history].reverse().map((contentSnapshot, reverseIdx) => {
+                        [...history].reverse().map((histItem, reverseIdx) => {
                             // Hitung nomor indeks aslinya
                             const originalIdx = (history.length - 1) - reverseIdx;
                             const isCurrent = originalIdx === historyIndex;
+                            const isExpanded = expandedHistoryIdx === originalIdx;
                             
-                            // Logika Sederhana untuk Mencari Perbedaan (Diff)
-                            const currentText = contentSnapshot.replace(/<[^>]*>?/gm, '').trim();
-                            const prevSnapshot = originalIdx > 0 ? history[originalIdx - 1] : "";
-                            const prevText = prevSnapshot.replace(/<[^>]*>?/gm, '').trim();
+                            // 1. HELPER WAKTU: Format Jam, Menit, Detik, Milidetik
+                            const formatTimeWithMs = (ts: number) => {
+                                if (!ts) return '';
+                                const d = new Date(ts);
+                                const h = d.getHours().toString().padStart(2, '0');
+                                const m = d.getMinutes().toString().padStart(2, '0');
+                                const s = d.getSeconds().toString().padStart(2, '0');
+                                const ms = d.getMilliseconds().toString().padStart(3, '0');
+                                return `${h}:${m}:${s}.${ms}`;
+                            };
+
+                            // 2. HELPER PEMBERSIH KODE: Menghapus &nbsp;, <br>, dan memfilter tag HTML
+                            const getCleanText = (htmlStr: string) => {
+                                const temp = document.createElement('div');
+                                // Ubah tag ganti baris menjadi spasi biasa agar teks tidak menempel
+                                temp.innerHTML = htmlStr.replace(/<br\s*[\/]?>/gi, ' ').replace(/<\/p>/gi, ' </p>'); 
+                                // textContent akan secara ajaib memusnahkan &nbsp; menjadi spasi biasa
+                                return (temp.textContent || temp.innerText || "").replace(/\s+/g, ' ').trim();
+                            };
+
+                            const currentText = getCleanText(histItem.content);
+                            const prevSnapshot = originalIdx > 0 ? history[originalIdx - 1].content : "";
+                            const prevText = getCleanText(prevSnapshot);
                             
                             const currentWords = currentText.split(/\s+/).filter(w => w);
                             const prevWords = prevText.split(/\s+/).filter(w => w);
                             
-                            // Kata yang ada di versi ini, tapi tidak ada di versi sebelumnya (Ditambah)
                             const addedWords = currentWords.filter(w => !prevWords.includes(w)).join(' ');
-                            // Kata yang ada di versi sebelumnya, tapi tidak ada di versi ini (Dihapus)
                             const removedWords = prevWords.filter(w => !currentWords.includes(w)).join(' ');
 
                             return (
-                                <button 
+                                <div 
                                     key={originalIdx}
-                                    onClick={() => {
-                                        // Aksi utama: Melompat ke versi ini!
-                                        setHistoryIndex(originalIdx);
-                                        onUpdate({ ...note, content: contentSnapshot });
-                                        setShowHistoryModal(false);
-                                        
-                                        // Fokuskan kursor otomatis
-                                        if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
-                                        else if (!isCodeView && editorRef.current) editorRef.current.focus();
-                                    }}
-                                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col gap-2 ${
+                                    className={`w-full text-left rounded-xl border-2 transition-all flex flex-col overflow-hidden ${
                                         isCurrent 
                                         ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' 
-                                        : 'border-transparent bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 shadow-sm'
+                                        : 'border-transparent bg-white dark:bg-gray-800 shadow-sm'
                                     }`}
                                 >
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
-                                            Versi {originalIdx + 1}
-                                        </span>
-                                        {isCurrent && (
-                                            <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                                                Saat Ini
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic bg-gray-100 dark:bg-gray-900/50 p-2 rounded-lg">
-                                        {currentText.substring(0, 100) || "(Kosong)"}
-                                    </div>
-                                    
-                                    {/* TAMPILAN PERUBAHAN (HIJAU: DITAMBAH, MERAH: DIHAPUS) */}
-                                    {(addedWords || removedWords) && (
-                                        <div className="text-[11px] font-medium mt-1 flex flex-col gap-1 bg-white dark:bg-gray-900 p-2 rounded border dark:border-gray-700">
-                                            {addedWords && (
-                                                <span className="text-green-600 dark:text-green-400">
-                                                    + Ditambah: {addedWords.substring(0, 50)}{addedWords.length > 50 ? '...' : ''}
+                                    {/* HEADER KARTU: Tekan untuk Buka/Tutup Detail */}
+                                    <button 
+                                        onClick={() => setExpandedHistoryIdx(isExpanded ? null : originalIdx)}
+                                        className="w-full p-4 flex flex-col gap-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                                    >
+                                        <div className="flex justify-between items-center w-full">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-bold text-sm ${isCurrent ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-200'}`}>
+                                                    Versi {originalIdx + 1}
                                                 </span>
-                                            )}
-                                            {removedWords && (
-                                                <span className="text-red-600 dark:text-red-400">
-                                                    - Dihapus: {removedWords.substring(0, 50)}{removedWords.length > 50 ? '...' : ''}
+                                                <span className="text-[10px] font-mono bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-md">
+                                                    {formatTimeWithMs(histItem.timestamp)}
                                                 </span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {isCurrent && (
+                                                    <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                                                        Saat Ini
+                                                    </span>
+                                                )}
+                                                <ChevronDown size={16} className={`text-gray-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                                            </div>
+                                        </div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic text-left">
+                                            {currentText.substring(0, 100) || "(Kosong)"}
+                                        </div>
+                                    </button>
+
+                                    {/* RINCIAN PERUBAHAN & TOMBOL PULIHKAN (Muncul jika Header ditekan) */}
+                                    {isExpanded && (
+                                        <div className="p-4 pt-0 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50 animate-in slide-in-from-top-2">
+                                            {(addedWords || removedWords) ? (
+                                                <div className="text-[11px] font-medium mt-3 mb-4 flex flex-col gap-1.5 bg-white dark:bg-gray-900 p-3 rounded-lg border dark:border-gray-700">
+                                                    {addedWords && (
+                                                        <span className="text-green-600 dark:text-green-400">
+                                                            + Ditambah: {addedWords}
+                                                        </span>
+                                                    )}
+                                                    {removedWords && (
+                                                        <span className="text-red-600 dark:text-red-400">
+                                                            - Dihapus: {removedWords}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="text-[11px] text-gray-400 mt-3 mb-4 italic text-center">
+                                                    Tidak ada perubahan kata (hanya spasi atau Enter).
+                                                </div>
                                             )}
+
+                                            <button
+                                                onClick={() => {
+                                                    setHistoryIndex(originalIdx);
+                                                    onUpdate({ ...note, content: histItem.content });
+                                                    setShowHistoryModal(false);
+                                                    setExpandedHistoryIdx(null);
+                                                    
+                                                    // Fokuskan kursor otomatis
+                                                    if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+                                                    else if (!isCodeView && editorRef.current) editorRef.current.focus();
+                                                }}
+                                                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm active:scale-95"
+                                            >
+                                                Pulihkan ke Versi Ini
+                                            </button>
                                         </div>
                                     )}
-                                </button>
+                                </div>
                             );
                         })
                     )}
