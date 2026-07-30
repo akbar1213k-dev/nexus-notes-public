@@ -96,14 +96,21 @@ const formatAndCleanHTML = (html: string) => {
 };
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
-  note, 
-  allNotes, 
+  note: rawNote, 
+  allNotes = [], 
   onUpdate, 
   onCreateNewNote,
   onLinkClick,
   onLinkLongPress,
   onGoHome
 }, ref) => {
+  // PENGAMAN ANTI CRASH (Mencegah Layar Blank Putih)
+  // Jika data 'note' dari luar ternyata kosong/belum dimuat, 
+  // kita berikan data palsu sementara agar aplikasi tidak panik.
+  const note = rawNote ? 
+    { ...rawNote, content: rawNote.content || '<p><br></p>' } : 
+    { id: 'safe-temp', title: 'Memuat...', content: '<p><br></p>', type: 'text' } as any;
+
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const savedSelection = useRef<Range | null>(null); // Menyimpan posisi seleksi teks
