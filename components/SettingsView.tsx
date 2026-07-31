@@ -15,6 +15,7 @@ interface SettingsViewProps {
   notes: Note[];
   folders: Folder[];
   onImportData: (data: any) => void;
+  onClearHistory: (halfOnly: boolean) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -27,7 +28,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   isAnonymous,
   notes,        // Baru
   folders,      // Baru
-  onImportData  // Baru
+  onImportData, // Baru
+  onClearHistory
 }) => {
   return (
     <div className="h-full overflow-y-auto p-6 max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-20 pb-32">
@@ -106,17 +108,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         />
       </section>
 
-      {/* Danger Zone */}
+      {/* Danger Zone & Cache Management */}
       <section className="space-y-4">
+         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Storage & Danger Zone</h3>
+         
+         <div className="grid grid-cols-2 gap-3">
+             <button 
+                onClick={() => onClearHistory(true)}
+                className="flex items-center justify-center gap-2 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors font-medium text-sm text-center"
+             >
+                Hapus 50% Riwayat (Lama)
+             </button>
+             <button 
+                onClick={() => onClearHistory(false)}
+                className="flex items-center justify-center gap-2 p-3 rounded-xl border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors font-medium text-sm text-center"
+             >
+                Bersihkan Semua Cache
+             </button>
+         </div>
+
          <button 
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 p-4 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-semibold"
+            className="w-full flex items-center justify-center gap-2 p-4 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-semibold mt-2"
          >
             <LogOut size={20} />
             Sign Out
          </button>
       </section>
-
       <div className="text-center text-xs text-gray-400 mt-8">
         Nexus Notes v1.0.0 &bull; Built by Akbar
       </div>
