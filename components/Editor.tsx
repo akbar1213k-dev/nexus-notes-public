@@ -783,11 +783,47 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
               
               setHistoryIndex(newVersions.length - 1);
               
-              // Simpan ke Brankas Lokal dengan Stempel Waktu (24 Jam)
-              localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
-                  timestamp: Date.now(),
-                  pastVersions: newVersions
-              }));
+              // Simpan ke Brankas Lokal dengan Pengaman (Self-Healing Auto-Pilot)
+              try {
+                  localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
+                      timestamp: Date.now(),
+                      pastVersions: newVersions
+                  }));
+              } catch (error) {
+                  console.warn("⚠️ Memori penuh! Menjalankan pembersihan otomatis (Self-Healing)...");
+                  
+                  // LOGIKA FIFO: Ambil semua riwayat, urutkan dari yang terlama
+                  const keys = [];
+                  for (let i = 0; i < localStorage.length; i++) {
+                      const k = localStorage.key(i);
+                      if (k && k.startsWith('nexus_history_')) {
+                          try {
+                              const data = JSON.parse(localStorage.getItem(k) || '{}');
+                              keys.push({ key: k, ts: data.timestamp || 0 });
+                          } catch(e) {
+                              keys.push({ key: k, ts: 0 });
+                          }
+                      }
+                  }
+                  
+                  keys.sort((a, b) => a.ts - b.ts); // Urutkan: Terlama di urutan pertama
+                  const deleteCount = Math.max(1, Math.ceil(keys.length / 2)); // Hapus 50%
+                  
+                  for (let i = 0; i < deleteCount; i++) {
+                      localStorage.removeItem(keys[i].key);
+                  }
+                  
+                  // Coba simpan kembali setelah ada ruang kosong (Mencegah Crash Layar Putih)
+                  try {
+                      localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
+                          timestamp: Date.now(),
+                          pastVersions: newVersions
+                      }));
+                      console.log(`✅ Self-healing berhasil. ${deleteCount} riwayat mesin waktu terlama telah dikorbankan.`);
+                  } catch(e2) {
+                      console.error("❌ Gagal menyimpan history, memori perangkat benar-benar habis.");
+                  }
+              }
               
               return newVersions;
           });
