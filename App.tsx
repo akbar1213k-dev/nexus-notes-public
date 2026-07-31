@@ -458,6 +458,35 @@ export default function App() {
       // setUser(null) ditangani di listener auth
   };
 
+  const handleClearHistoryCache = (halfOnly: boolean) => {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('nexus_history_')) {
+              try {
+                  const data = JSON.parse(localStorage.getItem(k) || '{}');
+                  keys.push({ key: k, ts: data.timestamp || 0 });
+              } catch(e) {
+                  keys.push({ key: k, ts: 0 });
+              }
+          }
+      }
+      
+      if (keys.length === 0) {
+          alert("Tidak ada riwayat mesin waktu/cache yang menyumbat memori.");
+          return;
+      }
+
+      // FIFO: Urutkan dari timestamp terkecil (Paling Tua) ke terbesar (Paling Baru)
+      keys.sort((a, b) => a.ts - b.ts);
+      const deleteCount = halfOnly ? Math.ceil(keys.length / 2) : keys.length;
+      
+      for (let i = 0; i < deleteCount; i++) {
+          localStorage.removeItem(keys[i].key);
+      }
+      alert(`✅ Sukses! ${deleteCount} riwayat ${halfOnly ? 'paling lama ' : ''}telah dibersihkan dari memori perangkat.`);
+  };
+
   const handleManualSync = async () => {
       if (!user) return;
       setSyncStatus('syncing');
@@ -750,6 +779,7 @@ export default function App() {
                   notes={notes}
                   folders={folders}
                   onImportData={handleImportData}
+                  onClearHistory={handleClearHistoryCache}
                 />
             );
             
