@@ -930,28 +930,6 @@ export default function App() {
             onMoveNote={() => setShowEditorMoveDialog(true)}
           />
       )}
-        isDarkMode={isDarkMode} 
-        onToggleTheme={() => setIsDarkMode(p => !p)} 
-        onUndo={() => editorRef.current?.undo()} 
-        onRedo={() => editorRef.current?.redo()} 
-        syncStatus={syncStatus} 
-        isAutoSync={isAutoSync} 
-        onManualSync={handleManualSync} 
-        onOpenSettings={() => navigateTo('SETTINGS')}
-        onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
-        onForceHome={() => navigateTo('HOME')} 
-        onGoToParent={() => {
-            // Algoritma: Cari 1 Catatan yang isi kontennya memiliki ID catatan kita saat ini
-            const parentNote = notes.find(n => n.content.includes(`data-id="${currentNoteId}"`));
-            if (parentNote) {
-                navigateTo('EDITOR', parentNote.id);
-            } else {
-                alert("Catatan ini belum memiliki Induk (Belum ditautkan dari catatan manapun).");
-            }
-        }}
-        onDeleteNote={handleDeleteCurrentNote}
-        onMoveNote={() => setShowEditorMoveDialog(true)}
-      />
       
       <div className="flex-1 overflow-hidden relative flex flex-col">
         {renderContent()}
