@@ -132,6 +132,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   // Search & Sort State
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // --- STATE BARU: Mode Pencarian Dalam (Disimpan di Local Storage) ---
+  const [isDeepSearch, setIsDeepSearch] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_deep_search');
+      return saved === 'true'; // Default akan false (hanya judul) jika belum ada
+    } catch { return false; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('nexus_deep_search', JSON.stringify(isDeepSearch));
+  }, [isDeepSearch]);
    
   const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>(() => {
     const saved = localStorage.getItem('nexus_sort_option');
@@ -169,16 +181,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
     // 2. Filtering berdasarkan Folder / Search
     if (query) {
-      filteredNotes = baseNotes.filter(n => 
-        // Pertahankan pencarian pasti/exact untuk Judul Catatan
-        (n.title && n.title.toLowerCase().includes(query)) || 
-        // Terapkan Proximity Search canggih untuk Isi Konten
-        checkProximityMatch(n.content, query)
-      );
-      // Saat search, tampilkan semua folder yang cocok (flat list - pencarian pasti/exact)
-      filteredFolders = baseFolders.filter(f => 
-        f.name.toLowerCase().includes(query)
-      );
+      // Pecah kata kunci menjadi array (misal: "notery catatan" -> ["notery", "catatan"])
+      const searchTerms = query.split(' ').filter(term => term !== '');
+
+      filteredNotes = baseNotes.filter(n => {
+        const title = (n.title || '').toLowerCase();
+        
+        // Mengecek apakah SEMUA kata kunci pencarian ada di dalam judul (meskipun acak)
+        const matchesTitleUnordered = searchTerms.every(term => title.includes(term));
+
+        if (!isDeepSearch) {
+          // Jika tombol dimatikan: Fokus mencari hanya di judul
+          return matchesTitleUnordered;
+        } else {
+          // Jika tombol diaktifkan: Cari di judul ATAU di dalam isi konten
+          return matchesTitleUnordered || checkProximityMatch(n.content, query);
+        }
+      });
+
+      // Terapkan pencarian kata acak juga pada nama folder
+      filteredFolders = baseFolders.filter(f => {
+        const folderName = (f.name || '').toLowerCase();
+        return searchTerms.every(term => folderName.includes(term));
+      });
     } else {
       if (isTrashMode) {
          // Tampilkan semua yg terhapus (biarkan filteredNotes/Folders apa adanya dari base)
@@ -206,6 +231,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
     // 3. Sorting
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
+       // --- TAMBAHAN BARU: PRIORITAS KATA YANG BERURUTAN (EXACT MATCH) ---
+       const query = searchQuery.toLowerCase().trim();
+       if (query) {
+         const titleA = type === 'note' ? ((a as Note).title || '').toLowerCase() : ((a as Folder).name || '').toLowerCase();
+         const titleB = type === 'note' ? ((b as Note).title || '').toLowerCase() : ((b as Folder).name || '').toLowerCase();
+         
+         const exactMatchA = titleA.includes(query) ? 1 : 0;
+         const exactMatchB = titleB.includes(query) ? 1 : 0;
+         
+         // Jika satu item susunan katanya sama persis dengan pencarian, tarik ke posisi atas
+         if (exactMatchA !== exactMatchB) {
+           return exactMatchB - exactMatchA;
+         }
+       }
+
+       // --- SORTING BAWAAN APLIKASI JIKA TIDAK ADA PENCARIAN ---
        let valA, valB;
        switch (sortOption) {
         case 'alphabet':
@@ -241,7 +282,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
       navigationFolders: pinSystemFolder(sortedNavigation) 
     };
 
-  }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection, isTrashMode]);
+  // Jangan lupa tambahkan isDeepSearch di array bawah ini agar data merender ulang saat tombol diklik
+  }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection, isTrashMode, isDeepSearch]);
 
   const { visibleNotes, visibleFolders, navigationFolders } = filteredItems;
 
@@ -458,6 +500,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     </button>
                   )}
                 </div>
+
+                {/* --- TOMBOL TOGGLE PENCARIAN DALAM --- */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setIsDeepSearch(!isDeepSearch); }}
+                  title="Pencarian Dalam (Judul & Isi)"
+                  className={`flex items-center justify-center h-[48px] px-3 rounded-xl border text-xs font-medium transition-colors shadow-sm whitespace-nowrap ${
+                    isDeepSearch 
+                      ? 'bg-blue-600 text-white border-blue-600 dark:bg-blue-600 dark:border-blue-600' 
+                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {isDeepSearch ? '🔍 Judul + Isi' : '📌 Hanya Judul'}
+                </button>
 
                 {/* 2. Sort Button (Dipindahkan ke Sini) */}
                 <div className="relative">
