@@ -161,6 +161,9 @@ export default function App() {
   const [currentNoteId, setCurrentNoteId] = useState<string>(''); 
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
 
+  // State baru untuk menyembunyikan TopBar saat mode Browser Layar Penuh aktif
+  const [isImmersive, setIsImmersive] = useState(false);
+
   const [isAutoSync, setIsAutoSync] = useState(() => {
     try {
         const saved = localStorage.getItem('nexus_auto_sync');
@@ -828,6 +831,7 @@ export default function App() {
                     note={n} 
                     allNotes={notes} 
                     onUpdate={handleUpdateNote} 
+                    onToggleImmersive={setIsImmersive} // Mengizinkan Editor mematikan/menyalakan TopBar
                     onCreateNewNote={async (title) => {
                         const LINKED_FOLDER_NAME = "Keterhubungan";
                         let linkedFolder = folders.find(f => f.name === LINKED_FOLDER_NAME);
@@ -898,10 +902,34 @@ export default function App() {
   
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900 transition-colors">
-      <TopBar 
-        mode={viewMode} 
-        onToggleMode={() => navigateTo(viewMode === 'GRAPH' ? 'EDITOR' : 'GRAPH', currentNoteId)} 
-        title={getTopBarTitle()} 
+      {/* Sembunyikan TopBar jika sedang Immersive (Layar Penuh) */}
+      {!isImmersive && (
+          <TopBar 
+            mode={viewMode} 
+            onToggleMode={() => navigateTo(viewMode === 'GRAPH' ? 'EDITOR' : 'GRAPH', currentNoteId)} 
+            title={getTopBarTitle()} 
+            isDarkMode={isDarkMode} 
+            onToggleTheme={() => setIsDarkMode(p => !p)} 
+            onUndo={() => editorRef.current?.undo()} 
+            onRedo={() => editorRef.current?.redo()} 
+            syncStatus={syncStatus} 
+            isAutoSync={isAutoSync} 
+            onManualSync={handleManualSync} 
+            onOpenSettings={() => navigateTo('SETTINGS')}
+            onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
+            onForceHome={() => navigateTo('HOME')} 
+            onGoToParent={() => {
+                const parentNote = notes.find(n => n.content.includes(`data-id="${currentNoteId}"`));
+                if (parentNote) {
+                    navigateTo('EDITOR', parentNote.id);
+                } else {
+                    alert("Catatan ini belum memiliki Induk (Belum ditautkan dari catatan manapun).");
+                }
+            }}
+            onDeleteNote={handleDeleteCurrentNote}
+            onMoveNote={() => setShowEditorMoveDialog(true)}
+          />
+      )}
         isDarkMode={isDarkMode} 
         onToggleTheme={() => setIsDarkMode(p => !p)} 
         onUndo={() => editorRef.current?.undo()} 
