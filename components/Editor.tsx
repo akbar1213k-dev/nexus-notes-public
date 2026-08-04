@@ -128,8 +128,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showTools, setShowTools] = useState(false);
   // --- STATE BARU: Mode Kode (HTML) ---
   const [isCodeView, setIsCodeView] = useState(false);
+  
   // --- STATE BARU: Mode Live Preview (Browser Mini) ---
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  // AUTO-DETECT: Cek isi catatan saat pertama kali halaman dimuat (refresh).
+  // Jika ada tag HTML utuh, langsung paksa nyalakan mode Preview!
+  const [isPreviewMode, setIsPreviewMode] = useState(() => {
+      const text = (rawNote?.content || '').toLowerCase();
+      return text.includes('<!doctype html') || text.includes('<html');
+  });
 
   // --- STATE BARU: Tampilkan Modal Riwayat Mesin Waktu ---
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -148,6 +154,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null); // State untuk buka/tutup rincian
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- FUNGSI BARU: Deteksi Cerdas Saat Berpindah Catatan ---
+  useEffect(() => {
+      const text = (note.content || '').toLowerCase();
+      // Cek apakah ini adalah catatan coding web
+      if (text.includes('<!doctype html') || text.includes('<html')) {
+          setIsPreviewMode(true);
+          setIsCodeView(false);
+      } else {
+          // Jika catatan teks biasa, pastikan kembali ke mode normal
+          setIsPreviewMode(false);
+          setIsCodeView(false);
+      }
+  }, [note.id]); // Hanya dijalankan saat ID catatan berubah (berpindah catatan)
   
   // Fungsi untuk Memuat History dari Brankas Lokal saat Catatan Dibuka
   useEffect(() => {
