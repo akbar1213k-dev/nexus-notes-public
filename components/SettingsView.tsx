@@ -1,5 +1,5 @@
-import React from 'react';
-import { LogOut, Cloud, User, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { LogOut, Cloud, User, Clock, Edit2, Check, X } from 'lucide-react';
 import BackupManager from './BackupManager'; // <--- Tambahkan ini
 import { Note, Folder } from '../types';     // <--- Tambahkan ini
 
@@ -16,6 +16,8 @@ interface SettingsViewProps {
   folders: Folder[];
   onImportData: (data: any) => void;
   onClearHistory: (halfOnly: boolean) => void;
+  // Fungsi baru untuk ganti email
+  onUpdateEmail?: (newEmail: string) => Promise<void>; 
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -29,8 +31,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   notes,        // Baru
   folders,      // Baru
   onImportData, // Baru
-  onClearHistory
+  onClearHistory,
+  onUpdateEmail
 }) => {
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState(userEmail || '');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const handleEmailSubmit = async () => {
+    if (!newEmail || newEmail === userEmail || !onUpdateEmail) {
+      setIsEditingEmail(false);
+      return;
+    }
+    
+    setIsUpdating(true);
+    try {
+      await onUpdateEmail(newEmail);
+      setIsEditingEmail(false);
+      alert("Email berhasil diperbarui!");
+    } catch (error: any) {
+      alert("Gagal mengganti email. Pastikan format email benar dan Anda baru saja login. Detail: " + error.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto p-6 max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-20 pb-32">
       <h2 className="text-3xl font-bold text-gray-800 dark:text-white">Settings</h2>
@@ -39,19 +64,67 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <section className="space-y-4">
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Account</h3>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm flex items-center justify-between">
-            <div className="flex items-center gap-4">
-                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full text-blue-600 dark:text-blue-400">
+            <div className="flex items-center gap-4 flex-1">
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full text-blue-600 dark:text-blue-400 shrink-0">
                     <User size={24} />
                 </div>
-                <div>
-                    <p className="font-medium text-gray-900 dark:text-white">
-                        {isAnonymous ? 'Guest User' : (userEmail || 'Unknown User')}
-                    </p>
-                    <p className="text-xs text-gray-500">
+                <div className="flex-1 mr-4">
+                    {!isEditingEmail ? (
+                      <p className="font-medium text-gray-900 dark:text-white truncate">
+                          {isAnonymous ? 'Guest User' : (userEmail || 'Unknown User')}
+                      </p>
+                    ) : (
+                      <input 
+                        type="email" 
+                        value={newEmail} 
+                        onChange={(e) => setNewEmail(e.target.value)} 
+                        disabled={isUpdating}
+                        className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        placeholder="Ketik email baru Anda..."
+                      />
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
                         {isAnonymous ? 'Data saved locally (mostly)' : 'Signed in via Email'}
                     </p>
                 </div>
             </div>
+            
+            {/* Tombol Edit / Simpan (Disembunyikan jika Guest User) */}
+            {!isAnonymous && (
+              <div className="flex items-center gap-1 shrink-0">
+                {!isEditingEmail ? (
+                  <button 
+                    onClick={() => {
+                      setNewEmail(userEmail || '');
+                      setIsEditingEmail(true);
+                    }} 
+                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-lg transition-all"
+                    title="Ganti Email"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                ) : (
+                  <>
+                    <button 
+                      onClick={handleEmailSubmit} 
+                      disabled={isUpdating}
+                      className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-all disabled:opacity-50"
+                      title="Simpan Perubahan"
+                    >
+                      <Check size={18} />
+                    </button>
+                    <button 
+                      onClick={() => setIsEditingEmail(false)} 
+                      disabled={isUpdating}
+                      className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all disabled:opacity-50"
+                      title="Batal"
+                    >
+                      <X size={18} />
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
         </div>
       </section>
 
