@@ -152,6 +152,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
   
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
+  const iframeRef = useRef<HTMLIFrameElement>(null); // Referensi pengendali untuk browser mini (Iframe)
 
   // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
   const [history, setHistory] = useState<any[]>([]); 
@@ -176,16 +177,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Jejak rekam untuk membedakan perubahan lokal vs perubahan dari Firebase (Perangkat B)
   const lastLocalHTML = useRef('');
 
-  // MEMBUKA KUNCI SINKRONISASI REAL-TIME (TANPA BERKEDIP)
+  // MEMBUKA KUNCI SINKRONISASI REAL-TIME (ANTI KEDIP & TAHAN SCROLL)
   useEffect(() => {
-      // Jika perubahan berasal dari Firebase (perangkat lain) dan BUKAN dari ketikan kita sendiri
       if (isPreviewMode && note.content !== previewContent && note.content !== lastLocalHTML.current) {
-          // Baru kita izinkan Iframe untuk refresh layarnya
-          setPreviewContent(note.content);
+          // JANGAN gunakan setPreviewContent() lagi karena itu yang menyebabkan layar berkedip & scroll terlempar ke atas.
+          // Sebagai gantinya, kirim HTML baru lewat "kabel" langsung ke dalam Iframe!
+          if (iframeRef.current && iframeRef.current.contentWindow) {
+              iframeRef.current.contentWindow.postMessage({
+                  type: 'SYNC_FROM_NEXUS',
+                  html: note.content
+              }, '*');
+          }
           lastLocalHTML.current = note.content; // Sinkronkan jejak
       }
   }, [isPreviewMode, note.content, previewContent]);
-
   // PENDENGAR PESAN DARI IFRAME (KABEL KOMUNIKASI)
   useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
@@ -1455,6 +1460,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
             {isPreviewMode ? (
                 <div className="w-full h-[65vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden bg-white relative shadow-inner">
                     <iframe
+                        ref={iframeRef} 
                         srcDoc={previewContent}
                         title="Live Preview"
                         className="w-full h-full border-0"
