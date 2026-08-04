@@ -19,8 +19,9 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInAnonymously,
-  sendPasswordResetEmail
-} from 'firebase/auth'; 
+  sendPasswordResetEmail,
+  updateEmail
+} from 'firebase/auth';
 
 // --- HELPER: LOCAL STORAGE (Tetap sama) --
 const getLocalNotes = (): Note[] => {
@@ -458,6 +459,16 @@ export default function App() {
       // setUser(null) ditangani di listener auth
   };
 
+  const handleUpdateEmail = async (newEmail: string) => {
+    if (!auth.currentUser) throw new Error("Anda belum login.");
+    
+    // Memanggil alat Firebase untuk mengganti email
+    await updateEmail(auth.currentUser, newEmail);
+    
+    // Perbarui data user di memori aplikasi agar tulisan di layar langsung berubah
+    setUser({ ...auth.currentUser, email: newEmail });
+  };
+
   const handleClearHistoryCache = (halfOnly: boolean) => {
       const keys = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -766,7 +777,7 @@ export default function App() {
                 </div>
             );
         
-        case 'SETTINGS':
+       case 'SETTINGS':
             return (
                 <SettingsView 
                   isAutoSync={isAutoSync}
@@ -780,6 +791,7 @@ export default function App() {
                   folders={folders}
                   onImportData={handleImportData}
                   onClearHistory={handleClearHistoryCache}
+                  onUpdateEmail={handleUpdateEmail}
                 />
             );
             
