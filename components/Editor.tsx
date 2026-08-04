@@ -8,7 +8,7 @@ import {
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
-  Search, X, ChevronUp, ChevronDown, History // <--- Icon History
+  Search, X, ChevronUp, ChevronDown, History, Play // <--- Icon History & Play
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -128,6 +128,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showTools, setShowTools] = useState(false);
   // --- STATE BARU: Mode Kode (HTML) ---
   const [isCodeView, setIsCodeView] = useState(false);
+  // --- STATE BARU: Mode Live Preview (Browser Mini) ---
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
 
   // --- STATE BARU: Tampilkan Modal Riwayat Mesin Waktu ---
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -1394,18 +1396,27 @@ const handleEditorClick = (e: React.MouseEvent) => {
             />
             </div>
             
-            {/* TAMPILAN KODE (HTML) ATAU VISUAL */}
-            {isCodeView ? (
+            {/* TAMPILAN KODE (HTML), VISUAL, ATAU LIVE PREVIEW BROWSER */}
+            {isPreviewMode ? (
+                <div className="w-full h-[65vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden bg-white relative shadow-inner">
+                    <iframe
+                        srcDoc={note.content}
+                        title="Live Preview"
+                        className="w-full h-full border-0"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    />
+                </div>
+            ) : isCodeView ? (
                 <textarea
-                    ref={codeEditorRef} // <--- TAMBAHKAN REF INI
-                    className="w-full min-h-[50vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y"
+                    ref={codeEditorRef} 
+                    className="w-full min-h-[50vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y custom-scrollbar"
                     value={note.content}
                     onChange={(e) => {
                         const newCodeContent = e.target.value;
                         onUpdate({ ...note, content: newCodeContent });
-                        recordHistory(newCodeContent); // Panggil alat rekam kita di Mode Kode!
+                        recordHistory(newCodeContent); 
                     }}
-                    placeholder="Tulis kode HTML di sini..."
+                    placeholder="Tulis kode HTML lengkap (termasuk <script> dan <style>) di sini..."
                 />
             ) : (
                 <div 
@@ -1413,7 +1424,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     className={`editor-content outline-none text-lg min-h-[50vh] leading-relaxed dark:text-gray-200 ${isMindMap ? 'mindmap-mode' : ''}`}
                     contentEditable
                     onInput={handleInput}
-                    onPaste={handlePaste} // <--- Tambahkan baris ini
+                    onPaste={handlePaste} 
                     onKeyDown={handleKeyDown}
                     onClick={handleEditorClick}
                     onTouchStart={handleTouchStart}
@@ -1613,18 +1624,29 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 </button>
 
                 <button onMouseDown={preventFocusLoss} onClick={() => {
-                    if (!isCodeView) {
+                    if (!isCodeView && !isPreviewMode) {
                         // Jalankan pembersih dan perapi sebelum masuk ke mode kode
                         const cleanedHTML = formatAndCleanHTML(note.content);
                         onUpdate({ ...note, content: cleanedHTML });
                     }
                     setIsCodeView(!isCodeView);
+                    setIsPreviewMode(false); // Pastikan preview mati saat beralih mode kode
                     
                     // --- RESET PENCARIAN SAAT GANTI MODE ---
                     setSearchQuery('');
                     setSearchResults([]);
-                }} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
+                }} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView && !isPreviewMode ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
                     <Code size={20} />
+                </button>
+
+                {/* --- TOMBOL LIVE PREVIEW BROWSER --- */}
+                <button onMouseDown={preventFocusLoss} onClick={() => {
+                    setIsPreviewMode(!isPreviewMode);
+                    if (!isPreviewMode) {
+                        setIsCodeView(false); // Matikan textarea jika masuk mode preview
+                    }
+                }} className={`p-2 rounded min-w-[40px] flex justify-center ${isPreviewMode ? 'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Jalankan sebagai Halaman Web (Live Preview)">
+                    <Play size={20} />
                 </button>
 
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
