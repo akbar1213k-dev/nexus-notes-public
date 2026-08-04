@@ -8,7 +8,7 @@ import {
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
-  Search, X, ChevronUp, ChevronDown, History, Play // <--- Icon History & Play
+  Search, X, ChevronUp, ChevronDown, History, Play, Eye // <--- Tambah Icon Eye
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -18,8 +18,8 @@ interface EditorProps {
   onLinkClick: (noteId: string) => void;
   onLinkLongPress: (noteId: string) => void;
   onGoHome: () => void;
+  onToggleImmersive: (isImmersive: boolean) => void; // Kabel dari App.tsx
 }
-
 type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
 
 // === FUNGSI BARU: Membersihkan dan merapikan (Pretty Print) HTML ===
@@ -130,13 +130,24 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [isCodeView, setIsCodeView] = useState(false);
   
   // --- STATE BARU: Mode Live Preview (Browser Mini) ---
-  // AUTO-DETECT: Cek isi catatan saat pertama kali halaman dimuat (refresh).
-  // Jika ada tag HTML utuh, langsung paksa nyalakan mode Preview!
   const [isPreviewMode, setIsPreviewMode] = useState(() => {
+      // 1. Cek Memori Lokal dulu per catatan (Apakah sebelumnya nyala/mati)
+      if (rawNote?.id) {
+          const saved = localStorage.getItem(`nexus_preview_${rawNote.id}`);
+          if (saved !== null) return saved === 'true';
+      }
+      // 2. Jika tidak ada di memori, lakukan auto-detect seperti biasa
       const text = (rawNote?.content || '').toLowerCase();
       return text.includes('<!doctype html') || text.includes('<html');
   });
   
+  // --- STATE IMMERSIVE (FULL SCREEN) & TIMERS ---
+  const [isImmersive, setIsImmersive] = useState(false);
+  const [isHoveringUI, setIsHoveringUI] = useState(false);
+  const immersiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [floatingBtnPrimed, setFloatingBtnPrimed] = useState(false);
+  const floatingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // --- STATE BARU: Penahan Flicker Iframe ---
   // Mencegah iframe memuat ulang secara paksa saat data sedang disinkronisasi ke Firebase
   const [previewContent, setPreviewContent] = useState('');
@@ -160,19 +171,69 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null); // State untuk buka/tutup rincian
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- FUNGSI BARU: Deteksi Cerdas & Jembatan Firebase ---
+  // --- FUNGSI BARU: Sinkronisasi Preview & Memori Lokal ---
   useEffect(() => {
-      const text = (note.content || '').toLowerCase();
-      if (text.includes('<!doctype html') || text.includes('<html')) {
-          setIsPreviewMode(true);
-          setIsCodeView(false);
-          setPreviewContent(note.content); // Kunci HTML awal agar layar stabil
-      } else {
-          setIsPreviewMode(false);
-          setIsCodeView(false);
-          setPreviewContent('');
+      if (note.id && note.id !== 'safe-temp') {
+          // 1. Simpan status preview ke memori browser per catatan
+          localStorage.setItem(`nexus_preview_${note.id}`, String(isPreviewMode));
+          
+          // 2. Jika Preview nyala, persiapkan konten iframe & masuk ke Immersive Full Screen
+          if (isPreviewMode) {
+              setIsCodeView(false);
+              setPreviewContent(note.content);
+              setIsImmersive(true); // Langsung layar penuh
+          } else {
+              setIsImmersive(false); // Kembalikan ke mode editor biasa
+          }
       }
-  }, [note.id]);
+  }, [isPreviewMode, note.id]);
+
+  // --- ENGINE IMMERSIVE & PELACAK KURSOR MOUSE ---
+  // Lapor ke App.tsx agar TopBar disembunyikan
+  useEffect(() => {
+      onToggleImmersive(isImmersive);
+  }, [isImmersive, onToggleImmersive]);
+
+  // Timer 5 Detik & Sensor Area UI
+  useEffect(() => {
+      if (!isPreviewMode) return; // Matikan mesin hitung mundur jika bukan mode preview
+
+      // Jika kursor sedang menyorot area tombol (atas/bawah), tahan agar tidak disembunyikan
+      if (isHoveringUI) {
+          if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current);
+          return;
+      }
+
+      // Mulai hitung mundur 5 detik jika kursor dibiarkan saja di tengah web
+      if (!isImmersive) {
+          if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current);
+          immersiveTimerRef.current = setTimeout(() => {
+              setIsImmersive(true);
+              setFloatingBtnPrimed(false); // Reset status tombol transparan
+          }, 5000);
+      }
+
+      return () => {
+          if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current);
+      };
+  }, [isPreviewMode, isImmersive, isHoveringUI]);
+
+  // Sensor Area (Atas & Bawah Layar)
+  useEffect(() => {
+      if (!isPreviewMode || isImmersive) return;
+
+      const handleMouseMove = (e: MouseEvent) => {
+          // Anggap 120px dari atas (TopBar) dan 150px dari bawah (Toolbar) sebagai "Area Tombol"
+          if (e.clientY < 120 || e.clientY > window.innerHeight - 150) {
+              setIsHoveringUI(true);
+          } else {
+              setIsHoveringUI(false);
+          }
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [isPreviewMode, isImmersive]);
 
   // Jejak rekam untuk membedakan perubahan lokal vs perubahan dari Firebase (Perangkat B)
   const lastLocalHTML = useRef('');
@@ -1438,11 +1499,13 @@ const handleEditorClick = (e: React.MouseEvent) => {
             </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-4 no-scrollbar pb-32 mt-2">
-            <div className="flex items-center gap-2 mb-4">
-                {isMindMap && <Network className="text-indigo-500" size={28} />}
-                {/* PERBAIKAN: Menggunakan Textarea agar judul bisa multi-baris dan font lebih kecil */}
-            <textarea
+        <div className={`flex-1 overflow-y-auto no-scrollbar pb-32 ${isImmersive ? 'p-0 mt-0' : 'p-4 mt-2'}`}>
+            
+            {/* Hanya tampilkan judul jika TIDAK sedang layar penuh */}
+            {!isImmersive && (
+                <div className="flex items-center gap-2 mb-4">
+                    {isMindMap && <Network className="text-indigo-500" size={28} />}
+                <textarea
                 ref={titleRef}
                 rows={1}
                 value={note.title}
@@ -1458,9 +1521,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
             
             {/* TAMPILAN KODE (HTML), VISUAL, ATAU LIVE PREVIEW BROWSER */}
             {isPreviewMode ? (
-                <div className="w-full h-[65vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden bg-white relative shadow-inner">
+                <div className={`w-full bg-white relative shadow-inner ${isImmersive ? 'h-screen mt-0 rounded-none border-0' : 'h-[65vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden'}`}>
                     <iframe
-                        ref={iframeRef} 
+                        ref={iframeRef}
                         srcDoc={previewContent}
                         title="Live Preview"
                         className="w-full h-full border-0"
@@ -1541,6 +1604,38 @@ const handleEditorClick = (e: React.MouseEvent) => {
             </div>
         )}
 
+      {/* --- TOMBOL FLOATING IMMERSIVE (MODE BROWSER) --- */}
+      {isPreviewMode && isImmersive && (
+          <button
+              onClick={() => {
+                  if (floatingBtnPrimed) {
+                      // Klik kedua (dalam waktu 2 detik): Keluar dari layar penuh sementara
+                      setIsImmersive(false);
+                      setFloatingBtnPrimed(false);
+                      if (floatingTimerRef.current) clearTimeout(floatingTimerRef.current);
+                  } else {
+                      // Klik pertama: Siagakan tombol selama 2 detik (menjadi solid/tidak transparan)
+                      setFloatingBtnPrimed(true);
+                      if (floatingTimerRef.current) clearTimeout(floatingTimerRef.current);
+                      floatingTimerRef.current = setTimeout(() => {
+                          setFloatingBtnPrimed(false);
+                      }, 2000);
+                  }
+              }}
+              className={`fixed bottom-10 right-6 w-12 h-12 rounded-full shadow-2xl flex items-center justify-center z-[100] transition-all duration-300 ease-out ${
+                  floatingBtnPrimed 
+                  ? 'opacity-100 scale-110 bg-indigo-600 text-white' 
+                  : 'opacity-15 bg-gray-500 text-white hover:opacity-50'
+              }`}
+              title="Tampilkan Menu (Klik 2x)"
+          >
+              <Eye size={24} />
+          </button>
+      )}
+
+      {/* --- WRAPPER SEMUA MENU BAWAH (HANYA TAMPIL JIKA TIDAK IMMERSIVE) --- */}
+      {!isImmersive && (
+          <>
       {/* --- MENU TOOLS (CUT & SELECT ALL) --- */}
         
         {/* Sub-tombol: Select All (Paling Atas) */}
@@ -1775,6 +1870,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 </button>
             </div>
         </div>
+        </>
+      )}
       {/* --- DIALOG PILIHAN CHECKBOX --- */}
       {showCheckboxDialog && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
