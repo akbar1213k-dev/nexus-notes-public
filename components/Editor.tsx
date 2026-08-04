@@ -173,15 +173,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       }
   }, [note.id]);
 
-  // Sensor untuk mendeteksi apakah kita sendiri yang sedang mengklik web
-  const isLocalUpdate = useRef(false);
+  // Jejak rekam untuk membedakan perubahan lokal vs perubahan dari Firebase (Perangkat B)
+  const lastLocalHTML = useRef('');
 
-  // MEMBUKA KUNCI SINKRONISASI REAL-TIME
+  // MEMBUKA KUNCI SINKRONISASI REAL-TIME (TANPA BERKEDIP)
   useEffect(() => {
-      // Jika Mode Preview menyala, DAN perubahan BUKAN dari klik kita sendiri (melainkan dari perangkat lain/Firebase)
-      if (isPreviewMode && !isLocalUpdate.current && note.content !== previewContent) {
-          // Paksa layar Iframe untuk memuat ulang dengan data terbaru dari perangkat lain!
-          setPreviewContent(note.content); 
+      // Jika perubahan berasal dari Firebase (perangkat lain) dan BUKAN dari ketikan kita sendiri
+      if (isPreviewMode && note.content !== previewContent && note.content !== lastLocalHTML.current) {
+          // Baru kita izinkan Iframe untuk refresh layarnya
+          setPreviewContent(note.content);
+          lastLocalHTML.current = note.content; // Sinkronkan jejak
       }
   }, [isPreviewMode, note.content, previewContent]);
 
@@ -189,17 +190,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
           if (event.data && event.data.type === 'SYNC_APP_STATE') {
-              // 1. Nyalakan tanda bahwa ini adalah klik dari perangkat kita sendiri
-              isLocalUpdate.current = true; 
+              // 1. Catat bahwa HTML ini berasal dari ketikan perangkat ini (Lokal)
+              lastLocalHTML.current = event.data.html; 
               
-              // 2. Simpan perubahan ke Firebase
+              // 2. Diam-diam simpan ke Firebase (tanpa mengganggu/me-refresh iframe kita)
               onUpdate({ ...note, content: event.data.html });
               
-              // 3. Samakan memori penahan layar agar tidak bentrok
-              setPreviewContent(event.data.html); 
-              
-              // 4. Matikan kembali tanda tersebut setelah setengah detik
-              setTimeout(() => { isLocalUpdate.current = false; }, 500);
+              // PERBAIKAN: Kita HAPUS perintah setPreviewContent() di sini
+              // agar layar Iframe tidak berkedip dan kursor tidak hilang saat Anda mengetik!
           }
       };
       window.addEventListener('message', handleMessage);
