@@ -37,10 +37,26 @@ const BackupManager: React.FC<BackupManagerProps> = ({ notes, folders, onImport 
     reader.onload = (e) => {
       try {
         const result = JSON.parse(e.target?.result as string);
+        
+        // Alat bantu untuk membuang userId dari data lama
+        const sanitizeData = (items: any) => {
+          if (!Array.isArray(items)) return [];
+          return items.map((item: any) => {
+            const { userId, ...rest } = item;
+            return rest; // Mengembalikan semua isi catatan KECUALI userId lama
+          });
+        };
+
         if (Array.isArray(result)) {
-            onImport({ notes: result, folders: [] });
+            onImport({ 
+              notes: sanitizeData(result), 
+              folders: [] 
+            });
         } else if (result.notes || result.folders) {
-            onImport(result);
+            onImport({
+              notes: sanitizeData(result.notes),
+              folders: sanitizeData(result.folders)
+            });
         } else {
             alert("Format file tidak dikenali.");
         }
