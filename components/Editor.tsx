@@ -136,6 +136,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       const text = (rawNote?.content || '').toLowerCase();
       return text.includes('<!doctype html') || text.includes('<html');
   });
+  
+  // --- STATE BARU: Penahan Flicker Iframe ---
+  // Mencegah iframe memuat ulang secara paksa saat data sedang disinkronisasi ke Firebase
+  const [previewContent, setPreviewContent] = useState('');
 
   // --- STATE BARU: Tampilkan Modal Riwayat Mesin Waktu ---
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -155,19 +159,39 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null); // State untuk buka/tutup rincian
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- FUNGSI BARU: Deteksi Cerdas Saat Berpindah Catatan ---
+  // --- FUNGSI BARU: Deteksi Cerdas & Jembatan Firebase ---
   useEffect(() => {
       const text = (note.content || '').toLowerCase();
-      // Cek apakah ini adalah catatan coding web
       if (text.includes('<!doctype html') || text.includes('<html')) {
           setIsPreviewMode(true);
           setIsCodeView(false);
+          setPreviewContent(note.content); // Kunci HTML awal agar layar stabil
       } else {
-          // Jika catatan teks biasa, pastikan kembali ke mode normal
           setIsPreviewMode(false);
           setIsCodeView(false);
+          setPreviewContent('');
       }
-  }, [note.id]); // Hanya dijalankan saat ID catatan berubah (berpindah catatan)
+  }, [note.id]);
+
+  // Pastikan konten terkunci dengan benar saat menekan tombol Play
+  useEffect(() => {
+      if (isPreviewMode && !previewContent) {
+          setPreviewContent(note.content);
+      }
+  }, [isPreviewMode, note.content]);
+
+  // PENDENGAR PESAN DARI IFRAME (KABEL KOMUNIKASI)
+  useEffect(() => {
+      const handleMessage = (event: MessageEvent) => {
+          // Hanya tangkap pesan yang memiliki sandi rahasia 'SYNC_APP_STATE'
+          if (event.data && event.data.type === 'SYNC_APP_STATE') {
+              // Diam-diam simpan HTML yang sudah tercentang ke Firebase
+              onUpdate({ ...note, content: event.data.html });
+          }
+      };
+      window.addEventListener('message', handleMessage);
+      return () => window.removeEventListener('message', handleMessage);
+  }, [note, onUpdate]);
   
   // Fungsi untuk Memuat History dari Brankas Lokal saat Catatan Dibuka
   useEffect(() => {
@@ -1420,7 +1444,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
             {isPreviewMode ? (
                 <div className="w-full h-[65vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden bg-white relative shadow-inner">
                     <iframe
-                        srcDoc={note.content}
+                        srcDoc={previewContent}
                         title="Live Preview"
                         className="w-full h-full border-0"
                         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
