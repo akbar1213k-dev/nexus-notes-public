@@ -1505,19 +1505,20 @@ const handleEditorClick = (e: React.MouseEvent) => {
             {!isImmersive && (
                 <div className="flex items-center gap-2 mb-4">
                     {isMindMap && <Network className="text-indigo-500" size={28} />}
-                <textarea
-                ref={titleRef}
-                rows={1}
-                value={note.title}
-                onChange={(e) => {
-                    onUpdate({...note, title: e.target.value});
-                    adjustTitleHeight(); // Resize saat mengetik
-                }}
-                placeholder={isMindMap ? "Konsep Utama" : "Judul Halaman"}
-                className={`text-2xl font-bold w-full bg-transparent border-none outline-none resize-none overflow-hidden placeholder-gray-300 dark:placeholder-gray-700 dark:text-gray-100 ${isMindMap ? 'text-indigo-900 dark:text-indigo-200' : ''}`}
-                style={{ minHeight: '40px' }}
-            />
-            </div>
+                    <textarea
+                        ref={titleRef}
+                        rows={1}
+                        value={note.title}
+                        onChange={(e) => {
+                            onUpdate({...note, title: e.target.value});
+                            adjustTitleHeight(); // Resize saat mengetik
+                        }}
+                        placeholder={isMindMap ? "Konsep Utama" : "Judul Halaman"}
+                        className={`text-2xl font-bold w-full bg-transparent border-none outline-none resize-none overflow-hidden placeholder-gray-300 dark:placeholder-gray-700 dark:text-gray-100 ${isMindMap ? 'text-indigo-900 dark:text-indigo-200' : ''}`}
+                        style={{ minHeight: '40px' }}
+                    />
+                </div>
+            )}
             
             {/* TAMPILAN KODE (HTML), VISUAL, ATAU LIVE PREVIEW BROWSER */}
             {isPreviewMode ? (
