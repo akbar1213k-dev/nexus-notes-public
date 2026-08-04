@@ -274,7 +274,7 @@ export default function App() {
     window.history.pushState({ mode, noteId }, '', newPath);
   };
 
-  // Efek Otomatis untuk Mengubah Judul Tab Browser
+  /// Efek Otomatis untuk Mengubah Judul Tab Browser
   useEffect(() => {
     switch (viewMode) {
       case 'TRACT':
@@ -290,14 +290,16 @@ export default function App() {
         document.title = 'Grafik Visual - Nexus Notes';
         break;
       case 'EDITOR':
-        // Kita juga bisa membuat ini lebih dinamis jika mau, tapi ini standar yang bagus
-        document.title = 'Editor Catatan - Nexus Notes'; 
+        // Cari data catatan yang saat ini sedang aktif/dibuka
+        const activeNote = notes.find(n => n.id === currentNoteId);
+        // Jika catatan punya judul, gunakan judul tersebut murni. Jika kosong, gunakan teks default.
+        document.title = activeNote && activeNote.title ? activeNote.title : 'Catatan Tanpa Judul';
         break;
       default:
         document.title = 'Nexus Notes';
         break;
     }
-  }, [viewMode]);
+  }, [viewMode, currentNoteId, notes]);
   
   // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
