@@ -102,7 +102,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   onCreateNewNote,
   onLinkClick,
   onLinkLongPress,
-  onGoHome
+  onGoHome,
+  onToggleImmersive // <--- TAMBAHKAN KABEL INI DI SINI
 }, ref) => {
   // PENGAMAN ANTI CRASH (Mencegah Layar Blank Putih)
   // Jika data 'note' dari luar ternyata kosong/belum dimuat, 
