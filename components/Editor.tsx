@@ -173,20 +173,33 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       }
   }, [note.id]);
 
-  // Pastikan konten terkunci dengan benar saat menekan tombol Play
+  // Sensor untuk mendeteksi apakah kita sendiri yang sedang mengklik web
+  const isLocalUpdate = useRef(false);
+
+  // MEMBUKA KUNCI SINKRONISASI REAL-TIME
   useEffect(() => {
-      if (isPreviewMode && !previewContent) {
-          setPreviewContent(note.content);
+      // Jika Mode Preview menyala, DAN perubahan BUKAN dari klik kita sendiri (melainkan dari perangkat lain/Firebase)
+      if (isPreviewMode && !isLocalUpdate.current && note.content !== previewContent) {
+          // Paksa layar Iframe untuk memuat ulang dengan data terbaru dari perangkat lain!
+          setPreviewContent(note.content); 
       }
-  }, [isPreviewMode, note.content]);
+  }, [isPreviewMode, note.content, previewContent]);
 
   // PENDENGAR PESAN DARI IFRAME (KABEL KOMUNIKASI)
   useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
-          // Hanya tangkap pesan yang memiliki sandi rahasia 'SYNC_APP_STATE'
           if (event.data && event.data.type === 'SYNC_APP_STATE') {
-              // Diam-diam simpan HTML yang sudah tercentang ke Firebase
+              // 1. Nyalakan tanda bahwa ini adalah klik dari perangkat kita sendiri
+              isLocalUpdate.current = true; 
+              
+              // 2. Simpan perubahan ke Firebase
               onUpdate({ ...note, content: event.data.html });
+              
+              // 3. Samakan memori penahan layar agar tidak bentrok
+              setPreviewContent(event.data.html); 
+              
+              // 4. Matikan kembali tanda tersebut setelah setengah detik
+              setTimeout(() => { isLocalUpdate.current = false; }, 500);
           }
       };
       window.addEventListener('message', handleMessage);
