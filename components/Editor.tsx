@@ -1500,11 +1500,12 @@ const handleEditorClick = (e: React.MouseEvent) => {
             </div>
         )}
 
-        <div className={`flex-1 overflow-y-auto no-scrollbar pb-32 ${isImmersive ? 'p-0 mt-0' : 'p-4 mt-2'}`}>
+        {/* PERBAIKAN: Tambah 'flex flex-col' dan kurangi padding bawah (pb-32 ke pb-24) */}
+        <div className={`flex-1 overflow-y-auto no-scrollbar flex flex-col ${isImmersive ? 'p-0 mt-0 pb-0' : 'p-4 mt-2 pb-24'}`}>
             
             {/* Hanya tampilkan judul jika TIDAK sedang layar penuh */}
             {!isImmersive && (
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-4 shrink-0">
                     {isMindMap && <Network className="text-indigo-500" size={28} />}
                     <textarea
                         ref={titleRef}
@@ -1523,7 +1524,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
             
             {/* TAMPILAN KODE (HTML), VISUAL, ATAU LIVE PREVIEW BROWSER */}
             {isPreviewMode ? (
-                <div className={`w-full bg-white relative shadow-inner ${isImmersive ? 'h-screen mt-0 rounded-none border-0' : 'h-[65vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden'}`}>
+                // PERBAIKAN: Ganti 'h-[65vh]' menjadi 'flex-1 min-h-[75vh]'
+                <div className={`w-full bg-white relative shadow-inner flex-1 ${isImmersive ? 'h-screen mt-0 rounded-none border-0' : 'min-h-[75vh] mt-2 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden'}`}>
                     <iframe
                         ref={iframeRef}
                         srcDoc={previewContent}
@@ -1533,9 +1535,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     />
                 </div>
             ) : isCodeView ? (
+                // PERBAIKAN: Tambahkan 'flex-1' dan 'min-h-[75vh]' pada textarea mode kode juga
                 <textarea
                     ref={codeEditorRef} 
-                    className="w-full min-h-[50vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y custom-scrollbar"
+                    className="w-full flex-1 min-h-[75vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y custom-scrollbar"
                     value={note.content}
                     onChange={(e) => {
                         const newCodeContent = e.target.value;
