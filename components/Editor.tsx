@@ -236,35 +236,41 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [isPreviewMode, isImmersive]);
 
-  // Jejak rekam untuk membedakan perubahan lokal vs perubahan dari Firebase (Perangkat B)
-  const lastLocalHTML = useRef('');
+  // Sensor cerdas untuk mengunci echo (pantulan) dari Firebase saat kita sedang mengetik
+  const syncLockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingLocal = useRef(false);
 
   // MEMBUKA KUNCI SINKRONISASI REAL-TIME (ANTI KEDIP & TAHAN SCROLL)
   useEffect(() => {
-      if (isPreviewMode && note.content !== previewContent && note.content !== lastLocalHTML.current) {
-          // JANGAN gunakan setPreviewContent() lagi karena itu yang menyebabkan layar berkedip & scroll terlempar ke atas.
-          // Sebagai gantinya, kirim HTML baru lewat "kabel" langsung ke dalam Iframe!
+      // Hanya izinkan Iframe refresh JIKA kita TIDAK sedang aktif mengetik
+      // dan JIKA datanya memang benar-benar baru dari perangkat lain.
+      if (isPreviewMode && !isTypingLocal.current && note.content !== previewContent) {
           if (iframeRef.current && iframeRef.current.contentWindow) {
               iframeRef.current.contentWindow.postMessage({
                   type: 'SYNC_FROM_NEXUS',
                   html: note.content
               }, '*');
           }
-          lastLocalHTML.current = note.content; // Sinkronkan jejak
+          setPreviewContent(note.content); // Amankan jejak layar
       }
   }, [isPreviewMode, note.content, previewContent]);
+
   // PENDENGAR PESAN DARI IFRAME (KABEL KOMUNIKASI)
   useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
           if (event.data && event.data.type === 'SYNC_APP_STATE') {
-              // 1. Catat bahwa HTML ini berasal dari ketikan perangkat ini (Lokal)
-              lastLocalHTML.current = event.data.html; 
+              // 1. Aktifkan Mode Penahan: Kita sedang mengetik!
+              isTypingLocal.current = true;
+              if (syncLockTimer.current) clearTimeout(syncLockTimer.current);
               
-              // 2. Diam-diam simpan ke Firebase (tanpa mengganggu/me-refresh iframe kita)
+              // Buka penahan kembali 1 detik setelah kita diam (berhenti mengetik)
+              syncLockTimer.current = setTimeout(() => {
+                  isTypingLocal.current = false;
+              }, 1000);
+              
+              // 2. Diam-diam simpan ke Firebase & samakan jejak
+              setPreviewContent(event.data.html); 
               onUpdate({ ...note, content: event.data.html });
-              
-              // PERBAIKAN: Kita HAPUS perintah setPreviewContent() di sini
-              // agar layar Iframe tidak berkedip dan kursor tidak hilang saat Anda mengetik!
           }
       };
       window.addEventListener('message', handleMessage);
