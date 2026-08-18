@@ -1531,7 +1531,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                         srcDoc={previewContent}
                         title="Live Preview"
                         className="w-full h-full border-0"
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
                     />
                 </div>
             ) : isCodeView ? (
