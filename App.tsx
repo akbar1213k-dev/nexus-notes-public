@@ -156,9 +156,10 @@ export default function App() {
     }
   };
 
-  const [dbError, setDbError] = useState<string>('');
+ const [dbError, setDbError] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('HOME');
   const [currentNoteId, setCurrentNoteId] = useState<string>(''); 
+  const [activeFolderId, setActiveFolderId] = useState<string | undefined>(undefined);
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
 
   // State baru untuk menyembunyikan TopBar saat mode Browser Layar Penuh aktif
@@ -861,6 +862,8 @@ export default function App() {
                 <HomeView 
                     notes={notes} 
                     folders={folders} 
+                    currentFolderId={activeFolderId}
+                    onFolderChange={setActiveFolderId}
                     onNoteClick={(id) => navigateTo('EDITOR', id)} 
                     onCreateNote={(type, folderId) => handleCreateNote('', type, folderId, true)} 
                     onCreateFolder={async (name, parentId) => {
@@ -915,9 +918,9 @@ export default function App() {
             syncStatus={syncStatus} 
             isAutoSync={isAutoSync} 
             onManualSync={handleManualSync} 
-            onOpenSettings={() => navigateTo('SETTINGS')}
+           onOpenSettings={() => navigateTo('SETTINGS')}
             onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
-            onForceHome={() => navigateTo('HOME')} 
+            onForceHome={() => { setActiveFolderId(undefined); navigateTo('HOME'); }} 
             onGoToParent={() => {
                 const parentNote = notes.find(n => n.content.includes(`data-id="${currentNoteId}"`));
                 if (parentNote) {
