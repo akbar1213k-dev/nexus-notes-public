@@ -12,6 +12,8 @@ import {
 interface HomeViewProps {
   notes: Note[];
   folders: Folder[];
+  currentFolderId?: string;
+  onFolderChange: (folderId: string | undefined) => void;
   onNoteClick: (id: string) => void;
   onCreateNote: (type: 'note' | 'mindmap', folderId?: string) => void;
   onCreateFolder: (name: string, parentId?: string) => void;
@@ -92,6 +94,8 @@ const formatBytes = (content: string = '', title: string = '') => {
 export const HomeView: React.FC<HomeViewProps> = ({
   notes,
   folders, 
+  currentFolderId,
+  onFolderChange,
   onNoteClick, 
   onCreateNote, 
   onCreateFolder,
@@ -104,7 +108,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onPermanentDelete
 }) => {
   // Navigation State
-  const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
+  const setCurrentFolderId = onFolderChange;
 
   // Trash Mode State
   const [isTrashMode, setIsTrashMode] = useState(false);
