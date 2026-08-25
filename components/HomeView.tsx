@@ -92,6 +92,41 @@ const formatBytes = (content: string = '', title: string = '') => {
 };
 // --------------------------------------------------------------------------
 
+// --- HELPER BARU: Format Tanggal Dibuat (hh/bb atau hh/bb/tt) ---
+const formatNoteCreatedDate = (timestampStr: string) => {
+  const ts = parseInt(timestampStr);
+  const d = isNaN(ts) ? new Date() : new Date(ts);
+  const now = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+
+  // Jika tahun sama dengan tahun sekarang, tahun tidak ditampilkan
+  if (year === now.getFullYear()) {
+    return `${day}/${month}`;
+  }
+  return `${day}/${month}/${year}`;
+};
+
+// --- HELPER BARU: Format Tanggal Diperbarui (hh/bb, jj:mm atau hh/bb/tt, jj:mm) ---
+const formatNoteUpdatedDate = (timestamp: number) => {
+  const d = new Date(timestamp || Date.now());
+  const now = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const timeStr = `${hours}:${minutes}`;
+
+  // Jika tahun sama dengan tahun sekarang, tahun tidak ditampilkan
+  if (year === now.getFullYear()) {
+    return `${day}/${month}, ${timeStr}`;
+  }
+  return `${day}/${month}/${year}, ${timeStr}`;
+};
+// --------------------------------------------------------------------------
+
 export const HomeView: React.FC<HomeViewProps> = ({
   notes,
   folders, 
@@ -860,9 +895,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
                                   <Calendar size={10} className="mr-1" />
                                   <span>
-                                      {new Date(parseInt(note.id)).toLocaleDateString('id-ID', { 
-                                          day: 'numeric', month: 'short'
-                                      })}
+                                      {formatNoteCreatedDate(note.id)}
                                   </span>
                               </div>
 
@@ -873,13 +906,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               </div>
 
                               <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                                  <span className="mr-1 opacity-70">Update:</span>
-                                  <span>
-                                      {new Date(note.updatedAt).toLocaleTimeString('id-ID', { 
-                                          hour: '2-digit', minute: '2-digit'
-                                      })}
+                                  <span className="mr-1">
+                                      {formatNoteUpdatedDate(note.updatedAt)}
                                   </span>
-                                  <Clock size={10} className="ml-1" />
+                                  <Clock size={10} className="ml-0.5" />
                               </div>
                           </div>
                       </div>
