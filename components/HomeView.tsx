@@ -6,7 +6,7 @@ import {
   ChevronLeft, FolderInput, Pencil, Download, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
-  History, Activity
+  History, Activity, HardDrive
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -76,8 +76,21 @@ const checkProximityMatch = (htmlContent: string, searchQuery: string, maxDistan
 };
 // --------------------------------------------------------------------------
 
+// --- HELPER BARU: Menghitung dan Memformat Ukuran File ---
+const formatBytes = (content: string = '', title: string = '') => {
+  const totalText = (title || '') + (content || '');
+  if (!totalText) return "0 B";
+  // Menghitung ukuran murni string (judul + isi teks) dalam satuan Byte
+  const bytes = new Blob([totalText]).size;
+  
+  if (bytes < 1024) return bytes + " B";
+  else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+  else return (bytes / 1048576).toFixed(2) + " MB";
+};
+// --------------------------------------------------------------------------
+
 export const HomeView: React.FC<HomeViewProps> = ({
-  notes, 
+  notes,
   folders, 
   onNoteClick, 
   onCreateNote, 
@@ -603,24 +616,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         className="p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center justify-between group transition-colors"
                       >
                          <div className="flex items-center gap-3 overflow-hidden">
-                            {note.type === 'mindmap' ? (
-                                <Network size={18} className="text-indigo-500 shrink-0" />
-                            ) : (
-                                <FileText size={18} className="text-blue-500 shrink-0" />
-                            )}
-                            <span className="truncate font-medium text-gray-700 dark:text-gray-200 text-sm">
-                                {note.title || "Untitled"}
-                            </span>
-                         </div>
-                         <span className="text-[10px] text-gray-400 whitespace-nowrap">
-                            {(() => {
-                                const diff = Date.now() - (note.lastOpenedAt || 0);
-                                if (diff < 60000) return 'Baru saja';
-                                if (diff < 3600000) return Math.floor(diff/60000) + 'm lalu';
-                                if (diff < 86400000) return Math.floor(diff/3600000) + 'j lalu';
-                                return new Date(note.lastOpenedAt || 0).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'});
-                            })()}
-                         </span>
+                                            {note.type === 'mindmap' ? (
+                                                <Network size={18} className="text-indigo-500 shrink-0" />
+                                            ) : (
+                                                <FileText size={18} className="text-blue-500 shrink-0" />
+                                            )}
+                                            <span className="truncate font-medium text-gray-700 dark:text-gray-200 text-sm">
+                                                {note.title || "Untitled"}
+                                            </span>
+                                         </div>
+                                         <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded font-mono">
+                                               {formatBytes(note.content, note.title)}
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                                               {(() => {
+                                                   const diff = Date.now() - (note.lastOpenedAt || 0);
+                                                   if (diff < 60000) return 'Baru saja';
+                                                   if (diff < 3600000) return Math.floor(diff/60000) + 'm lalu';
+                                                   if (diff < 86400000) return Math.floor(diff/3600000) + 'j lalu';
+                                                   return new Date(note.lastOpenedAt || 0).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'});
+                                               })()}
+                                            </span>
+                                         </div>
                       </div>
                   ))}
                </div>
@@ -825,7 +843,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
                           </p>
 
-                          {/* FOOTER WAKTU */}
+                          {/* FOOTER WAKTU & UKURAN FILE */}
                           <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
                               <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
                                   <Calendar size={10} className="mr-1" />
@@ -835,6 +853,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                                       })}
                                   </span>
                               </div>
+
+                              {/* Indikator Ukuran File */}
+                              <div className="flex items-center text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono">
+                                  <HardDrive size={10} className="mr-1 opacity-70" />
+                                  <span>{formatBytes(note.content, note.title)}</span>
+                              </div>
+
                               <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
                                   <span className="mr-1 opacity-70">Update:</span>
                                   <span>
