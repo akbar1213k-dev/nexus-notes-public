@@ -3,7 +3,7 @@ import { Note, Folder } from '../types';
 import { 
   Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, 
   Network, FilePlus, Folder as FolderIcon, FolderPlus, 
-  ChevronLeft, FolderInput, Pencil, Download, 
+  ChevronLeft, FolderInput, Pencil, Download, Copy, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
   History, Activity, HardDrive
@@ -25,6 +25,7 @@ interface HomeViewProps {
   onRestoreItems: (noteIds: string[], folderIds: string[]) => void;
   onOpenTractApp: () => void;
   onPermanentDelete: (noteIds: string[], folderIds: string[]) => void;
+  onDuplicateNotes: (noteIds: string[]) => void;
 }
 
 // --- HELPER BARU: Algoritma Proximity Search (Jarak Maks. 45 Karakter) ---
@@ -105,7 +106,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onImportData,
   onRestoreItems,
   onOpenTractApp,
-  onPermanentDelete
+  onPermanentDelete,
+  onDuplicateNotes
 }) => {
   // Navigation State
   const setCurrentFolderId = onFolderChange;
@@ -331,6 +333,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
     link.click();
     document.body.removeChild(link);
 
+    handleCancelSelection();
+  };
+
+  const handleDuplicateSelected = () => {
+    if (selectedNoteIds.size === 0) return;
+    onDuplicateNotes(Array.from(selectedNoteIds));
     handleCancelSelection();
   };
 
@@ -927,6 +935,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   {(selectedNoteIds.size > 0 || selectedFolderIds.size > 0) && (
                     <button onClick={() => setShowMoveDialog(true)} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
                       <FolderInput size={20} /> <span className="text-[10px] font-medium">Move</span>
+                    </button>
+                  )}
+
+                  {selectedNoteIds.size > 0 && (
+                    <button onClick={handleDuplicateSelected} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors">
+                      <Copy size={20} /> <span className="text-[10px] font-medium">Duplicate</span>
                     </button>
                   )}
 
