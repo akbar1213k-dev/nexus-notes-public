@@ -129,13 +129,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
     localStorage.setItem('nexus_recents_open', JSON.stringify(isRecentsOpen));
   }, [isRecentsOpen]);
 
-  // --- LOGIKA BARU: Ambil 5 Catatan Terakhir Dibuka ---
+  // --- LOGIKA BARU: Ambil 25 Catatan Terakhir Dibuka ---
   const recentNotes = useMemo(() => {
-    // Ambil catatan yang punya lastOpenedAt, tidak dihapus, urutkan desc, ambil 5
+    // Ambil catatan yang punya lastOpenedAt, tidak dihapus, urutkan desc, ambil 25
     return notes
         .filter(n => n.lastOpenedAt && !n.deletedAt)
         .sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))
-        .slice(0, 5);
+        .slice(0, 25);
   }, [notes]);
 
   // Selection & UI State
@@ -612,7 +612,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </button>
 
             {isRecentsOpen && (
-               <div className="grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-200 pl-2 border-l-2 border-gray-100 dark:border-gray-800 ml-4">
+               <div className="grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-200 pl-2 border-l-2 border-gray-100 dark:border-gray-800 ml-4 max-h-[270px] overflow-y-auto pr-1">
                   {recentNotes.map(note => (
                       <div 
                         key={'recent_' + note.id}
