@@ -574,6 +574,37 @@ export default function App() {
     return id;
   };
 
+  const handleDuplicateNotes = async (noteIds: string[]) => {
+    if (!user) return;
+    const notesToDuplicate = notes.filter(n => noteIds.includes(n.id));
+    if (notesToDuplicate.length === 0) return;
+
+    const now = Date.now();
+    const duplicatedNotes: Note[] = notesToDuplicate.map((note, index) => {
+      const newId = (now + index).toString();
+      const currentTitle = note.title || 'Untitled';
+      return {
+        ...note,
+        id: newId,
+        title: `(Copy) ${currentTitle}`,
+        updatedAt: now + index,
+        lastOpenedAt: undefined
+      };
+    });
+
+    // 1. Perbarui state catatan lokal
+    setNotes(prev => [...duplicatedNotes, ...prev]);
+
+    // 2. Simpan setiap catatan baru ke penyimpanan lokal
+    duplicatedNotes.forEach(n => saveToLocalStorage(n));
+
+    // 3. Simpan ke database Firebase jika fitur auto sync aktif
+    if (isAutoSync) {
+      const batchPromises = duplicatedNotes.map(n => setDoc(doc(db, "notes", n.id), n));
+      await Promise.all(batchPromises);
+    }
+  };
+
   const getTopBarTitle = () => {
     if (viewMode === 'EDITOR') {
       const activeNote = notes.find(n => n.id === currentNoteId);
@@ -881,6 +912,7 @@ export default function App() {
                     onRestoreItems={handleRestore}
                     onOpenTractApp={() => navigateTo('TRACT')}
                     onPermanentDelete={handleHardDelete}
+                    onDuplicateNotes={handleDuplicateNotes}
                     onMoveItems={(noteIds, folderIds, targetFolderId) => {
                          // 1. Pindahkan Notes
                          noteIds.forEach(id => {
