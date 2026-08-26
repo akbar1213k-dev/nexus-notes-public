@@ -8,7 +8,7 @@ import {
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
-  Search, X, ChevronUp, ChevronDown, History, Play, Eye // <--- Tambah Icon Eye
+  Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -1364,6 +1364,23 @@ const handleEditorClick = (e: React.MouseEvent) => {
     }
   };
 
+  // --- FUNGSI UNDUH KODE HTML ---
+  const handleDownloadHTML = () => {
+    const rawTitle = (note.title || '').trim() || 'Untitled';
+    const safeTitle = rawTitle.replace(/[/\\?%*:|"<>]/g, '-');
+    const fileName = `${safeTitle}.html`;
+
+    const blob = new Blob([note.content || ''], { type: 'text/html;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+  };
+
   // --- FUNGSI AUTO-RESIZE JUDUL (LETAKKAN DI SINI) ---
   const adjustTitleHeight = () => {
     if (titleRef.current) {
@@ -1808,6 +1825,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     }
                 }} className={`p-2 rounded min-w-[40px] flex justify-center ${isPreviewMode ? 'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Jalankan sebagai Halaman Web (Live Preview)">
                     <Play size={20} />
+                </button>
+
+                {/* --- TOMBOL UNDUH KODE HTML --- */}
+                <button onMouseDown={preventFocusLoss} onClick={handleDownloadHTML} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Unduh Kode HTML">
+                    <Download size={20} />
                 </button>
 
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
