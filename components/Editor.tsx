@@ -1271,18 +1271,47 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
   // --- COMMANDS ---
 
+  // Pilih range yang valid di dalam editor (anti range nyasar/detached)
+  const resolveEditorRange = (restoreSelection: boolean): Range | null => {
+    const editorEl = editorRef.current;
+    if (!editorEl) return null;
+
+    // 1. Seleksi simpanan, hanya jika diminta dan masih valid di dalam editor
+    if (restoreSelection && savedSelection.current && editorEl.contains(savedSelection.current.startContainer)) {
+        return savedSelection.current;
+    }
+
+    // 2. Seleksi aktif jika masih berada di dalam editor
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorEl.contains(sel.getRangeAt(0).startContainer)) {
+        return sel.getRangeAt(0);
+    }
+
+    // 3. Fallback terakhir: kursor di akhir editor
+    const fallback = document.createRange();
+    fallback.selectNodeContents(editorEl);
+    fallback.collapse(false);
+    return fallback;
+  };
+
   const execCmd = (command: string, value: string = '', restoreSelection: boolean = false) => {
-    // Kembalikan seleksi jika diinstruksikan (khusus dropdown size)
-    if (restoreSelection && savedSelection.current) {
+    const editorEl = editorRef.current;
+    if (!editorEl) return; // Mode Preview/Kode: editor tidak ter-render
+
+    // 1. Fokuskan editor PALING DULU agar editing-host yang dipakai benar
+    editorEl.focus();
+
+    // 2. Pulihkan seleksi simpanan jika diminta (khusus dropdown size / dialog)
+    if (restoreSelection) {
         const sel = window.getSelection();
-        if (sel) {
+        const range = resolveEditorRange(true);
+        if (sel && range) {
             sel.removeAllRanges();
-            sel.addRange(savedSelection.current);
+            sel.addRange(range);
         }
     }
-    
+
     document.execCommand(command, false, value);
-    editorRef.current?.focus();
     handleInput();
     setActiveMenu('NONE');
     savedSelection.current = null; // Bersihkan setelah digunakan
@@ -1300,35 +1329,19 @@ const handleEditorClick = (e: React.MouseEvent) => {
     editorEl.focus();
 
     const sel = window.getSelection();
-    let range: Range | null = null;
-
-    // 2. Pulihkan seleksi yang disimpan (hanya jika masih valid di dalam editor)
-    if (restoreSelection && savedSelection.current && editorEl.contains(savedSelection.current.startContainer)) {
-        range = savedSelection.current;
-    }
-
-    // 3. Fallback: gunakan seleksi aktif jika masih berada di dalam editor
-    if (!range && sel && sel.rangeCount > 0 && editorEl.contains(sel.getRangeAt(0).startContainer)) {
-        range = sel.getRangeAt(0);
-    }
-
-    // 4. Fallback terakhir: kursor di akhir editor
-    if (!range) {
-        range = document.createRange();
-        range.selectNodeContents(editorEl);
-        range.collapse(false);
-    }
+    const range = resolveEditorRange(restoreSelection);
+    if (!range) return;
 
     sel?.removeAllRanges();
     sel?.addRange(range);
 
-    // 5. Sisipkan node langsung via DOM
+    // 2. Sisipkan node langsung via DOM
     range.deleteContents();
     const frag = range.createContextualFragment(html);
     const lastNode = frag.lastChild;
     range.insertNode(frag);
 
-    // 6. Pindahkan kursor setelah node yang disisipkan
+    // 3. Pindahkan kursor setelah node yang disisipkan
     if (lastNode) {
         const newRange = document.createRange();
         newRange.setStartAfter(lastNode);

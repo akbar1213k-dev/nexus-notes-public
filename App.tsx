@@ -30,7 +30,17 @@ const getLocalNotes = (): Note[] => {
 const saveToLocalStorage = (note: Note) => {
   const local = getLocalNotes();
   const filtered = local.filter(n => n.id !== note.id);
-  localStorage.setItem('nexus_backup_notes', JSON.stringify([...filtered, note]));
+  const next = [...filtered, note];
+  try {
+    localStorage.setItem('nexus_backup_notes', JSON.stringify(next));
+  } catch (e) {
+    // QuotaExceededError: coba sisakan 20 catatan terbaru, lalu simpan ulang
+    try {
+      localStorage.setItem('nexus_backup_notes', JSON.stringify(next.slice(-20)));
+    } catch (e2) {
+      console.warn('⚠️ Penyimpanan lokal penuh; catatan tidak disimpan offline.', e2);
+    }
+  }
 };
 const removeFromLocalStorage = (noteId: string) => {
   const local = getLocalNotes();
