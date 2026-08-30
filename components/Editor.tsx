@@ -1288,6 +1288,60 @@ const handleEditorClick = (e: React.MouseEvent) => {
     savedSelection.current = null; // Bersihkan setelah digunakan
   };
 
+  // --- SISIPKAN HTML LANGSUNG KE EDITOR (TIDAK BERGANTUNG execCommand) ---
+  // Mengatasi gambar tidak muncul: setelah dialog pilih file, editor kehilangan
+  // fokus/seleksi sehingga execCommand('insertHTML') menyisipkan di tempat salah
+  // atau membuangnya. Helper ini fokuskan editor dulu lalu sisipkan via DOM.
+  const insertHtmlAtCaret = (html: string, restoreSelection: boolean = true) => {
+    const editorEl = editorRef.current;
+    if (!editorEl) return; // Mode Preview/Kode: editor tidak ter-render
+
+    // 1. Fokuskan editor PALING DULU sebelum menyisipkan
+    editorEl.focus();
+
+    const sel = window.getSelection();
+    let range: Range | null = null;
+
+    // 2. Pulihkan seleksi yang disimpan (hanya jika masih valid di dalam editor)
+    if (restoreSelection && savedSelection.current && editorEl.contains(savedSelection.current.startContainer)) {
+        range = savedSelection.current;
+    }
+
+    // 3. Fallback: gunakan seleksi aktif jika masih berada di dalam editor
+    if (!range && sel && sel.rangeCount > 0 && editorEl.contains(sel.getRangeAt(0).startContainer)) {
+        range = sel.getRangeAt(0);
+    }
+
+    // 4. Fallback terakhir: kursor di akhir editor
+    if (!range) {
+        range = document.createRange();
+        range.selectNodeContents(editorEl);
+        range.collapse(false);
+    }
+
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    // 5. Sisipkan node langsung via DOM
+    range.deleteContents();
+    const frag = range.createContextualFragment(html);
+    const lastNode = frag.lastChild;
+    range.insertNode(frag);
+
+    // 6. Pindahkan kursor setelah node yang disisipkan
+    if (lastNode) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastNode);
+        newRange.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(newRange);
+    }
+
+    savedSelection.current = null;
+    handleInput();
+    setActiveMenu('NONE');
+  };
+
   // Ubah fungsi insertCheckbox yang lama menjadi ini:
   const insertCheckbox = () => {
       // Simpan posisi kursor saat ini agar tidak hilang saat dialog muncul
@@ -1336,11 +1390,13 @@ const handleEditorClick = (e: React.MouseEvent) => {
   // Tambahkan parameter default 'restore = false'
   const insertResponsiveImage = (url: string, restore: boolean = false) => {
       const imgHtml = `<img src="${url}" class="max-w-full h-auto rounded-lg shadow-sm my-2 cursor-pointer border-2 border-transparent hover:border-blue-400 transition-all" style="width: 100%;" />`;
-      // Oper parameter restore ke execCmd
-      execCmd('insertHTML', imgHtml, restore);
+      // Gunakan sisipan DOM langsung agar tahan terhadap hilangnya fokus editor
+      insertHtmlAtCaret(imgHtml, restore);
   };
 
   const insertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Mode Preview/Kode tidak punya area visual editor; jangan sisipkan
+    if (isPreviewMode || isCodeView) return;
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -2069,9 +2125,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 }} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400"><AtSign size={18} /></button>
 
                 <label 
-                    className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center cursor-pointer text-gray-700 dark:text-gray-300"
+                    className={`p-2 rounded min-w-[40px] flex justify-center cursor-pointer transition-colors ${isPreviewMode || isCodeView ? 'opacity-40 text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                    title={isPreviewMode || isCodeView ? "Mode gambar hanya tersedia saat mode visual aktif" : "Tambah Gambar"}
                     // PERBAIKAN: Gunakan onMouseDown pada LABEL, bukan onClick pada INPUT
                     onMouseDown={(e) => {
+                        if (isPreviewMode || isCodeView) {
+                            e.preventDefault(); // Cegah dialog file saat mode Preview/Kode
+                            return;
+                        }
                         e.preventDefault(); // 1. Mencegah editor kehilangan fokus (blur)
                         const sel = window.getSelection();
                         // 2. Simpan posisi kursor yang BENAR sebelum dialog muncul
