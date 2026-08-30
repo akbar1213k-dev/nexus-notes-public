@@ -7,7 +7,7 @@ import {
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
   History, Activity, HardDrive,
-  FileSearch, Type
+  FileSearch, Type, Database
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -200,9 +200,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
     localStorage.setItem('nexus_deep_search', JSON.stringify(isDeepSearch));
   }, [isDeepSearch]);
    
-  const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet'>(() => {
+  const [sortOption, setSortOption] = useState<'updated' | 'created' | 'alphabet' | 'size'>(() => {
     const saved = localStorage.getItem('nexus_sort_option');
-    return (saved as 'updated' | 'created' | 'alphabet') || 'updated';
+    return (saved as 'updated' | 'created' | 'alphabet' | 'size') || 'updated';
   });
 
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
@@ -285,6 +285,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
 
     // 3. Sorting
+    // Map ukuran (byte) tiap catatan supaya tidak dihitung ulang saat sorting
+    const noteSizeMap = new Map<string, number>();
+    notes.forEach(n => noteSizeMap.set(n.id, new Blob([(n.title || '') + (n.content || '')]).size));
+
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
        // --- TAMBAHAN BARU: PRIORITAS KATA YANG BERURUTAN (EXACT MATCH) ---
        const query = searchQuery.toLowerCase().trim();
@@ -313,6 +317,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           valB = type === 'note' ? parseInt((b as Note).id) : (b as Folder).createdAt;
           return sortDirection === 'asc' ? valA - valB : valB - valA;
         case 'updated':
+          valA = type === 'note' ? (a as Note).updatedAt : (a as Folder).createdAt;
+          valB = type === 'note' ? (b as Note).updatedAt : (b as Folder).createdAt;
+          return sortDirection === 'asc' ? valA - valB : valB - valA;
+        case 'size':
+          // Ukuran catatan (judul + isi) dalam byte; untuk folder pakai pajang nama sebagai fallback
+          valA = type === 'note' ? (noteSizeMap.get((a as Note).id) || 0) : ((a as Folder).name || '').length;
+          valB = type === 'note' ? (noteSizeMap.get((b as Note).id) || 0) : ((b as Folder).name || '').length;
+          return sortDirection === 'asc' ? valA - valB : valB - valA;
         default:
           valA = type === 'note' ? (a as Note).updatedAt : (a as Folder).createdAt;
           valB = type === 'note' ? (b as Note).updatedAt : (b as Folder).createdAt;
@@ -585,10 +597,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                        {sortOption === 'updated' && <Clock size={18}/>}
                        {sortOption === 'created' && <Calendar size={18}/>}
                        {sortOption === 'alphabet' && <ArrowDownAz size={18}/>}
+                       {sortOption === 'size' && <Database size={18}/>}
                        
                        {/* Label Teks (Hidden di HP sangat kecil, Muncul di layar agak lebar) */}
                        <span className="hidden sm:inline">
-                          {sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : 'Name'}
+                          {sortOption === 'updated' ? 'Updated' : sortOption === 'created' ? 'Created' : sortOption === 'size' ? 'Size' : 'Name'}
                        </span>
                        
                        <ArrowUpDown size={14} className="opacity-50 ml-1"/>
@@ -610,6 +623,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                           
                           <button onClick={() => { setSortOption('alphabet'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'alphabet' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                             <ArrowDownAz size={16}/> Alfabet (A-Z)
+                          </button>
+                          
+                          <button onClick={() => { setSortOption('size'); setShowSortMenu(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-2 ${sortOption === 'size' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                            <Database size={16}/> Ukuran Catatan
                           </button>
                           
                           <div className="my-1 border-t border-gray-100 dark:border-gray-700"></div>
