@@ -150,3 +150,28 @@
     background-color: #818cf8;
     color: #1e1b4b;
 }
+
+/* --- HIGHLIGHT PENCARIAN (NON-DESTRUKTIF) --- */
+.editor-content mark.search-hit,
+.editor-content mark.search-current {
+    background-color: #fde68a;
+    color: #1f2937;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.editor-content mark.search-current {
+    background-color: #f59e0b;
+    color: #ffffff;
+    outline: 2px solid #f59e0b;
+    outline-offset: 1px;
+}
+.dark .editor-content mark.search-hit {
+    background-color: #b45309;
+    color: #fef3c7;
+}
+.dark .editor-content mark.search-current {
+    background-color: #f59e0b;
+    color: #ffffff;
+    outline: 2px solid #f59e0b;
+    outline-offset: 1px;
+}

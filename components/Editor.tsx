@@ -157,7 +157,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // --- STATE PENCARIAN (PROXIMITY SEARCH) ---
-  type SearchMatch = { isCode: false, range: Range } | { isCode: true, start: number, end: number };
+  type SearchMatch = { start: number; end: number };
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
@@ -372,32 +372,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   };
 
-  // --- ALGORITMA PROXIMITY SEARCH (JARAK 45 KARAKTER) & DUKUNGAN HTML MODE ---
-  const performSearch = (query: string) => {
-      if (!query.trim() || (!isCodeView && !editorRef.current) || (isCodeView && !codeEditorRef.current)) {
-          setSearchResults([]);
-          setCurrentSearchIndex(0);
-          return;
-      }
-
-      let text = '';
-      const nodes: { node: Node; start: number; end: number }[] = [];
-
-      if (isCodeView) {
-          // Ambil teks langsung dari textarea jika di mode kode
-          text = codeEditorRef.current!.value;
-      } else {
-          // Ambil dari teks DOM Editor jika di mode visual
-          const walker = document.createTreeWalker(editorRef.current!, NodeFilter.SHOW_TEXT, null);
-          let node: Node | null;
-          while ((node = walker.nextNode())) {
-              if (node.nodeValue) {
-                  nodes.push({ node, start: text.length, end: text.length + node.nodeValue.length });
-                  text += node.nodeValue;
-              }
-          }
-      }
-
+  // --- PENCARIAN: HITUNG POSISI DARI TEKS (PROXIMITY 45 KARAKTER) ---
+  // Cari semua posisi match dari teks mentah (dipakai mode visual & mode kode)
+  const findSearchMatches = (text: string, query: string): { start: number; end: number }[] => {
       const lowerText = text.toLowerCase();
       const words = query.toLowerCase().trim().split(/\s+/).filter(w => w.length > 0);
       const matches: { start: number; end: number }[] = [];
@@ -421,7 +398,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           allFound.sort((a, b) => a.start - b.start);
 
           for (let i = 0; i < allFound.length; i++) {
-              let seen = new Set([allFound[i].word]);
+              const seen = new Set([allFound[i].word]);
               let currentEnd = allFound[i].end;
               let j = i + 1;
 
@@ -429,92 +406,157 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
                   if (allFound[j].start - currentEnd <= 45) { // Jarak 45 Karakter
                       seen.add(allFound[j].word);
                       currentEnd = allFound[j].end;
-                      
+
                       if (seen.size === words.length) {
                           matches.push({ start: allFound[i].start, end: currentEnd });
-                          break; 
+                          break;
                       }
                       j++;
                   } else {
-                      break; 
+                      break;
                   }
               }
           }
       }
-
-      const results: SearchMatch[] = [];
-
-      if (isCodeView) {
-          // Format penyimpanan untuk Textarea
-          matches.forEach(match => {
-              results.push({ isCode: true, start: match.start, end: match.end });
-          });
-      } else {
-          // Format penyimpanan untuk DOM HTML (Visual)
-          matches.forEach(match => {
-              const range = document.createRange();
-              let startSet = false;
-              let endSet = false;
-
-              for (let i = 0; i < nodes.length; i++) {
-                  const n = nodes[i];
-                  if (!startSet && match.start >= n.start && match.start < n.end) {
-                      range.setStart(n.node, match.start - n.start);
-                      startSet = true;
-                  }
-                  if (!endSet && match.end > n.start && match.end <= n.end) {
-                      range.setEnd(n.node, match.end - n.start);
-                      endSet = true;
-                  }
-                  if (startSet && endSet) break;
-              }
-              if (startSet && endSet) results.push({ isCode: false, range });
-          });
-      }
-
-      setSearchResults(results);
-      
-      if (results.length > 0) {
-          setCurrentSearchIndex(0);
-          const first = results[0];
-          if (!isCodeView && first.isCode === false && first.range.startContainer.parentElement) {
-              first.range.startContainer.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-      }
+      return matches;
   };
 
-  const focusMatchRange = (match: SearchMatch) => {
-      if (match.isCode === true) {
+  // Ambil teks editor saat ini (visual: gabungan text node; kode: textarea)
+  const getEditorSearchText = (): string => {
+      if (isCodeView) return codeEditorRef.current?.value ?? '';
+      if (!editorRef.current) return '';
+      const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT, null);
+      let text = '';
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+          if (node.nodeValue) text += node.nodeValue;
+      }
+      return text;
+  };
+
+  const performSearch = (query: string) => {
+      if (!query.trim() || !getEditorSearchText()) {
+          setSearchResults([]);
+          setCurrentSearchIndex(0);
+          return;
+      }
+      const matches = findSearchMatches(getEditorSearchText(), query);
+      setSearchResults(matches.length > 0 ? matches : []);
+      setCurrentSearchIndex(0);
+  };
+
+  // Scroll ke match aktif (visual: elemen mark; kode: textarea)
+  const scrollToMatch = (match: SearchMatch) => {
+      if (isCodeView) {
           if (codeEditorRef.current) {
-              codeEditorRef.current.focus();
-              codeEditorRef.current.setSelectionRange(match.start, match.end);
-              
-              // Hitung garis (baris ke berapa) untuk scroll otomatis pada textarea
-              const textBeforeMatch = codeEditorRef.current.value.substring(0, match.start);
-              const lines = textBeforeMatch.split('\n').length;
+              const before = (codeEditorRef.current.value || '').substring(0, match.start);
+              const lines = before.split('\n').length;
               const lineHeight = 20; // Perkiraan tinggi teks 20px per baris
               codeEditorRef.current.scrollTop = (lines - 1) * lineHeight - (codeEditorRef.current.clientHeight / 2);
           }
-      } else {
-          const sel = window.getSelection();
-          if (sel) {
-              sel.removeAllRanges();
-              sel.addRange(match.range);
-          }
-          if (match.range.startContainer.parentElement) {
-              match.range.startContainer.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+      }
+      if (editorRef.current) {
+          const cur = editorRef.current.querySelector('mark.search-current');
+          if (cur) {
+              cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
       }
   };
+
+  // Tampilkan highlight NON-DESTRUKTIF & terlihat di DOM editor mode visual.
+  // Tidak menyentuh note.content dan tidak memicu onUpdate => aman dari efek sinkronisasi.
+  const applySearchHighlight = () => {
+      const ed = editorRef.current;
+      if (!ed || isCodeView) return;
+
+      // Hapus highlight lama (mempertahankan seluruh teks, tidak menghapus konten)
+      ed.querySelectorAll('mark.search-hit, mark.search-current').forEach((m) => {
+          const parent = m.parentNode;
+          if (parent) {
+              parent.replaceChild(document.createTextNode(m.textContent || ''), m);
+              parent.normalize();
+          }
+      });
+
+      if (!searchQuery.trim()) return;
+
+      const text = getEditorSearchText();
+      const matches = findSearchMatches(text, searchQuery);
+      if (matches.length === 0) return;
+
+      // Kumpulkan posisi global setiap text node
+      const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null);
+      const nodes: Text[] = [];
+      const starts: number[] = [];
+      let cursor = 0;
+      while (walker.nextNode()) {
+          const t = walker.currentNode as Text;
+          nodes.push(t);
+          starts.push(cursor);
+          cursor += (t.nodeValue || '').length;
+      }
+
+      // Petakan setiap match ke text node yang memuat start-nya
+      const marks: { node: Text; start: number; end: number; index: number }[] = [];
+      matches.forEach((m, i) => {
+          for (let k = 0; k < nodes.length; k++) {
+              const len = nodes[k].nodeValue?.length ?? 0;
+              if (m.start >= starts[k] && m.start < starts[k] + len) {
+                  marks.push({ node: nodes[k], start: m.start - starts[k], end: m.end - starts[k], index: i });
+                  break;
+              }
+          }
+      });
+
+      // Bungkus dari posisi paling belakang agar offset tidak bergeser
+      marks.sort((a, b) => b.start - a.start);
+      marks.forEach(({ node, start, end, index }) => {
+          const val = node.nodeValue || '';
+          if (start < 0 || end > val.length || end <= start) return;
+          const mark = document.createElement('mark');
+          mark.className = index === currentSearchIndex ? 'search-current' : 'search-hit';
+          mark.textContent = val.slice(start, end);
+          const frag = document.createDocumentFragment();
+          if (start > 0) frag.appendChild(document.createTextNode(val.slice(0, start)));
+          frag.appendChild(mark);
+          if (end < val.length) frag.appendChild(document.createTextNode(val.slice(end)));
+          node.parentNode?.replaceChild(frag, node);
+      });
+  };
+
+  // Terapkan ulang highlight setiap kali ada perubahan (setelah sinkronisasi DOM).
+  // requestAnimationFrame memastikan ia berjalan setelah innerHTML disinkronkan dari note.content.
+  useEffect(() => {
+      if (isCodeView) return;
+      const raf = requestAnimationFrame(() => applySearchHighlight());
+      return () => cancelAnimationFrame(raf);
+  }, [searchQuery, searchResults, currentSearchIndex, note.content, isCodeView]);
 
   const navigateSearch = (direction: 'next' | 'prev') => {
       if (searchResults.length === 0) return;
       let newIndex = currentSearchIndex + (direction === 'next' ? 1 : -1);
       if (newIndex < 0) newIndex = searchResults.length - 1;
       if (newIndex >= searchResults.length) newIndex = 0;
-      
+
       setCurrentSearchIndex(newIndex);
-      focusMatchRange(searchResults[newIndex]);
+      const nextMatch = searchResults[newIndex];
+      // Highlight dipasang ulang oleh useEffect (rAF). Scroll setelah mark benar-benar siap
+      // (double rAF menjamin urutan setelah effect).
+      requestAnimationFrame(() => {
+          requestAnimationFrame(() => scrollToMatch(nextMatch));
+      });
+  };
+
+  // Konfirmasi & fokuskan match (dipanggil saat Enter) - HANYA menggulir, TIDAK mengubah teks
+  const confirmSearchMatch = () => {
+      if (searchResults.length === 0) return;
+      const match = searchResults[currentSearchIndex];
+      if (isCodeView && codeEditorRef.current) {
+          codeEditorRef.current.focus();
+          codeEditorRef.current.setSelectionRange(match.start, match.end);
+      }
+      scrollToMatch(match);
   };
   
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
@@ -881,7 +923,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
 
     // --- LANGKAH TERAKHIR: SIMPAN KE STATE (ONUPDATE) ---
-    const content = editorRef.current.innerHTML;
+    // Hapus tag highlight pencarian agar tidak ikut tersimpan ke dalam konten
+    const content = editorRef.current.innerHTML
+        .replace(/<mark class="search-(?:hit|current)">(.*?)<\/mark>/gi, '$1');
     onUpdate({ ...note, content });
     recordHistory(content); // Rekam perubahan ke dalam Mesin Waktu
   };
@@ -1485,13 +1529,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
                         setSearchQuery(e.target.value);
                         performSearch(e.target.value);
                     }}
-                    // PERBAIKAN: Gunakan tombol Enter untuk menyetujui pemblokiran teks
+                    // PERBAIKAN: Enter hanya menyetujui/menggulir ke hasil, TIDAK mengganti teks
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             e.preventDefault();
-                            if (searchResults.length > 0) {
-                                focusMatchRange(searchResults[currentSearchIndex]);
-                            }
+                            confirmSearchMatch();
                         }
                     }}
                     className="flex-1 bg-transparent outline-none text-sm dark:text-white min-w-0"
