@@ -388,7 +388,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           text = codeEditorRef.current!.value;
       } else {
           // Ambil dari teks DOM Editor jika di mode visual
-          const walker = document.createTreeWalker(editorRef.current!, NodeFilter.SHOW_TEXT, null, false);
+          const walker = document.createTreeWalker(editorRef.current!, NodeFilter.SHOW_TEXT, null);
           let node: Node | null;
           while ((node = walker.nextNode())) {
               if (node.nodeValue) {
@@ -476,14 +476,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       
       if (results.length > 0) {
           setCurrentSearchIndex(0);
-          if (!isCodeView && !results[0].isCode && results[0].range.startContainer.parentElement) {
-              results[0].range.startContainer.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const first = results[0];
+          if (!isCodeView && first.isCode === false && first.range.startContainer.parentElement) {
+              first.range.startContainer.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
       }
   };
 
   const focusMatchRange = (match: SearchMatch) => {
-      if (match.isCode) {
+      if (match.isCode === true) {
           if (codeEditorRef.current) {
               codeEditorRef.current.focus();
               codeEditorRef.current.setSelectionRange(match.start, match.end);

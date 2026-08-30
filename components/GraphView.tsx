@@ -23,6 +23,8 @@ interface D3Node extends d3.SimulationNodeDatum {
   width?: number;
   height?: number;
   depth?: number; 
+  x?: number;
+  y?: number;
 }
 
 interface D3Link extends d3.SimulationLinkDatum<D3Node> {
@@ -30,7 +32,7 @@ interface D3Link extends d3.SimulationLinkDatum<D3Node> {
   target: string | D3Node;
 }
 
-export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClick, isDarkMode, activeNoteId }) => { // <--- Terima folders di sini
+export const GraphView: React.FC<GraphViewProps> = ({ notes, folders, onNodeClick, isDarkMode, activeNoteId, onDeleteItems, onMoveItems }) => { // <--- Terima folders di sini
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });

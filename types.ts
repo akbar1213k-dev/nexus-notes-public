@@ -18,6 +18,7 @@ export interface Note {
   content: string;
   updatedAt: number;
   lastOpenedAt?: number; // <--- Tambahkan baris ini
+  userId?: string;
   type: 'note' | 'mindmap';
   folderId?: string;
   deletedAt?: number | null; // Penanda waktu dihapus
@@ -28,6 +29,7 @@ export interface Folder {
   name: string;
   createdAt: number;
   deletedAt?: number | null; // Penanda waktu dihapus
+  userId?: string;
   parentId?: string | null; // <--- Tambahkan baris ini
 }
 
