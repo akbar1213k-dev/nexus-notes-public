@@ -8,7 +8,8 @@ import {
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
-  Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download
+  Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download,
+  Replace, ReplaceAll
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -162,6 +163,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const [showReplace, setShowReplace] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState('');
   
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
   const iframeRef = useRef<HTMLIFrameElement>(null); // Referensi pengendali untuk browser mini (Iframe)
@@ -557,6 +560,122 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           codeEditorRef.current.setSelectionRange(match.start, match.end);
       }
       scrollToMatch(match);
+  };
+
+  // Ganti teks pada DOM editor mode visual berdasarkan posisi (start,end) pada teks bersih.
+  // Menghapus highlight dulu & memproses dari posisi paling belakang agar offset tidak bergeser.
+  const replaceInVisualDom = (ranges: { start: number; end: number }[]) => {
+      if (!editorRef.current || ranges.length === 0) return;
+      const ed = editorRef.current;
+
+      // Hapus semua mark highlight agar teks bersih & posisi akurat
+      ed.querySelectorAll('mark.search-hit, mark.search-current').forEach((m) => {
+          const parent = m.parentNode;
+          if (parent) {
+              parent.replaceChild(document.createTextNode(m.textContent || ''), m);
+              parent.normalize();
+          }
+      });
+
+      // Kumpulkan posisi global setiap text node
+      const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null);
+      const nodes: Text[] = [];
+      const starts: number[] = [];
+      let cursor = 0;
+      while (walker.nextNode()) {
+          const t = walker.currentNode as Text;
+          nodes.push(t);
+          starts.push(cursor);
+          cursor += (t.nodeValue || '').length;
+      }
+
+      // Petakan setiap range ke text node
+      const marks: { node: Text; start: number; end: number }[] = [];
+      ranges.forEach((r) => {
+          for (let k = 0; k < nodes.length; k++) {
+              const len = nodes[k].nodeValue?.length ?? 0;
+              if (r.start >= starts[k] && r.start < starts[k] + len) {
+                  marks.push({ node: nodes[k], start: r.start - starts[k], end: Math.min(r.end - starts[k], len) });
+                  break;
+              }
+          }
+      });
+
+      // Proses dari paling belakang agar posisi node lain tidak bergeser
+      marks.sort((a, b) => b.start - a.start);
+      marks.forEach(({ node, start, end }) => {
+          const len = node.nodeValue?.length ?? 0;
+          if (start < 0 || end > len || end <= start) return;
+          const range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, end);
+          range.deleteContents();
+          range.insertNode(document.createTextNode(replaceQuery));
+          node.parentNode?.normalize();
+      });
+  };
+
+  // Hitung ulang hasil pencarian, lalu arahkan ke match pertama setelah posisi tertentu
+  const refreshSearchAfterReplace = (afterPos: number) => {
+      const text = getEditorSearchText();
+      const matches = findSearchMatches(text, searchQuery);
+      setSearchResults(matches.length > 0 ? matches : []);
+      let next = matches.findIndex((m) => m.start >= afterPos);
+      if (next === -1) next = 0;
+      setCurrentSearchIndex(next);
+  };
+
+  // Ganti HANYA match yang sedang aktif (currentSearchIndex)
+  const replaceCurrentMatch = () => {
+      if (searchResults.length === 0) return;
+      const match = searchResults[currentSearchIndex];
+      if (isCodeView) {
+          const ta = codeEditorRef.current;
+          if (!ta) return;
+          const val = ta.value;
+          const nextVal = val.slice(0, match.start) + replaceQuery + val.slice(match.end);
+          ta.value = nextVal;
+          onUpdate({ ...note, content: nextVal });
+          recordHistory(nextVal);
+          // Cari match berikutnya setelah posisi yang direplace
+          const text = nextVal;
+          const matches = findSearchMatches(text, searchQuery);
+          setSearchResults(matches.length > 0 ? matches : []);
+          let next = matches.findIndex((m) => m.start >= match.start);
+          if (next === -1) next = 0;
+          setCurrentSearchIndex(next);
+          return;
+      }
+      replaceInVisualDom([{ start: match.start, end: match.end }]);
+      handleInput(); // Simpan; note.content berubah -> efek highlight refresh otomatis
+      refreshSearchAfterReplace(match.start);
+  };
+
+  // Ganti SEMUA kejadian yang ditemukan
+  const replaceAllMatches = () => {
+      if (!searchQuery.trim()) return;
+      if (isCodeView) {
+          const ta = codeEditorRef.current;
+          if (!ta) return;
+          const val = ta.value;
+          const matches = findSearchMatches(val, searchQuery);
+          if (matches.length === 0) return;
+          let nextVal = val;
+          for (let i = matches.length - 1; i >= 0; i--) {
+              const m = matches[i];
+              nextVal = nextVal.slice(0, m.start) + replaceQuery + nextVal.slice(m.end);
+          }
+          ta.value = nextVal;
+          onUpdate({ ...note, content: nextVal });
+          recordHistory(nextVal);
+          performSearch(searchQuery);
+          return;
+      }
+      const matches = findSearchMatches(getEditorSearchText(), searchQuery);
+      if (matches.length === 0) return;
+      replaceInVisualDom(matches);
+      handleInput();
+      performSearch(searchQuery);
   };
   
   const [activeMenu, setActiveMenu] = useState<ToolbarMenu>('NONE');
@@ -1519,44 +1638,84 @@ const handleEditorClick = (e: React.MouseEvent) => {
         
         {/* --- UI PENCARIAN MENGAMBANG --- */}
         {showSearch && (
-            <div className="absolute top-4 left-4 right-4 bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 rounded-xl p-2 z-50 flex items-center gap-2 animate-in slide-in-from-top-2">
-                <Search size={18} className="text-gray-400 shrink-0" />
-                <input
-                    type="text"
-                    placeholder="Cari... (Coba: kata1 kata2)"
-                    value={searchQuery}
-                    onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        performSearch(e.target.value);
-                    }}
-                    // PERBAIKAN: Enter hanya menyetujui/menggulir ke hasil, TIDAK mengganti teks
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            confirmSearchMatch();
-                        }
-                    }}
-                    className="flex-1 bg-transparent outline-none text-sm dark:text-white min-w-0"
-                    autoFocus
-                />
-                <span className="text-xs text-gray-400 font-mono shrink-0">
-                    {searchResults.length > 0 ? currentSearchIndex + 1 : 0}/{searchResults.length}
-                </span>
-                <button onMouseDown={preventFocusLoss} onClick={() => navigateSearch('prev')} disabled={searchResults.length === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 text-gray-600 dark:text-gray-300">
-                    <ChevronUp size={18} />
-                </button>
-                <button onMouseDown={preventFocusLoss} onClick={() => navigateSearch('next')} disabled={searchResults.length === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 text-gray-600 dark:text-gray-300">
-                    <ChevronDown size={18} />
-                </button>
-                <div className="w-[1px] h-4 bg-gray-300 dark:bg-gray-600 mx-1 shrink-0"></div>
-                <button onMouseDown={preventFocusLoss} onClick={() => {
-                    setShowSearch(false);
-                    setSearchQuery('');
-                    setSearchResults([]);
-                    window.getSelection()?.removeAllRanges(); // Bersihkan blok
-                }} className="p-1 hover:bg-red-100 dark:hover:bg-red-900/50 hover:text-red-500 rounded text-gray-600 dark:text-gray-300">
-                    <X size={18} />
-                </button>
+            <div className="absolute top-4 left-4 right-4 bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 rounded-xl p-2 z-50 animate-in slide-in-from-top-2">
+                {/* Baris 1: Cari */}
+                <div className="flex items-center gap-2">
+                    <Search size={18} className="text-gray-400 shrink-0" />
+                    <input
+                        type="text"
+                        placeholder="Cari... (Coba: kata1 kata2)"
+                        value={searchQuery}
+                        onChange={(e) => {
+                            setSearchQuery(e.target.value);
+                            performSearch(e.target.value);
+                        }}
+                        // PERBAIKAN: Enter hanya menyetujui/menggulir ke hasil, TIDAK mengganti teks
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmSearchMatch();
+                            }
+                        }}
+                        className="flex-1 bg-transparent outline-none text-sm dark:text-white min-w-0"
+                        autoFocus
+                    />
+                    <span className="text-xs text-gray-400 font-mono shrink-0">
+                        {searchResults.length > 0 ? currentSearchIndex + 1 : 0}/{searchResults.length}
+                    </span>
+                    <button onMouseDown={preventFocusLoss} onClick={() => navigateSearch('prev')} disabled={searchResults.length === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 text-gray-600 dark:text-gray-300">
+                        <ChevronUp size={18} />
+                    </button>
+                    <button onMouseDown={preventFocusLoss} onClick={() => navigateSearch('next')} disabled={searchResults.length === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 text-gray-600 dark:text-gray-300">
+                        <ChevronDown size={18} />
+                    </button>
+                    <div className="w-[1px] h-4 bg-gray-300 dark:bg-gray-600 mx-1 shrink-0"></div>
+                    {/* Toggle baris Ganti */}
+                    <button
+                        onMouseDown={preventFocusLoss}
+                        onClick={() => setShowReplace(!showReplace)}
+                        title="Ganti (Replace)"
+                        className={`p-1 rounded shrink-0 ${showReplace ? 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'}`}
+                    >
+                        <Replace size={18} />
+                    </button>
+                    <button onMouseDown={preventFocusLoss} onClick={() => {
+                        setShowSearch(false);
+                        setShowReplace(false);
+                        setReplaceQuery('');
+                        setSearchQuery('');
+                        setSearchResults([]);
+                        window.getSelection()?.removeAllRanges(); // Bersihkan blok
+                    }} className="p-1 hover:bg-red-100 dark:hover:bg-red-900/50 hover:text-red-500 rounded text-gray-600 dark:text-gray-300">
+                        <X size={18} />
+                    </button>
+                </div>
+                {/* Baris 2: Ganti */}
+                {showReplace && (
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                        <Replace size={18} className="text-amber-500 shrink-0" />
+                        <input
+                            type="text"
+                            placeholder="Ganti dengan..."
+                            value={replaceQuery}
+                            onChange={(e) => setReplaceQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    replaceCurrentMatch();
+                                }
+                            }}
+                            className="flex-1 bg-transparent outline-none text-sm dark:text-white min-w-0"
+                        />
+                        <button onMouseDown={preventFocusLoss} onClick={replaceCurrentMatch} disabled={searchResults.length === 0} className="px-2 py-1 text-xs rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-800 disabled:opacity-50 shrink-0">
+                            Ganti
+                        </button>
+                        <button onMouseDown={preventFocusLoss} onClick={replaceAllMatches} disabled={searchResults.length === 0} className="px-2 py-1 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 shrink-0 flex items-center gap-1">
+                            <ReplaceAll size={14} />
+                            Semua
+                        </button>
+                    </div>
+                )}
             </div>
         )}
 
@@ -1856,6 +2015,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     // --- RESET PENCARIAN SAAT GANTI MODE ---
                     setSearchQuery('');
                     setSearchResults([]);
+                    setShowReplace(false);
+                    setReplaceQuery('');
                 }} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView && !isPreviewMode ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
                     <Code size={20} />
                 </button>
