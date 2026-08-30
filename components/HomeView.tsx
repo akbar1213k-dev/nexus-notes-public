@@ -6,7 +6,8 @@ import {
   ChevronLeft, FolderInput, Pencil, Download, Copy, 
   Search, ArrowUpDown, Calendar, ArrowUpAz, ArrowDownAz,
   RefreshCcw, AlertTriangle, ChevronDown, ChevronRight, Home, Lock, // <--- Tambahkan Lock
-  History, Activity, HardDrive
+  History, Activity, HardDrive,
+  FileSearch, Type
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -561,17 +562,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   )}
                 </div>
 
-                {/* --- TOMBOL TOGGLE PENCARIAN DALAM --- */}
+                {/* --- TOMBOL TOGGLE PENCARIAN DALAM (ikon-saja, hemat ruang) --- */}
                 <button
                   onClick={(e) => { e.stopPropagation(); setIsDeepSearch(!isDeepSearch); }}
-                  title="Pencarian Dalam (Judul & Isi)"
-                  className={`flex items-center justify-center h-[48px] px-3 rounded-xl border text-xs font-medium transition-colors shadow-sm whitespace-nowrap ${
+                  title={isDeepSearch ? 'Pencarian Dalam (Judul & Isi) - aktif, klik untuk hanya judul' : 'Pencarian Judul saja - klik untuk cari di isi catatan'}
+                  className={`flex items-center justify-center h-[48px] w-[48px] shrink-0 rounded-xl border transition-colors shadow-sm ${
                     isDeepSearch 
                       ? 'bg-blue-600 text-white border-blue-600 dark:bg-blue-600 dark:border-blue-600' 
                       : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
                   }`}
                 >
-                  {isDeepSearch ? '🔍 Judul + Isi' : '📌 Hanya Judul'}
+                  {isDeepSearch ? <FileSearch size={20} /> : <Type size={20} />}
                 </button>
 
                 {/* 2. Sort Button (Dipindahkan ke Sini) */}
