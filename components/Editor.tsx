@@ -371,7 +371,19 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             selection.removeAllRanges();
             selection.addRange(range);
         }
-        setShowTools(false); // Tutup menu
+        setShowTools(false);
+    }
+  };
+
+  // --- FUNGSI HAPUS SEMUA ISI (KECUALI JUDUL) ---
+  const handleDeleteAllContent = () => {
+    if (editorRef.current) {
+        const confirmDelete = window.confirm('Hapus semua isi catatan? Judul tidak akan dihapus.');
+        if (!confirmDelete) return;
+
+        editorRef.current.innerHTML = '<p><br/></p>';
+        onUpdate({ ...note, content: '<p><br/></p>' });
+        setShowTools(false);
     }
   };
 
@@ -1929,36 +1941,48 @@ const handleEditorClick = (e: React.MouseEvent) => {
       {/* --- WRAPPER SEMUA MENU BAWAH (HANYA TAMPIL JIKA TIDAK IMMERSIVE) --- */}
       {!isImmersive && (
           <>
-      {/* --- MENU TOOLS (CUT & SELECT ALL) --- */}
-        
-        {/* Sub-tombol: Select All (Paling Atas) */}
+      {/* --- DROPDOWN MENU TOOLS (Three-dot button) --- */}
         {showTools && (
-            <button 
-                onClick={handleSelectAll}
-                // HAPUS 'bottom-84', GANTI DENGAN style={{ bottom: '21rem' }}
-                className="fixed right-4 w-12 h-12 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 z-30 animate-in slide-in-from-bottom-4 fade-in duration-200"
-                style={{ bottom: '21rem' }} 
-                title="Pilih Semua"
-            >
-                <Scan size={20} />
-            </button>
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowTools(false)}></div>
+              <div className="fixed right-4 bottom-64 z-50 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="p-1">
+                  <button
+                      onClick={handleSelectAll}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400"
+                  >
+                      <Scan size={16} />
+                      <span>Pilih Semua</span>
+                  </button>
+                  <button
+                      onClick={handleCutContent}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400"
+                  >
+                      <Scissors size={16} />
+                      <span>Potong (Cut)</span>
+                  </button>
+                  <button
+                      onClick={handleCopyContent}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400"
+                  >
+                      <Copy size={16} />
+                      <span>Salin (Copy)</span>
+                  </button>
+                  <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
+                  <button
+                      onClick={handleDeleteAllContent}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                      <Trash2 size={16} />
+                      <span>Hapus Semua Isi</span>
+                  </button>
+                </div>
+              </div>
+            </>
         )}
 
-        {/* Sub-tombol: Cut (Di tengah antara Tools dan Select All) */}
-        {showTools && (
-            <button 
-                onClick={handleCutContent}
-                // HAPUS 'bottom-68', GANTI DENGAN style={{ bottom: '17rem' }}
-                className="fixed right-4 w-12 h-12 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 z-30 animate-in slide-in-from-bottom-2 fade-in duration-200"
-                style={{ bottom: '17rem' }}
-                title="Potong (Cut)"
-            >
-                <Scissors size={20} />
-            </button>
-        )}
-
-        {/* Tombol Utama Tools (Posisi di atas tombol Copy - bottom-52 tetap aman karena standar) */}
-        <button 
+        {/* Tombol Utama Tools (Three-dot menu trigger) */}
+        <button
             onClick={() => setShowTools(!showTools)}
             className={`fixed bottom-52 right-4 w-12 h-12 rounded-full shadow-lg flex items-center justify-center z-30 transition-all duration-300 ${showTools ? 'bg-gray-600 text-white rotate-90' : 'bg-gray-800 dark:bg-gray-700 text-white hover:bg-black'}`}
             title="Alat Lainnya"
@@ -1966,16 +1990,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
             <MoreVertical size={20} />
         </button>
 
-      {/* Tombol Copy (Posisi di atas tombol Home - bottom-36) */}
-        <button 
-            onClick={handleCopyContent}
-            className="fixed bottom-36 right-4 w-12 h-12 bg-gray-800 dark:bg-gray-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-black z-30 opacity-90 transition-opacity"
-            title="Salin Isi Catatan"
-        >
-            <Copy size={20} />
-        </button>
-
-        <button 
+        {/* Tombol Kembali */}
+        <button
             onClick={onGoHome}
             className="fixed bottom-20 right-4 w-12 h-12 bg-gray-800 dark:bg-gray-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-black z-30 opacity-90 transition-opacity"
             title="Kembali ke Sebelumnya"
