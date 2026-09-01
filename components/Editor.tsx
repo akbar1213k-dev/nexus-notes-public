@@ -2112,6 +2112,19 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     <Search size={20} />
                 </button>
 
+                {/* --- TOMBOL IMPOR FILE TEKS --- */}
+                <button onMouseDown={preventFocusLoss} onClick={handleImportFile} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Impor File Teks">
+                    <Upload size={20} />
+                </button>
+
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.html,.htm,.py,.js,.ts,.jsx,.tsx,.css,.json,.xml,.md,.csv,.log,.yaml,.yml,.svg,.java,.c,.cpp,.rb,.php,.go,.rs,.swift,.kt,.sql,.sh,.bat,.ps1,.r,.lua,.pl,.ex,.exs,.hs,.clj"
+                    className="hidden"
+                    onChange={handleFileSelected}
+                />
+
                 <button onMouseDown={preventFocusLoss} onClick={() => {
                     if (!isCodeView && !isPreviewMode) {
                         // Jalankan pembersih dan perapi sebelum masuk ke mode kode
@@ -2144,19 +2157,6 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 <button onMouseDown={preventFocusLoss} onClick={handleDownloadHTML} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Unduh Kode HTML">
                     <Download size={20} />
                 </button>
-
-                {/* --- TOMBOL IMPOR FILE TEKS --- */}
-                <button onMouseDown={preventFocusLoss} onClick={handleImportFile} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Impor File Teks">
-                    <Upload size={20} />
-                </button>
-
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".txt,.html,.htm,.py,.js,.ts,.jsx,.tsx,.css,.json,.xml,.md,.csv,.log,.yaml,.yml,.svg,.java,.c,.cpp,.rb,.php,.go,.rs,.swift,.kt,.sql,.sh,.bat,.ps1,.r,.lua,.pl,.ex,.exs,.hs,.clj"
-                    className="hidden"
-                    onChange={handleFileSelected}
-                />
 
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
                     <button onMouseDown={preventFocusLoss} onClick={() => execCmd('indent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-l"><Indent size={18} /></button>
