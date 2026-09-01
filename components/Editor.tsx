@@ -9,7 +9,7 @@ import {
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
   Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download,
-  Replace, ReplaceAll
+  Upload, Replace, ReplaceAll
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -168,6 +168,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
   const iframeRef = useRef<HTMLIFrameElement>(null); // Referensi pengendali untuk browser mini (Iframe)
+  const fileInputRef = useRef<HTMLInputElement>(null); // Referensi input file untuk impor
 
   // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
   const [history, setHistory] = useState<any[]>([]); 
@@ -1626,6 +1627,29 @@ const handleEditorClick = (e: React.MouseEvent) => {
     URL.revokeObjectURL(downloadUrl);
   };
 
+  // --- FUNGSI IMPOR FILE TEKS ---
+  const handleImportFile = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text !== null && text !== undefined) {
+        onUpdate({ ...note, content: text });
+      }
+    };
+    reader.readAsText(file);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   // --- FUNGSI AUTO-RESIZE JUDUL (LETAKKAN DI SINI) ---
   const adjustTitleHeight = () => {
     if (titleRef.current) {
@@ -2120,6 +2144,19 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 <button onMouseDown={preventFocusLoss} onClick={handleDownloadHTML} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Unduh Kode HTML">
                     <Download size={20} />
                 </button>
+
+                {/* --- TOMBOL IMPOR FILE TEKS --- */}
+                <button onMouseDown={preventFocusLoss} onClick={handleImportFile} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Impor File Teks">
+                    <Upload size={20} />
+                </button>
+
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.html,.htm,.py,.js,.ts,.jsx,.tsx,.css,.json,.xml,.md,.csv,.log,.yaml,.yml,.svg,.java,.c,.cpp,.rb,.php,.go,.rs,.swift,.kt,.sql,.sh,.bat,.ps1,.r,.lua,.pl,.ex,.exs,.hs,.clj"
+                    className="hidden"
+                    onChange={handleFileSelected}
+                />
 
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
                     <button onMouseDown={preventFocusLoss} onClick={() => execCmd('indent')} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-l"><Indent size={18} /></button>
