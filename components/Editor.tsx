@@ -2029,7 +2029,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
               <button
                   data-option-btn
                   onClick={handleSelectAll}
-                  className="fixed bottom-72 right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  className="fixed bottom-72 right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   title="Pilih Semua"
               >
                   <Scan size={20} />
@@ -2039,7 +2039,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
               <button
                   data-option-btn
                   onClick={handleCutContent}
-                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   title="Potong (Cut)"
               >
                   <Scissors size={20} />
@@ -2049,7 +2049,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
               <button
                   data-option-btn
                   onClick={handleDeleteAllContent}
-                  className="fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-700 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  className="fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-700 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   title="Hapus Semua Isi"
               >
                   <Trash2 size={20} />
@@ -2059,7 +2059,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
               <button
                   data-option-toggle
                   onClick={closeOptionMenu}
-                  className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-600 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   title="Tutup Opsi"
               >
                   <MoreVertical size={20} />
@@ -2075,11 +2075,16 @@ const handleEditorClick = (e: React.MouseEvent) => {
               {/* Posisi Atas: Tombol Titik Tiga */}
               <button
                   data-main-btn
-                  onClick={() => {
+                  onClick={(e) => {
+                      // Penting: hentikan propagasi agar klik yang sama TIDAK sampai ke
+                      // listener document (handleOutsideClick) yang baru dipasang saat
+                      // React mem-flush state secara sinkron, sehingga menu tidak langsung tertutup.
+                      e.stopPropagation();
+                      e.preventDefault();
                       activateMainBtnSolid();
                       setShowOptionMenu(true);
                   }}
-                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-30 transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
                   title="Alat Lainnya"
               >
                   <MoreVertical size={20} />
@@ -2092,7 +2097,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                       activateMainBtnSolid();
                       handleCopyContent();
                   }}
-                  className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-30 transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
                   title="Salin (Copy)"
               >
                   <Copy size={20} />
@@ -2105,7 +2110,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                       activateMainBtnSolid();
                       onGoHome();
                   }}
-                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-30 transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
                   title="Kembali ke Sebelumnya"
               >
                   <ArrowLeft size={20} />
