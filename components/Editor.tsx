@@ -125,6 +125,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showCutToast, setShowCutToast] = useState(false);
   // --- STATE BARU: NOTIFIKASI CLIPBOARD KOSONG (PASTE) ---
   const [showPasteEmptyToast, setShowPasteEmptyToast] = useState(false);
+  // --- STATE: NOTIFIKASI CLIPBOARD TIDAK BISA DI-AKSES (PASTE) ---
+  const [showClipboardPermToast, setShowClipboardPermToast] = useState(false);
   // --- STATE BARU: Dialog Checkbox ---
   const [showCheckboxDialog, setShowCheckboxDialog] = useState(false);
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
@@ -316,55 +318,68 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       loadHistory();
   }, [note.id]); // Berjalan tiap kali kamu ganti/buka catatan
 
-  // --- FUNGSI CUT (PERBAIKAN: Salin HTML sebelum dihapus) ---
+  // --- FUNGSI CUT (PERBAIKAN: Salin isi sebelum dihapus, mendukung mode kode & visual) ---
   const handleCutContent = async () => {
+    if (isCodeView) {
+        // MODE KODE: Salin isi textarea, lalu kosongkan
+        if (!codeEditorRef.current) return;
+        try {
+            const textContent = codeEditorRef.current.value;
+            await navigator.clipboard.writeText(textContent);
+            // Kosongkan textarea via React native setter
+            const nativeSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLTextAreaElement.prototype, 'value'
+            )?.set;
+            if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
+            else codeEditorRef.current.value = '';
+            codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+            onUpdate({ ...note, content: '' });
+            setShowCutToast(true);
+            setTimeout(() => setShowCutToast(false), 2000);
+        } catch (err) {
+            console.error("Gagal memotong (kode):", err);
+        }
+        return;
+    }
+
+    // MODE VISUAL
     if (editorRef.current) {
         try {
-            // 1. LOGIKA COPY (Sama persis dengan handleCopyContent yang baru)
             const htmlContent = editorRef.current.innerHTML;
             const textContent = editorRef.current.innerText;
-
             const clipboardItem = new ClipboardItem({
                 "text/html": new Blob([htmlContent], { type: "text/html" }),
                 "text/plain": new Blob([textContent], { type: "text/plain" })
             });
-
             await navigator.clipboard.write([clipboardItem]);
-
-            // 2. LOGIKA DELETE (Hapus isi konten setelah berhasil dicopy)
-            editorRef.current.innerHTML = '<p><br/></p>'; // Reset ke paragraf kosong
-            
-            // 3. Simpan perubahan (Update note)
+            editorRef.current.innerHTML = '<p><br/></p>';
             onUpdate({ ...note, content: '<p><br/></p>' });
-            
-            // Tampilkan notifikasi toast
             setShowCutToast(true);
-            setTimeout(() => {
-                setShowCutToast(false);
-            }, 2000);
-
+            setTimeout(() => setShowCutToast(false), 2000);
         } catch (err) {
             console.error("Gagal memotong:", err);
-            
-            // Fallback: Coba cara lama (text only) jika HTML gagal, lalu hapus
             try {
                 await navigator.clipboard.writeText(editorRef.current.innerText);
-                
-                // Tetap lakukan penghapusan walau fallback
                 editorRef.current.innerHTML = '<p><br/></p>';
                 onUpdate({ ...note, content: '<p><br/></p>' });
-                
                 setShowCutToast(true);
                 setTimeout(() => setShowCutToast(false), 2000);
             } catch (fallbackErr) {
-                 console.error("Fallback cut juga gagal:", fallbackErr);
+                console.error("Fallback cut juga gagal:", fallbackErr);
             }
         }
     }
   };
 
   // --- FUNGSI SELECT ALL (PILIH SEMUA) ---
+  // Mendukung mode kode (textarea.select()) DAN mode visual (Range API).
   const handleSelectAll = () => {
+    if (isCodeView) {
+        if (codeEditorRef.current) {
+            codeEditorRef.current.select();
+        }
+        return;
+    }
     if (editorRef.current) {
         const range = document.createRange();
         range.selectNodeContents(editorRef.current);
@@ -378,10 +393,22 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   // --- FUNGSI HAPUS SEMUA ISI (KECUALI JUDUL) ---
   // Berjalan seketika tanpa konfirmasi, dan langsung terhubung dengan fitur Undo (Mesin Waktu).
+  // Mendukung mode kode (codeEditorRef) DAN mode visual (editorRef).
   const handleDeleteAllContent = () => {
+    if (isCodeView) {
+        if (!codeEditorRef.current) return;
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLTextAreaElement.prototype, 'value'
+        )?.set;
+        if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
+        else codeEditorRef.current.value = '';
+        codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+        pushUndoState(note.content, '');
+        onUpdate({ ...note, content: '' });
+        return;
+    }
     if (editorRef.current) {
         const emptyContent = '<p><br/></p>';
-        // Rekam kondisi sebelum & sesudah ke Mesin Waktu agar bisa di-Undo
         pushUndoState(editorRef.current.innerHTML, emptyContent);
         editorRef.current.innerHTML = emptyContent;
         onUpdate({ ...note, content: emptyContent });
@@ -414,27 +441,47 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- FUNGSI TEMPEL (PASTE) DARI SYSTEM CLIPBOARD ---
   // Cek clipboard secara async. Jika berisi teks: rekam state ke Undo lalu
   // timpa seluruh isi editor. Jika kosong/bukan teks: batalkan & tampilkan toast.
+  // Mendukung mode visual (editorRef) DAN mode kode (codeEditorRef).
   const handlePasteFromClipboard = async () => {
-      if (editorRef.current) {
-          try {
-              const text = await navigator.clipboard.readText();
-              if (!text || !text.trim()) {
-                  setShowPasteEmptyToast(true);
-                  setTimeout(() => setShowPasteEmptyToast(false), 2000);
-                  return; // Abort: jangan hapus/ubah isi editor
+      try {
+          const text = await navigator.clipboard.readText();
+          if (!text || !text.trim()) {
+              // Clipboard benar-benar kosong
+              setShowPasteEmptyToast(true);
+              setTimeout(() => setShowPasteEmptyToast(false), 2000);
+              return;
+          }
+
+          if (isCodeView) {
+              // MODE KODE: Overwrite isi textarea
+              if (!codeEditorRef.current) return;
+              pushUndoState(note.content, text);
+              // Untuk textarea, kita perlu set melalui nativeInputValueSetter agar React terdeteksi
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                  window.HTMLTextAreaElement.prototype, 'value'
+              )?.set;
+              if (nativeSetter) {
+                  nativeSetter.call(codeEditorRef.current, text);
+              } else {
+                  codeEditorRef.current.value = text;
               }
-              // Konversi teks mentah menjadi paragraf agar tampil rapi di editor kaya teks
-              const pasteHtml = text
-                  .split(/\r?\n/)
-                  .map(line => `<p>${line || '<br/>'}</p>`)
-                  .join('');
-              // Rekam kondisi sebelum di-overwrite ke Mesin Waktu
+              codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+              onUpdate({ ...note, content: text });
+          } else {
+              // MODE VISUAL: Overwrite isi contentEditable
+              if (!editorRef.current) return;
+              const pasteHtml = text.split(/\r?\n/).map(line => `<p>${line || '<br/>'}</p>`).join('');
               pushUndoState(editorRef.current.innerHTML, pasteHtml);
-              // Total overwrite / replace seluruh isi editor dengan isi clipboard
               editorRef.current.innerHTML = pasteHtml;
               onUpdate({ ...note, content: pasteHtml });
-          } catch (err) {
-              console.error("Gagal membaca clipboard:", err);
+          }
+      } catch (err: any) {
+          // Permission denied / API tidak tersedia (mis. bukan HTTPS)
+          console.error("Gagal membaca clipboard:", err);
+          if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError' || !navigator.clipboard) {
+              setShowClipboardPermToast(true);
+              setTimeout(() => setShowClipboardPermToast(false), 3000);
+          } else {
               setShowPasteEmptyToast(true);
               setTimeout(() => setShowPasteEmptyToast(false), 2000);
           }
@@ -2026,9 +2073,17 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
       {/* --- TOAST NOTIFICATION (PASTE CLIPBOARD KOSONG) --- */}
         {showPasteEmptyToast && (
-            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[60] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
                 <Clipboard size={16} className="text-amber-400 dark:text-amber-600" />
                 <span className="text-sm font-semibold">Clipboard kosong</span>
+            </div>
+        )}
+
+      {/* --- TOAST NOTIFICATION (CLIPBOARD DIBLOKIR/DITOLAK) --- */}
+        {showClipboardPermToast && (
+            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[60] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                <Clipboard size={16} className="text-red-400 dark:text-red-600" />
+                <span className="text-sm font-semibold">Tidak dapat membaca clipboard</span>
             </div>
         )}
 
