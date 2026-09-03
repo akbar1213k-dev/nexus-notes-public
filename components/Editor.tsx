@@ -127,8 +127,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showPasteEmptyToast, setShowPasteEmptyToast] = useState(false);
   // --- STATE: NOTIFIKASI CLIPBOARD TIDAK BISA DI-AKSES (PASTE) ---
   const [showClipboardPermToast, setShowClipboardPermToast] = useState(false);
-  // --- STATE: LAPORAN DIAGNOSTIK CLIPBOARD ---
-  const [clipboardReport, setClipboardReport] = useState<string | null>(null);
   // --- STATE BARU: Dialog Checkbox ---
   const [showCheckboxDialog, setShowCheckboxDialog] = useState(false);
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
@@ -443,143 +441,50 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- FUNGSI TEMPEL (PASTE) DARI SYSTEM CLIPBOARD ---
   // Cek clipboard secara async. Jika berisi teks: rekam state ke Undo lalu
   // timpa seluruh isi editor. Jika kosong/bukan teks: batalkan & tampilkan toast.
-  // Saat gagal membaca, jalankan DIAGNOSTIK menyeluruh lalu salin laporannya
-  // langsung ke clipboard agar bisa dikirim/ditempel kembali untuk dianalisis.
+  // Mendukung mode visual (editorRef) DAN mode kode (codeEditorRef).
   const handlePasteFromClipboard = async () => {
-      const report = await buildClipboardDiagnostic();
-      if (report.ok) {
-          // Berhasil membaca — lakukan overwrite seperti biasa
+      try {
+          const text = await navigator.clipboard.readText();
+          if (!text || !text.trim()) {
+              // Clipboard benar-benar kosong
+              setShowPasteEmptyToast(true);
+              setTimeout(() => setShowPasteEmptyToast(false), 2000);
+              return;
+          }
+
           if (isCodeView) {
+              // MODE KODE: Overwrite isi textarea
               if (!codeEditorRef.current) return;
-              pushUndoState(note.content, report.text);
-              setTextareaValue(report.text);
-              onUpdate({ ...note, content: report.text });
+              pushUndoState(note.content, text);
+              // Untuk textarea, kita perlu set melalui nativeInputValueSetter agar React terdeteksi
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                  window.HTMLTextAreaElement.prototype, 'value'
+              )?.set;
+              if (nativeSetter) {
+                  nativeSetter.call(codeEditorRef.current, text);
+              } else {
+                  codeEditorRef.current.value = text;
+              }
+              codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+              onUpdate({ ...note, content: text });
           } else {
+              // MODE VISUAL: Overwrite isi contentEditable
               if (!editorRef.current) return;
-              const pasteHtml = report.text.split(/\r?\n/).map(line => `<p>${line || '<br/>'}</p>`).join('');
+              const pasteHtml = text.split(/\r?\n/).map(line => `<p>${line || '<br/>'}</p>`).join('');
               pushUndoState(editorRef.current.innerHTML, pasteHtml);
               editorRef.current.innerHTML = pasteHtml;
               onUpdate({ ...note, content: pasteHtml });
           }
-      } else {
-          // GAGAL — tampilkan toast + panel diagnostik, lalu salin laporan ke clipboard
-          const summaryLines = report.lines.join('\n');
-
-          if (report.empty) {
-              setShowPasteEmptyToast(true);
-              setTimeout(() => setShowPasteEmptyToast(false), 2000);
-          } else {
+      } catch (err: any) {
+          // Permission denied / API tidak tersedia (mis. bukan HTTPS)
+          console.error("Gagal membaca clipboard:", err);
+          if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError' || !navigator.clipboard) {
               setShowClipboardPermToast(true);
               setTimeout(() => setShowClipboardPermToast(false), 3000);
-          }
-
-          // Setel laporan untuk ditampilkan di panel
-          setClipboardReport(summaryLines);
-
-          // Salin laporan ke clipboard agar mudah ditempel/ dikirim
-          try {
-              if (navigator.clipboard?.writeText) {
-                  await navigator.clipboard.writeText(summaryLines);
-              }
-          } catch (copyErr) {
-              console.error("Gagal menyalin laporan ke clipboard:", copyErr);
-          }
-      }
-  };
-
-  // Helper: set nilai textarea lewat native setter agar React mendeteksi perubahan
-  const setTextareaValue = (value: string) => {
-      if (!codeEditorRef.current) return;
-      const nativeSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype, 'value'
-      )?.set;
-      if (nativeSetter) nativeSetter.call(codeEditorRef.current, value);
-      else codeEditorRef.current.value = value;
-      codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-
-  // --- DIAGNOSTIK MENYELURUH CLIPBOARD READ ---
-  // Mengumpulkan semua informasi yang menentukan mengapa browser bisa/tidak
-  // membaca clipboard, lalu menyusun laporan teks (+ hasil baca jika sukses).
-  const buildClipboardDiagnostic = async (): Promise<{
-      ok: boolean; empty: boolean; text: string; lines: string[];
-  }> => {
-      const lines: string[] = [];
-      const now = new Date();
-      lines.push(`=== DIAGNOSTIK CLIPBOARD - ${now.toLocaleString()} ===`);
-
-      // 1. Properti inti
-      lines.push(`Navigator:         ${navigator.userAgent}`);
-      lines.push(`Platform:          ${navigator.platform}`);
-      lines.push(`Standalone/PWA:    ${(navigator as any).standalone === true}`);
-
-      // 2. Konteks aman (kunci utama: clipboard-read hanya jalan di secure context)
-      lines.push(`SecureContext:     ${window.isSecureContext}`);
-
-      // 3. Protokol/aspek URL
-      lines.push(`Protocol:          ${window.location.protocol}`);
-      lines.push(`Host:              ${window.location.host}`);
-      lines.push(`URL:               ${window.location.href}`);
-
-      // 4. Ketersediaan API clipboard
-      const hasClipboard = !!navigator.clipboard;
-      const hasReadText = !!(navigator.clipboard && typeof (navigator.clipboard as any).readText === 'function');
-      lines.push(`navigator.clipboard:      ${hasClipboard ? 'ADA' : 'TIDAK ADA'}`);
-      lines.push(`navigator.clipboard.readText: ${hasReadText ? 'ADA' : 'TIDAK ADA'}`);
-
-      // 5. Fokus dokumen (clipboard-read butuh dokumen terfokus)
-      lines.push(`document.hasFocus(): ${document.hasFocus()}`);
-
-      // 6. Status izin lewat Permissions API (kalau tersedia)
-      try {
-          if (navigator.permissions && (navigator.permissions as any).query) {
-              const perm = await (navigator.permissions as any).query({ name: 'clipboard-read' as any });
-              lines.push(`Permissions 'clipboard-read': ${perm.state}`);
           } else {
-              lines.push(`Permissions API:  TIDAK TERSEDIA (query clipboard-read tidak didukung)`);
+              setShowPasteEmptyToast(true);
+              setTimeout(() => setShowPasteEmptyToast(false), 2000);
           }
-      } catch (permErr: any) {
-          lines.push(`Permissions API error: ${permErr?.name || permErr}`);
-      }
-
-      // 7. Coba baca & tangkap error eksak
-      try {
-          if (!hasReadText) {
-              lines.push(`RESULT: GAGAL - API readText tidak tersedia di browser ini.`);
-              return { ok: false, empty: true, text: '', lines };
-          }
-          const text = await navigator.clipboard.readText();
-          if (!text || !text.trim()) {
-              lines.push(`RESULT: BERHASIL dibaca, namun CLIPBOARD KOSONG.`);
-              return { ok: true, text: '', empty: true, lines };
-          }
-          lines.push(`RESULT: BERHASIL dibaca. Panjang teks: ${text.length} karakter.`);
-          lines.push(`Pratinjau (awal): ${text.slice(0, 80).replace(/\s+/g, ' ')}`);
-          return { ok: true, text, empty: false, lines };
-      } catch (err: any) {
-          lines.push(`READ ERROR name:  ${err?.name || '(tidak ada)'}`);
-          lines.push(`READ ERROR msg:   ${err?.message || '(kosong)'}`);
-
-          // 8. Diagnosis kemungkinan penyebab
-          lines.push(`--- ANALISIS KEMUNGKINAN PENYEBAB ---`);
-          if (!window.isSecureContext) {
-              lines.push(`[PENTING] Halaman TIDAK berada di secure context (bukan HTTPS/localhost).`);
-              lines.push(`          Browser menonaktifkan navigator.clipboard.readText() untuk halaman ini.`);
-              lines.push(`          Solusi: akses via https:// atau http://localhost (bukan http://<IP-LAN>).`);
-          }
-          if (!hasClipboard) {
-              lines.push(`[PENTING] navigator.clipboard TIDAK ADA di browser ini.`);
-          }
-          if (!document.hasFocus()) {
-              lines.push(`[INFO] Dokumen tidak sedang fokus — beberapa browser menolak baca clipboard.`);
-          }
-          if (err?.name === 'NotAllowedError') {
-              lines.push(`[INFO] Izin clipboard-read ditolak (NotAllowedError). Browser mungkin butuh prompt/gesture.`);
-          }
-          if (err?.name === 'SecurityError') {
-              lines.push(`[INFO] SecurityError — kemungkinan besar bukan secure context atau iframe tanpa izin.`);
-          }
-          return { ok: false, empty: false, text: '', lines };
       }
   };
 
@@ -2179,48 +2084,6 @@ const handleEditorClick = (e: React.MouseEvent) => {
             <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[60] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
                 <Clipboard size={16} className="text-red-400 dark:text-red-600" />
                 <span className="text-sm font-semibold">Tidak dapat membaca clipboard</span>
-            </div>
-        )}
-
-      {/* --- MODAL LAPORAN DIAGNOSTIK CLIPBOARD --- */}
-        {clipboardReport && (
-            <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 p-4 animate-in fade-in">
-                <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
-                    <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
-                        <div className="flex items-center gap-2">
-                            <Clipboard size={20} className="text-amber-500" />
-                            <h3 className="font-bold text-lg dark:text-white">Laporan Diagnostik Clipboard</h3>
-                        </div>
-                        <button onClick={() => setClipboardReport(null)} className="text-gray-400 hover:text-red-500 bg-gray-200 dark:bg-gray-700 p-1 rounded-full transition-colors">
-                            <X size={18} />
-                        </button>
-                    </div>
-                    <div className="p-4 overflow-y-auto flex-1">
-                        <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono text-gray-700 dark:text-gray-200">{clipboardReport}</pre>
-                    </div>
-                    <div className="p-3 border-t dark:border-gray-700 flex gap-2">
-                        <button
-                            onClick={async () => {
-                                try {
-                                    if (navigator.clipboard?.writeText) {
-                                        await navigator.clipboard.writeText(clipboardReport);
-                                    }
-                                    setShowCopyToast(true);
-                                    setTimeout(() => setShowCopyToast(false), 2000);
-                                } catch (e) { console.error(e); }
-                            }}
-                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold"
-                        >
-                            <Copy size={16} /> Salin Laporan
-                        </button>
-                        <button
-                            onClick={() => setClipboardReport(null)}
-                            className="flex-1 py-2.5 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-semibold"
-                        >
-                            Tutup
-                        </button>
-                    </div>
-                </div>
             </div>
         )}
 
