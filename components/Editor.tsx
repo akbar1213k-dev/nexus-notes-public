@@ -125,8 +125,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showCutToast, setShowCutToast] = useState(false);
   // --- STATE BARU: NOTIFIKASI CLIPBOARD KOSONG (PASTE) ---
   const [showPasteEmptyToast, setShowPasteEmptyToast] = useState(false);
-  // --- STATE: NOTIFIKASI CLIPBOARD TIDAK BISA DI-AKSES (PASTE) ---
-  const [showClipboardPermToast, setShowClipboardPermToast] = useState(false);
+  // --- STATE: MENUNGGU TEMPEL NATIVE (FALLBACK SAAT IZIN DITOLAK) ---
+  const [showPastePromptToast, setShowPastePromptToast] = useState(false);
+  const awaitingNativePaste = useRef(false);
+  const nativePasteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // --- STATE BARU: Dialog Checkbox ---
   const [showCheckboxDialog, setShowCheckboxDialog] = useState(false);
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
@@ -443,6 +445,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // timpa seluruh isi editor. Jika kosong/bukan teks: batalkan & tampilkan toast.
   // Mendukung mode visual (editorRef) DAN mode kode (codeEditorRef).
   const handlePasteFromClipboard = async () => {
+      // L1: Strategi dinamis — coba readText; jika izin ditolak, fallback ke paste NATIVE.
+      //     (clipboard-read yang 'denied' tidak bisa dibaca ulang oleh API; jalur native
+      //      yang dipicu user TIDAK membutuhkan izin itu.)
+      if (awaitingNativePaste.current) {
+          return; // sedang menunggu paste manual, jangan tumpuk proses
+      }
+
       try {
           const text = await navigator.clipboard.readText();
           if (!text || !text.trim()) {
@@ -451,40 +460,114 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
               setTimeout(() => setShowPasteEmptyToast(false), 2000);
               return;
           }
-
-          if (isCodeView) {
-              // MODE KODE: Overwrite isi textarea
-              if (!codeEditorRef.current) return;
-              pushUndoState(note.content, text);
-              // Untuk textarea, kita perlu set melalui nativeInputValueSetter agar React terdeteksi
-              const nativeSetter = Object.getOwnPropertyDescriptor(
-                  window.HTMLTextAreaElement.prototype, 'value'
-              )?.set;
-              if (nativeSetter) {
-                  nativeSetter.call(codeEditorRef.current, text);
-              } else {
-                  codeEditorRef.current.value = text;
-              }
-              codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-              onUpdate({ ...note, content: text });
-          } else {
-              // MODE VISUAL: Overwrite isi contentEditable
-              if (!editorRef.current) return;
-              const pasteHtml = text.split(/\r?\n/).map(line => `<p>${line || '<br/>'}</p>`).join('');
-              pushUndoState(editorRef.current.innerHTML, pasteHtml);
-              editorRef.current.innerHTML = pasteHtml;
-              onUpdate({ ...note, content: pasteHtml });
-          }
+          applyClipboardContent(text);
       } catch (err: any) {
           // Permission denied / API tidak tersedia (mis. bukan HTTPS)
-          console.error("Gagal membaca clipboard:", err);
-          if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError' || !navigator.clipboard) {
-              setShowClipboardPermToast(true);
-              setTimeout(() => setShowClipboardPermToast(false), 3000);
+          console.error("Gagal membaca clipboard via API:", err);
+          const isPermissionError =
+              err?.name === 'NotAllowedError' ||
+              err?.name === 'SecurityError' ||
+              !navigator.clipboard ||
+              !(navigator.clipboard as any).readText;
+          if (isPermissionError) {
+              // Ganti pendekatan: gunakan jalur paste NATIVE (tidak butuh izin)
+              triggerNativePaste();
           } else {
               setShowPasteEmptyToast(true);
               setTimeout(() => setShowPasteEmptyToast(false), 2000);
           }
+      }
+  };
+
+  // Terapkan konten teks ke editor (mode kode/visual) lengkap dengan integrasi Undo
+  const applyClipboardContent = (text: string) => {
+      if (!text || !text.trim()) {
+          setShowPasteEmptyToast(true);
+          setTimeout(() => setShowPasteEmptyToast(false), 2000);
+          return;
+      }
+      if (isCodeView) {
+          // MODE KODE: Overwrite isi textarea
+          if (!codeEditorRef.current) return;
+          pushUndoState(note.content, text);
+          setTextareaValue(text);
+          onUpdate({ ...note, content: text });
+      } else {
+          // MODE VISUAL: Overwrite isi contentEditable
+          if (!editorRef.current) return;
+          const pasteHtml = text.split(/\r?\n/).map(line => `<p>${line || '<br/>'}</p>`).join('');
+          pushUndoState(editorRef.current.innerHTML, pasteHtml);
+          editorRef.current.innerHTML = pasteHtml;
+          onUpdate({ ...note, content: pasteHtml });
+      }
+  };
+
+  // Set nilai textarea lewat native setter agar React mendeteksi perubahan
+  const setTextareaValue = (value: string) => {
+      if (!codeEditorRef.current) return;
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype, 'value'
+      )?.set;
+      if (nativeSetter) nativeSetter.call(codeEditorRef.current, value);
+      else codeEditorRef.current.value = value;
+      codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  // --- FALLBACK NATIVE PASTE ---
+  // Fokus editor & minta user menekan lama / Ctrl+V, lalu tangkap event paste asli.
+  const triggerNativePaste = () => {
+      if (awaitingNativePaste.current) return;
+      awaitingNativePaste.current = true;
+
+      // Bersihkan state menunggu lama yang masih tersisa
+      if (nativePasteTimeout.current) clearTimeout(nativePasteTimeout.current);
+
+      // Fokus ke elemen target yang benar
+      const target = isCodeView ? codeEditorRef.current : editorRef.current;
+      if (target) {
+          (target as HTMLElement).focus();
+          // Pindahkan kursor ke akhir (mode visual) agar paste default tidak nyelip di awal
+          if (!isCodeView && (target as HTMLElement).isContentEditable) {
+              try {
+                  const range = document.createRange();
+                  range.selectNodeContents(target as HTMLElement);
+                  range.collapse(false);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
+              } catch (e) { /* abaikan */ }
+          }
+      }
+
+      // Tampilkan instruksi
+      setShowPastePromptToast(true);
+      if (nativePasteTimeout.current) clearTimeout(nativePasteTimeout.current);
+      nativePasteTimeout.current = setTimeout(() => {
+          setShowPastePromptToast(false);
+          awaitingNativePaste.current = false;
+      }, 6000);
+
+      // Pasang listener paste SEKALI pada elemen target (menimpa handler gambar saat fallback aktif)
+      if (target) {
+          const el = target as HTMLElement;
+          const handler = (e: ClipboardEvent) => {
+              e.preventDefault();
+              e.stopPropagation(); // cegah handler React onPaste / default menjalankan paste ganda
+              // Hentikan timeout & bersihkan state
+              if (nativePasteTimeout.current) clearTimeout(nativePasteTimeout.current);
+              awaitingNativePaste.current = false;
+              setShowPastePromptToast(false);
+
+              const text = e.clipboardData?.getData('text') || '';
+              if (text && text.trim()) {
+                  applyClipboardContent(text);
+              } else {
+                  setShowPasteEmptyToast(true);
+                  setTimeout(() => setShowPasteEmptyToast(false), 2000);
+              }
+              el.removeEventListener('paste', handler);
+          };
+          el.addEventListener('paste', handler);
       }
   };
 
@@ -2079,11 +2162,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
             </div>
         )}
 
-      {/* --- TOAST NOTIFICATION (CLIPBOARD DIBLOKIR/DITOLAK) --- */}
-        {showClipboardPermToast && (
-            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[60] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
-                <Clipboard size={16} className="text-red-400 dark:text-red-600" />
-                <span className="text-sm font-semibold">Tidak dapat membaca clipboard</span>
+      {/* --- TOAST INSTRUKSI PASTE NATIVE (FALLBACK SAAT IZIN DITOLAK) --- */}
+        {showPastePromptToast && (
+            <div className="fixed bottom-56 left-1/2 transform -translate-x-1/2 bg-black/90 dark:bg-white/95 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[70] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                <Clipboard size={16} className="text-amber-400 dark:text-amber-600" />
+                <span className="text-sm font-semibold">Tekan lama / Ctrl+V lalu pilih Paste</span>
             </div>
         )}
 
