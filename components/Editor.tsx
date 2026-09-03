@@ -127,7 +127,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showCheckboxDialog, setShowCheckboxDialog] = useState(false);
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
   // --- STATE BARU UNTUK TOOLS ---
-  const [showTools, setShowTools] = useState(false);
+  const [showOptionMenu, setShowOptionMenu] = useState(false);
+  // --- STATE: Transparansi Tombol Utama (Solid sementara saat diklik) ---
+  const [mainBtnSolid, setMainBtnSolid] = useState(false);
+  const mainBtnOpacityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // --- STATE BARU: Mode Kode (HTML) ---
   const [isCodeView, setIsCodeView] = useState(false);
   
@@ -332,9 +335,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             // 3. Simpan perubahan (Update note)
             onUpdate({ ...note, content: '<p><br/></p>' });
             
-            // 4. Notifikasi / Feedback
-            setShowTools(false); // Tutup menu
-            
             // Tampilkan notifikasi toast
             setShowCutToast(true);
             setTimeout(() => {
@@ -352,7 +352,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
                 editorRef.current.innerHTML = '<p><br/></p>';
                 onUpdate({ ...note, content: '<p><br/></p>' });
                 
-                setShowTools(false);
                 setShowCutToast(true);
                 setTimeout(() => setShowCutToast(false), 2000);
             } catch (fallbackErr) {
@@ -372,19 +371,38 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             selection.removeAllRanges();
             selection.addRange(range);
         }
-        setShowTools(false);
     }
   };
 
   // --- FUNGSI HAPUS SEMUA ISI (KECUALI JUDUL) ---
+  // Berjalan seketika tanpa konfirmasi, dan langsung terhubung dengan fitur Undo (Mesin Waktu).
   const handleDeleteAllContent = () => {
     if (editorRef.current) {
-        const confirmDelete = window.confirm('Hapus semua isi catatan? Judul tidak akan dihapus.');
-        if (!confirmDelete) return;
+        const previousContent = editorRef.current.innerHTML;
+        const emptyContent = '<p><br/></p>';
 
-        editorRef.current.innerHTML = '<p><br/></p>';
-        onUpdate({ ...note, content: '<p><br/></p>' });
-        setShowTools(false);
+        // Rekam kondisi sebelum dihapus ke Mesin Waktu (agar bisa di-Undo),
+        // lalu rekam kondisi setelah dihapus. Keduanya didorong sinkron.
+        const currentHistory = history.slice(0, historyIndex + 1);
+        const newVersions = [
+            ...currentHistory,
+            { content: previousContent, timestamp: Date.now() },
+            { content: emptyContent, timestamp: Date.now() + 1 }
+        ];
+        if (newVersions.length > 50) newVersions.shift();
+        setHistoryIndex(newVersions.length - 1);
+        setHistory(newVersions);
+        try {
+            localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
+                timestamp: Date.now(),
+                pastVersions: newVersions
+            }));
+        } catch (error) {
+            console.warn("⚠️ Gagal menyimpan riwayat mesin waktu saat Hapus Semua.");
+        }
+
+        editorRef.current.innerHTML = emptyContent;
+        onUpdate({ ...note, content: emptyContent });
     }
   };
 
@@ -747,6 +765,42 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     undo: performUndo,
     redo: performRedo
   }));
+
+  // --- TOMBOL UTAMA: Atur Opacity Solid (100%) sementara selama 3 detik ---
+  // Klik pada tombol utama (Titik Tiga, Salin, Kembali) menjadikan tombol solid,
+  // dan timer di-reset setiap kali ada klik baru.
+  const activateMainBtnSolid = () => {
+      setMainBtnSolid(true);
+      if (mainBtnOpacityTimerRef.current) clearTimeout(mainBtnOpacityTimerRef.current);
+      mainBtnOpacityTimerRef.current = setTimeout(() => {
+          setMainBtnSolid(false); // Kembali ke opacity 25% setelah 3 detik tanpa interaksi
+      }, 3000);
+  };
+
+  // --- TUTUP MODE OPSI (Tumpukan tombol opsi) ---
+  const closeOptionMenu = () => {
+      setShowOptionMenu(false);
+      // Kembalikan tampilan tombol utama langsung ke transparansi 25%
+      setMainBtnSolid(false);
+      if (mainBtnOpacityTimerRef.current) clearTimeout(mainBtnOpacityTimerRef.current);
+  };
+
+  // --- KLIK DI LUAR CATATAN: Tutup mode opsi secara instan ---
+  useEffect(() => {
+      if (!showOptionMenu) return;
+      const handleOutsideClick = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          // Abaikan klik pada tombol Titik Tiga (ditangani oleh penutupan manualnya)
+          if (target.closest('[data-option-toggle]')) return;
+          // Abaikan klik pada tombol-tombol opsi
+          if (target.closest('[data-option-btn]')) return;
+          // Abaikan klik di dalam area catatan (editor), agar mode opsi tetap terbuka
+          if (editorRef.current && editorRef.current.contains(target)) return;
+          closeOptionMenu();
+      };
+      document.addEventListener('click', handleOutsideClick);
+      return () => document.removeEventListener('click', handleOutsideClick);
+  }, [showOptionMenu]);
 
   // Sync content awal perubahan
   useEffect(() => {
@@ -1965,63 +2019,97 @@ const handleEditorClick = (e: React.MouseEvent) => {
       {/* --- WRAPPER SEMUA MENU BAWAH (HANYA TAMPIL JIKA TIDAK IMMERSIVE) --- */}
       {!isImmersive && (
           <>
-      {/* --- DROPDOWN MENU TOOLS (Three-dot button) --- */}
-        {showTools && (
+      {/* --- Tumpukan Tombol Opsi (Muncul saat Tombol Titik Tiga diklik) --- */}
+        {/* SELALU 100% solid, tanpa timer. Tumpukan tetap terbuka sampai ditutup manual. */}
+        {showOptionMenu && (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowTools(false)}></div>
-              <div className="fixed right-4 bottom-64 z-50 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                <div className="p-1">
-                  <button
-                      onClick={handleSelectAll}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400"
-                  >
-                      <Scan size={16} />
-                      <span>Pilih Semua</span>
-                  </button>
-                  <button
-                      onClick={handleCutContent}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400"
-                  >
-                      <Scissors size={16} />
-                      <span>Potong (Cut)</span>
-                  </button>
-                  <button
-                      onClick={handleCopyContent}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                      <Copy size={16} />
-                      <span>Salin (Copy)</span>
-                  </button>
-                  <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                  <button
-                      onClick={handleDeleteAllContent}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                  >
-                      <Trash2 size={16} />
-                      <span>Hapus Semua Isi</span>
-                  </button>
-                </div>
-              </div>
+              {/* Posisi Paling Atas: Pilih Semua */}
+              <button
+                  data-option-btn
+                  onClick={handleSelectAll}
+                  className="fixed bottom-72 right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  title="Pilih Semua"
+              >
+                  <Scan size={20} />
+              </button>
+
+              {/* Posisi di posisi awal Tombol Titik Tiga: Potong */}
+              <button
+                  data-option-btn
+                  onClick={handleCutContent}
+                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  title="Potong (Cut)"
+              >
+                  <Scissors size={20} />
+              </button>
+
+              {/* Posisi di posisi Tombol Salin: Hapus Semua */}
+              <button
+                  data-option-btn
+                  onClick={handleDeleteAllContent}
+                  className="fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-700 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  title="Hapus Semua Isi"
+              >
+                  <Trash2 size={20} />
+              </button>
+
+              {/* Posisi di posisi Tombol Kembali: Titik Tiga (penutup manual) */}
+              <button
+                  data-option-toggle
+                  onClick={closeOptionMenu}
+                  className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-600 text-white shadow-lg flex items-center justify-center z-30 opacity-100"
+                  title="Tutup Opsi"
+              >
+                  <MoreVertical size={20} />
+              </button>
             </>
         )}
 
-        {/* Tombol Utama Tools (Three-dot menu trigger) */}
-        <button
-            onClick={() => setShowTools(!showTools)}
-            className={`fixed bottom-52 right-4 w-12 h-12 rounded-full shadow-lg flex items-center justify-center z-30 transition-all duration-300 ${showTools ? 'bg-gray-600 text-white rotate-90' : 'bg-gray-800 dark:bg-gray-700 text-white hover:bg-black'}`}
-            title="Alat Lainnya"
-        >
-            <MoreVertical size={20} />
-        </button>
+        {/* --- TIGA TOMBOL UTAMA (VERTIKAL) --- */}
+        {/* Opacity default 25%; menjadi solid (100%) selama 3 detik saat tombol utama diklik. */}
+        {/* Saat mode opsi aktif, tombol utama Salin & Kembali ditimpa & dinonaktifkan. */}
+        {!showOptionMenu && (
+            <> 
+              {/* Posisi Atas: Tombol Titik Tiga */}
+              <button
+                  data-main-btn
+                  onClick={() => {
+                      activateMainBtnSolid();
+                      setShowOptionMenu(true);
+                  }}
+                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-30 transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  title="Alat Lainnya"
+              >
+                  <MoreVertical size={20} />
+              </button>
 
-        {/* Tombol Kembali */}
-        <button
-            onClick={onGoHome}
-            className="fixed bottom-20 right-4 w-12 h-12 bg-gray-800 dark:bg-gray-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-black z-30 opacity-90 transition-opacity"
-            title="Kembali ke Sebelumnya"
-        >
-            <ArrowLeft size={20} />
-        </button>
+              {/* Posisi Tengah: Tombol Salin */}
+              <button
+                  data-main-btn
+                  onClick={() => {
+                      activateMainBtnSolid();
+                      handleCopyContent();
+                  }}
+                  className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-30 transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  title="Salin (Copy)"
+              >
+                  <Copy size={20} />
+              </button>
+
+              {/* Posisi Bawah: Tombol Kembali */}
+              <button
+                  data-main-btn
+                  onClick={() => {
+                      activateMainBtnSolid();
+                      onGoHome();
+                  }}
+                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-30 transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  title="Kembali ke Sebelumnya"
+              >
+                  <ArrowLeft size={20} />
+              </button>
+            </>
+        )}
 
         {/* --- Toolbar Menus (Popups) --- */}
         {activeMenu === 'FORMAT' && (
