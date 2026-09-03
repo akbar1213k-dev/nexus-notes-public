@@ -794,6 +794,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           if (target.closest('[data-option-toggle]')) return;
           // Abaikan klik pada tombol-tombol opsi
           if (target.closest('[data-option-btn]')) return;
+          // Abaikan klik pada tombol utama (mis. klik yang baru saja membuka menu)
+          if (target.closest('[data-main-btn]')) return;
           // Abaikan klik di dalam area catatan (editor), agar mode opsi tetap terbuka
           if (editorRef.current && editorRef.current.contains(target)) return;
           closeOptionMenu();
