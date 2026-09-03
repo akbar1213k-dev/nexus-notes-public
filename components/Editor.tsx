@@ -9,7 +9,7 @@ import {
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
   Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download,
-  Upload, Replace, ReplaceAll
+  Upload, Replace, ReplaceAll, Clipboard
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -123,6 +123,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- STATE BARU UNTUK NOTIFIKASI COPY & CUT ---
   const [showCopyToast, setShowCopyToast] = useState(false);
   const [showCutToast, setShowCutToast] = useState(false);
+  // --- STATE BARU: NOTIFIKASI CLIPBOARD KOSONG (PASTE) ---
+  const [showPasteEmptyToast, setShowPasteEmptyToast] = useState(false);
   // --- STATE BARU: Dialog Checkbox ---
   const [showCheckboxDialog, setShowCheckboxDialog] = useState(false);
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
@@ -378,32 +380,65 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Berjalan seketika tanpa konfirmasi, dan langsung terhubung dengan fitur Undo (Mesin Waktu).
   const handleDeleteAllContent = () => {
     if (editorRef.current) {
-        const previousContent = editorRef.current.innerHTML;
         const emptyContent = '<p><br/></p>';
-
-        // Rekam kondisi sebelum dihapus ke Mesin Waktu (agar bisa di-Undo),
-        // lalu rekam kondisi setelah dihapus. Keduanya didorong sinkron.
-        const currentHistory = history.slice(0, historyIndex + 1);
-        const newVersions = [
-            ...currentHistory,
-            { content: previousContent, timestamp: Date.now() },
-            { content: emptyContent, timestamp: Date.now() + 1 }
-        ];
-        if (newVersions.length > 50) newVersions.shift();
-        setHistoryIndex(newVersions.length - 1);
-        setHistory(newVersions);
-        try {
-            localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
-                timestamp: Date.now(),
-                pastVersions: newVersions
-            }));
-        } catch (error) {
-            console.warn("⚠️ Gagal menyimpan riwayat mesin waktu saat Hapus Semua.");
-        }
-
+        // Rekam kondisi sebelum & sesudah ke Mesin Waktu agar bisa di-Undo
+        pushUndoState(editorRef.current.innerHTML, emptyContent);
         editorRef.current.innerHTML = emptyContent;
         onUpdate({ ...note, content: emptyContent });
     }
+  };
+
+  // --- HELPER REKAM STATE UNDO (MESIN WAKTU) ---
+  // Dorong kondisi 'before' (isi sebelumnya) dan 'after' (isi baru) ke riwayat Undo.
+  // Memungkinkan aksi penimpaan/penghapusan (Tempel & Hapus Semua) dapat di-undo sempurna.
+  const pushUndoState = (beforeContent: string, afterContent: string) => {
+      const currentHistory = history.slice(0, historyIndex + 1);
+      const newVersions = [
+          ...currentHistory,
+          { content: beforeContent, timestamp: Date.now() },
+          { content: afterContent, timestamp: Date.now() + 1 }
+      ];
+      if (newVersions.length > 50) newVersions.shift();
+      setHistoryIndex(newVersions.length - 1);
+      setHistory(newVersions);
+      try {
+          localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
+              timestamp: Date.now(),
+              pastVersions: newVersions
+          }));
+      } catch (error) {
+          console.warn("⚠️ Gagal menyimpan riwayat mesin waktu.");
+      }
+  };
+
+  // --- FUNGSI TEMPEL (PASTE) DARI SYSTEM CLIPBOARD ---
+  // Cek clipboard secara async. Jika berisi teks: rekam state ke Undo lalu
+  // timpa seluruh isi editor. Jika kosong/bukan teks: batalkan & tampilkan toast.
+  const handlePasteFromClipboard = async () => {
+      if (editorRef.current) {
+          try {
+              const text = await navigator.clipboard.readText();
+              if (!text || !text.trim()) {
+                  setShowPasteEmptyToast(true);
+                  setTimeout(() => setShowPasteEmptyToast(false), 2000);
+                  return; // Abort: jangan hapus/ubah isi editor
+              }
+              // Konversi teks mentah menjadi paragraf agar tampil rapi di editor kaya teks
+              const pasteHtml = text
+                  .split(/\r?\n/)
+                  .map(line => `<p>${line || '<br/>'}</p>`)
+                  .join('');
+              // Rekam kondisi sebelum di-overwrite ke Mesin Waktu
+              pushUndoState(editorRef.current.innerHTML, pasteHtml);
+              // Total overwrite / replace seluruh isi editor dengan isi clipboard
+              editorRef.current.innerHTML = pasteHtml;
+              onUpdate({ ...note, content: pasteHtml });
+          } catch (err) {
+              console.error("Gagal membaca clipboard:", err);
+              setShowPasteEmptyToast(true);
+              setTimeout(() => setShowPasteEmptyToast(false), 2000);
+          }
+      }
   };
 
   // --- PENCARIAN: HITUNG POSISI DARI TEKS (PROXIMITY 45 KARAKTER) ---
@@ -1989,6 +2024,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
             </div>
         )}
 
+      {/* --- TOAST NOTIFICATION (PASTE CLIPBOARD KOSONG) --- */}
+        {showPasteEmptyToast && (
+            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                <Clipboard size={16} className="text-amber-400 dark:text-amber-600" />
+                <span className="text-sm font-semibold">Clipboard kosong</span>
+            </div>
+        )}
+
       {/* --- TOMBOL FLOATING IMMERSIVE (MODE BROWSER) --- */}
       {isPreviewMode && isImmersive && (
           <button
@@ -2025,17 +2068,29 @@ const handleEditorClick = (e: React.MouseEvent) => {
         {/* SELALU 100% solid, tanpa timer. Tumpukan tetap terbuka sampai ditutup manual. */}
         {showOptionMenu && (
             <>
-              {/* Posisi Paling Atas: Pilih Semua */}
+              {/* Posisi 5 (Paling Atas): Pilih Semua */}
               <button
                   data-option-btn
                   onClick={handleSelectAll}
-                  className="fixed bottom-72 right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  className="fixed right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  style={{ bottom: '336px' }}
                   title="Pilih Semua"
               >
                   <Scan size={20} />
               </button>
 
-              {/* Posisi di posisi awal Tombol Titik Tiga: Potong */}
+              {/* Posisi 4 (Tepat di atas Potong): Tempel (Paste) */}
+              <button
+                  data-option-btn
+                  onClick={handlePasteFromClipboard}
+                  className="fixed right-4 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  style={{ bottom: '272px' }}
+                  title="Tempel (Paste)"
+              >
+                  <Clipboard size={20} />
+              </button>
+
+              {/* Posisi 3 (Slot awal Tombol Titik Tiga): Potong */}
               <button
                   data-option-btn
                   onClick={handleCutContent}
@@ -2045,7 +2100,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <Scissors size={20} />
               </button>
 
-              {/* Posisi di posisi Tombol Salin: Hapus Semua */}
+              {/* Posisi 2 (Slot Tombol Salin): Hapus Semua */}
               <button
                   data-option-btn
                   onClick={handleDeleteAllContent}
@@ -2055,7 +2110,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <Trash2 size={20} />
               </button>
 
-              {/* Posisi di posisi Tombol Kembali: Titik Tiga (penutup manual) */}
+              {/* Posisi 1 (Slot Tombol Kembali): Titik Tiga (penutup manual) */}
               <button
                   data-option-toggle
                   onClick={closeOptionMenu}
