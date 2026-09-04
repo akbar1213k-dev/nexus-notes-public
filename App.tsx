@@ -1,5 +1,5 @@
 import { X, Folder as FolderIcon } from 'lucide-react'; 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Note, Folder, ViewMode, EditorHandle } from './types';
 import { Editor } from './components/Editor';
 import { GraphView } from './components/GraphView';
@@ -68,30 +68,37 @@ export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
 
-  // --- LOGIKA SAMPAH (AUTO DELETE 24 JAM) ----
+  // --- LOGIKA SAMPAH (AUTO DELETE 24 JAM) ---
+  const notesRef = useRef(notes);
+  const foldersRef = useRef(folders);
+  useEffect(() => { notesRef.current = notes; }, [notes]);
+  useEffect(() => { foldersRef.current = folders; }, [folders]);
+
   useEffect(() => {
-    if (!notes.length && !folders.length) return;
-    
     const ONE_DAY_MS = 24 * 60 * 60 * 1000; 
-    const now = Date.now();
 
     const cleanupTrash = async () => {
-      const expiredNotes = notes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
+      const now = Date.now();
+      const currentNotes = notesRef.current;
+      const currentFolders = foldersRef.current;
+      if (!currentNotes.length && !currentFolders.length) return;
+
+      const expiredNotes = currentNotes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
       expiredNotes.forEach(async (n) => {
         await deleteDoc(doc(db, "notes", n.id));
         removeFromLocalStorage(n.id);
       });
 
-      const expiredFolders = folders.filter(f => f.deletedAt && (now - f.deletedAt > ONE_DAY_MS));
+      const expiredFolders = currentFolders.filter(f => f.deletedAt && (now - f.deletedAt > ONE_DAY_MS));
       expiredFolders.forEach(async (f) => {
         await deleteDoc(doc(db, "folders", f.id));
       });
     };
 
+    cleanupTrash();
     const timer = setInterval(cleanupTrash, 60000); 
-    cleanupTrash(); 
     return () => clearInterval(timer);
-  }, [notes, folders]);
+  }, []); // Hanya mount sekali, tidak re-create interval saat notes berubah
 
   // Fungsi Soft Delete 
   const handleSoftDelete = async (noteIds: string[], folderIds: string[]) => {
@@ -258,7 +265,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigateTo = (mode: ViewMode, noteId: string = '') => {
+  const navigateTo = useCallback((mode: ViewMode, noteId: string = '') => {
     if (viewMode === mode && currentNoteId === noteId) return;
     // --- TAMBAHAN BARU: Update lastOpenedAt saat membuka editor ---
     if (mode === 'EDITOR' && noteId && user) {
@@ -286,9 +293,13 @@ export default function App() {
     else if (mode === 'EDITOR') newPath = `/editor/${noteId}`;
 
     window.history.pushState({ mode, noteId }, '', newPath);
-  };
+  }, [viewMode, currentNoteId, user]);
 
   /// Efek Otomatis untuk Mengubah Judul Tab Browser
+  const activeTitleNote = useMemo(
+    () => notes.find(n => n.id === currentNoteId),
+    [notes, currentNoteId]
+  );
   useEffect(() => {
     switch (viewMode) {
       case 'TRACT':
@@ -305,7 +316,7 @@ export default function App() {
         break;
       case 'EDITOR':
         // Cari data catatan yang saat ini sedang aktif/dibuka
-        const activeNote = notes.find(n => n.id === currentNoteId);
+        const activeNote = activeTitleNote;
         // Jika catatan punya judul, gunakan judul tersebut murni. Jika kosong, gunakan teks default.
         document.title = activeNote && activeNote.title ? activeNote.title : 'Catatan Tanpa Judul';
         break;
@@ -313,7 +324,7 @@ export default function App() {
         document.title = 'Nexus Notes';
         break;
     }
-  }, [viewMode, currentNoteId, notes]);
+  }, [viewMode, currentNoteId, activeTitleNote]);
   
   // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
@@ -366,47 +377,58 @@ export default function App() {
       // Clone array agar bisa dimodifikasi
       const updatedNotes = mergedNotes.map(note => {
           // Hanya proses jika konten memiliki checkbox recurring
-          if (note.content.includes('class="todo-item recurring"')) {
-              const docParser = new DOMParser();
-              const docHTML = docParser.parseFromString(note.content, 'text/html');
-              const checkboxes = docHTML.querySelectorAll('input.recurring, .todo-item.recurring input');
-              
+          if (note.content?.includes('class="todo-item recurring"')) {
               let noteChanged = false;
 
-              checkboxes.forEach((cb: any) => {
-                  const checkedTime = cb.getAttribute('data-checked-time');
-                  const daysInterval = parseInt(cb.getAttribute('data-days') || '0');
-
-                  if (cb.checked && checkedTime && daysInterval > 0) {
-                      const lastCheckedDate = new Date(parseInt(checkedTime));
+              // Gunakan regex untuk hindari DOMParser round-trip yang bisa mengubah HTML
+              const inputRegex = /<input[^>]*>/gi;
+              let newContent = note.content.replace(inputRegex, (match) => {
+                  const daysMatch = match.match(/data-days="(\d+)"/);
+                  const timeMatch = match.match(/data-checked-time="(\d+)"/);
+                  const hasChecked = /\bchecked\b/.test(match);
+                  
+                  if (daysMatch && timeMatch && hasChecked) {
+                      const daysInterval = parseInt(daysMatch[1]);
+                      const checkedTime = parseInt(timeMatch[1]);
                       
-                      // Hitung Target Reset: Jam 00:00 setelah (Interval) hari
-                      const targetResetDate = new Date(lastCheckedDate);
-                      targetResetDate.setDate(targetResetDate.getDate() + daysInterval);
-                      targetResetDate.setHours(0, 0, 0, 0); // Set jam 12 malam pas
-
-                      // Jika sekarang sudah melewati waktu reset
-                      if (now >= targetResetDate) {
-                          cb.removeAttribute('checked');
-                          cb.removeAttribute('data-checked-time');
+                      if (daysInterval > 0 && checkedTime > 0) {
+                          const lastCheckedDate = new Date(checkedTime);
+                          const targetResetDate = new Date(lastCheckedDate);
+                          targetResetDate.setDate(targetResetDate.getDate() + daysInterval);
+                          targetResetDate.setHours(0, 0, 0, 0);
                           
-                          // Hapus style coret di parent
-                          const parent = cb.closest('.todo-item');
-                          if (parent) parent.classList.remove('completed');
-                          
-                          noteChanged = true;
+                          if (now >= targetResetDate) {
+                              noteChanged = true;
+                              // Hapus checked + data-checked-time
+                              return match
+                                  .replace(/\s*checked\b\s*/g, ' ')
+                                  .replace(/\s*data-checked-time="[^"]*"\s*/g, ' ')
+                                  .replace(/\s+/g, ' ')
+                                  .replace(/\s>/, '>');
+                          }
                       }
                   }
+                  return match;
               });
 
+              // Pass 2: Hapus class 'completed' dari div yang sudah tidak punya data-checked-time
               if (noteChanged) {
-                  hasUpdates = true;
-                  const newContent = docHTML.body.innerHTML;
+                  newContent = newContent.replace(
+                      /(<div[^>]*class="[^"]*\btodo-item\b[^"]*\brecurring\b[^"]*\bcompleted\b[^"]*"[^>]*>)([\s\S]*?)(<\/div>)/gi,
+                      (fullMatch, openTag, inner, closeTag) => {
+                          // Jika inner tidak mengandung data-checked-time, hapus completed
+                          if (!inner.includes('data-checked-time')) {
+                              return openTag.replace(/\bcompleted\b\s*/g, '') + inner + closeTag;
+                          }
+                          return fullMatch;
+                      }
+                  );
                   
-                  // Update Firebase diam-diam
+                  hasUpdates = true;
+                  
                   updateDoc(doc(db, "notes", note.id), { 
                       content: newContent,
-                      updatedAt: Date.now() // Opsional: update timestamp atau tidak
+                      updatedAt: Date.now()
                   });
                   
                   return { ...note, content: newContent };
@@ -788,6 +810,23 @@ export default function App() {
   }
 
   // --- RENDER CONTENT ---
+  const handleGraphNodeClick = useCallback((id: string) => {
+    navigateTo('EDITOR', id);
+  }, [navigateTo]);
+
+  const handleGraphDeleteItems = useCallback((noteIds: string[]) => {
+    handleSoftDelete(noteIds, []);
+  }, [handleSoftDelete]);
+
+  const handleGraphMoveItems = useCallback((noteIds: string[], targetFolderId: string | undefined) => {
+    noteIds.forEach(id => {
+      updateDoc(doc(db, "notes", id), { 
+          folderId: targetFolderId || "", 
+          updatedAt: Date.now() 
+      });
+    });
+  }, []);
+
   const renderContent = () => {
     if (dbError) {
         return (
@@ -808,9 +847,27 @@ export default function App() {
     }
 
     // Data akan langsung terisi dalam sepersekian milidetik dari memori lokal (Cache-First). (hapus */ dibawah ini jika ingin digunakan)
-    if (!isReady) return <div className="flex h-full items-center justify-center text-gray-400 font-medium">Memuat data...</div>;
-    
-  
+    if (!isReady) {
+        // --- SKELETON LOADING: mirip layout kartu catatan untuk feedback visual ---
+        return (
+          <div className="h-full overflow-y-auto no-scrollbar p-4 space-y-4 animate-pulse">
+            <div className="flex items-center gap-2">
+              <div className="h-[48px] flex-1 rounded-xl bg-gray-200 dark:bg-gray-800" />
+              <div className="h-[48px] w-[48px] rounded-xl bg-gray-200 dark:bg-gray-800" />
+              <div className="h-[48px] w-[48px] rounded-xl bg-gray-200 dark:bg-gray-800" />
+            </div>
+            <div className="pt-4">
+              {[0, 1, 2, 3, 4].map(i => (
+                <div key={i} className="p-4 rounded-xl bg-gray-200 dark:bg-gray-800 mb-3 h-28">
+                  <div className="w-2/3 h-4 rounded bg-gray-300 dark:bg-gray-700 mb-3" />
+                  <div className="w-full h-3 rounded bg-gray-300 dark:bg-gray-700 mb-2" />
+                  <div className="w-1/2 h-3 rounded bg-gray-300 dark:bg-gray-700" />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+    }
     switch (viewMode) {
         case 'TRACT':
             return (
@@ -847,19 +904,12 @@ export default function App() {
                 <GraphView 
                     notes={notes}
                     folders={folders} 
-                    onNodeClick={(id) => navigateTo('EDITOR', id)} 
+                    onNodeClick={handleGraphNodeClick}
                     isDarkMode={isDarkMode} 
                     activeNoteId={currentNoteId} 
                     // --- TAMBAHKAN PROPS INI ---
-                    onDeleteItems={(noteIds) => handleSoftDelete(noteIds, [])} // Graph hanya menampilkan Note, folderIds kosong
-                    onMoveItems={(noteIds, targetFolderId) => {
-                        noteIds.forEach(id => {
-                            updateDoc(doc(db, "notes", id), { 
-                                folderId: targetFolderId || "", 
-                                updatedAt: Date.now() 
-                            });
-                        });
-                    }}
+                    onDeleteItems={handleGraphDeleteItems}
+                    onMoveItems={handleGraphMoveItems}
                 />
             );
         
@@ -964,7 +1014,16 @@ export default function App() {
             onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')} 
             onForceHome={() => { setActiveFolderId(undefined); navigateTo('HOME'); }} 
             onGoToParent={() => {
-                const parentNote = notes.find(n => n.content.includes(`data-id="${currentNoteId}"`));
+                // Gunakan DOMParser untuk akurasi - pastikan match di atribut elemen, bukan teks biasa
+                const parentNote = notes.find(n => {
+                    if (!n.content) return false;
+                    try {
+                        const doc = new DOMParser().parseFromString(n.content, 'text/html');
+                        return doc.querySelector(`[data-id="${currentNoteId}"]`) !== null;
+                    } catch {
+                        return new RegExp(`data-id="${currentNoteId}"`).test(n.content);
+                    }
+                });
                 if (parentNote) {
                     navigateTo('EDITOR', parentNote.id);
                 } else {

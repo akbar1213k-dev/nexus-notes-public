@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { Note, Folder } from '../types';
 import { 
   Plus, Clock, FileText, Trash2, CheckCircle2, Circle, X, 
@@ -128,6 +128,81 @@ const formatNoteUpdatedDate = (timestamp: number) => {
 };
 // --------------------------------------------------------------------------
 
+const getPreviewMemo = (html: string) => {
+  const tmp = document.createElement("DIV");
+  tmp.innerHTML = html;
+  const text = tmp.textContent || tmp.innerText || "";
+  return text.substring(0, 100) + (text.length > 100 ? "..." : "");
+};
+
+// --- MEMOIZED NOTE CARD (performa: cegah re-render semua card saat pencarian) ---
+const NoteCard = React.memo(({ note, isSelected, selectionMode, onItemClick, onTouchStart, onTouchEnd }: {
+  note: Note;
+  isSelected: boolean;
+  selectionMode: boolean;
+  onItemClick: (type: 'note' | 'folder', id: string, e?: React.MouseEvent) => void;
+  onTouchStart: (type: 'note' | 'folder', id: string) => void;
+  onTouchEnd: () => void;
+}) => {
+  const isMindMap = note.type === 'mindmap';
+  const preview = useMemo(() => getPreviewMemo(note.content), [note.content]);
+  return (
+    <div 
+      className={`
+        p-4 rounded-xl shadow-sm border relative overflow-hidden
+        transition-all active:scale-[0.99] cursor-pointer 
+        ${isSelected 
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+            : isMindMap 
+                ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800' 
+                : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
+        }
+      `}
+      onClick={(e) => onItemClick('note', note.id, e)}
+      onTouchStart={() => onTouchStart('note', note.id)}
+      onTouchEnd={onTouchEnd}
+      onTouchMove={onTouchEnd}
+    >
+        {selectionMode && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400">
+            {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
+          </div>
+        )}
+
+        <div className={selectionMode ? "pr-10" : ""}>
+          <div className="flex justify-between items-start mb-2">
+            <h3 className={`font-bold text-lg line-clamp-1 flex items-center gap-2 ${isSelected ? 'text-blue-700 dark:text-blue-300' : (isMindMap ? 'text-indigo-800 dark:text-indigo-200' : 'text-gray-800 dark:text-gray-100')}`}>
+              {isMindMap && <Network size={16} className="shrink-0" />}
+              {note.title || "Untitled"}
+            </h3>
+          </div>
+          
+          <p className={`text-sm line-clamp-2 mb-3 h-10 ${isMindMap ? 'text-indigo-600/70 dark:text-indigo-300/70' : 'text-gray-500 dark:text-gray-400'}`}>
+            {preview || <span className="italic opacity-50">No content</span>}
+          </p>
+
+          {/* FOOTER WAKTU & UKURAN FILE */}
+          <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
+            <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
+              <Calendar size={10} className="mr-1" />
+              <span>{formatNoteCreatedDate(note.id)}</span>
+            </div>
+
+            <div className="flex items-center text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono">
+              <HardDrive size={10} className="mr-1 opacity-70" />
+              <span>{formatBytes(note.content, note.title)}</span>
+            </div>
+
+            <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
+              <span className="mr-1">{formatNoteUpdatedDate(note.updatedAt)}</span>
+              <Clock size={10} className="ml-0.5" />
+            </div>
+          </div>
+        </div>
+    </div>
+  );
+});
+
 export const HomeView: React.FC<HomeViewProps> = ({
   notes,
   folders, 
@@ -185,9 +260,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
    
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Search & Sort State
-  const [searchQuery, setSearchQuery] = useState('');
-  
+  // Search & Sort State (DEBOUNCED)
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setSearchQuery = useCallback((value: string) => {
+    setSearchInput(value);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedQuery(value);
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
+
   // --- STATE BARU: Mode Pencarian Dalam (Disimpan di Local Storage) ---
   const [isDeepSearch, setIsDeepSearch] = useState(() => {
     try {
@@ -223,9 +314,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Computed Data
   const currentFolder = folders.find(f => f.id === currentFolderId);
 
+  // Pre-compute note sizes ONLY when notes change (not on every keystroke)
+  const noteSizeMap = useMemo(() => {
+    const map = new Map<string, number>();
+    notes.forEach(n => map.set(n.id, new Blob([(n.title || '') + (n.content || '')]).size));
+    return map;
+  }, [notes]);
+
   // LOGIKA UTAMA: Filter & Sort (DENGAN TRASH MODE)
   const filteredItems = useMemo(() => {
-    const query = searchQuery.toLowerCase().trim();
+    const query = debouncedQuery.toLowerCase().trim();
     
     // 1. Pisahkan Item Sampah vs Aktif
     const baseNotes = notes.filter(n => isTrashMode ? n.deletedAt : !n.deletedAt);
@@ -285,13 +383,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
 
     // 3. Sorting
-    // Map ukuran (byte) tiap catatan supaya tidak dihitung ulang saat sorting
-    const noteSizeMap = new Map<string, number>();
-    notes.forEach(n => noteSizeMap.set(n.id, new Blob([(n.title || '') + (n.content || '')]).size));
-
     const sorter = (a: any, b: any, type: 'note' | 'folder') => {
        // --- TAMBAHAN BARU: PRIORITAS KATA YANG BERURUTAN (EXACT MATCH) ---
-       const query = searchQuery.toLowerCase().trim();
+       const query = debouncedQuery.toLowerCase().trim();
        if (query) {
          const titleA = type === 'note' ? ((a as Note).title || '').toLowerCase() : ((a as Folder).name || '').toLowerCase();
          const titleB = type === 'note' ? ((b as Note).title || '').toLowerCase() : ((b as Folder).name || '').toLowerCase();
@@ -350,7 +444,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     };
 
   // Jangan lupa tambahkan isDeepSearch di array bawah ini agar data merender ulang saat tombol diklik
-  }, [notes, folders, currentFolderId, searchQuery, sortOption, sortDirection, isTrashMode, isDeepSearch]);
+  }, [notes, folders, currentFolderId, debouncedQuery, sortOption, sortDirection, isTrashMode, isDeepSearch]);
 
   const { visibleNotes, visibleFolders, navigationFolders } = filteredItems;
 
@@ -390,7 +484,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     handleCancelSelection();
   };
 
-  const handleItemClick = (type: 'note' | 'folder', id: string, e?: React.MouseEvent) => {
+  const handleItemClick = useCallback((type: 'note' | 'folder', id: string, e?: React.MouseEvent) => {
     // Deteksi tombol modifier (Ctrl atau Command)
     const isModifierPressed = e && (e.ctrlKey || e.metaKey);
 
@@ -406,21 +500,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
         onNoteClick(id);
       }
     }
-  };
+  }, [selectionMode, onNoteClick]);
 
-  const handleLongPress = (type: 'note' | 'folder', id: string) => {
+  const handleLongPress = useCallback((type: 'note' | 'folder', id: string) => {
     if (!selectionMode) {
       if (navigator.vibrate) navigator.vibrate(50);
       setSelectionMode(true);
       toggleSelection(type, id);
     }
-  };
+  }, [selectionMode]);
 
-  const handleTouchStart = (type: 'note' | 'folder', id: string) => {
+  const handleTouchStart = useCallback((type: 'note' | 'folder', id: string) => {
     longPressTimer.current = setTimeout(() => {
       handleLongPress(type, id);
     }, 600);
-  };
+  }, [handleLongPress]);
 
   const handleTouchEnd = () => {
     if (longPressTimer.current) {
@@ -521,7 +615,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const totalSelected = selectedNoteIds.size + selectedFolderIds.size;
 
-  const showTrashFolder = !currentFolderId && !searchQuery && !isTrashMode;
+  const showTrashFolder = !currentFolderId && !debouncedQuery && !isTrashMode;
   
   // UBAH 2: Helper ini kita abaikan untuk header, karena header sekarang selalu muncul
   // const hasVisibleFolders = visibleFolders.length > 0 || showTrashFolder;
@@ -557,14 +651,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   <input 
                     type="text" 
                     placeholder="Search notes..." 
-                    value={searchQuery}
+                    value={searchInput}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-10 py-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white transition-all"
                   />
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                   
                   {/* Tombol Clear Search (X) */}
-                  {searchQuery && (
+                  {searchInput && (
                     <button 
                       onClick={() => setSearchQuery('')}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
@@ -656,7 +750,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
             )}
             {/* --- FITUR BARU: RECENTLY OPENED (Hanya tampil jika tidak search & bukan Trash Mode) --- */}
-        {!searchQuery && !isTrashMode && recentNotes.length > 0 && (
+        {!debouncedQuery && !isTrashMode && recentNotes.length > 0 && (
           <div className="space-y-2 mb-4 pt-1">
             <button 
               onClick={() => setIsRecentsOpen(!isRecentsOpen)}
@@ -715,7 +809,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         
         {/* --- SECTION: FOLDERS (COLLAPSIBLE / DROPDOWN VIEW) --- */}
         {/* UBAH 3: Render dropdown selalu ada (jika tidak search), untuk navigasi */}
-        {!searchQuery && (
+        {!debouncedQuery && (
           <div className="space-y-2">
             {/* Folder Header / Toggle (TAMPILAN LEBIH BESAR & KONTEKSTUAL) */}
             <button 
@@ -868,72 +962,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
                </div>
             )}
 
-            {visibleNotes.map((note) => {
-                const isSelected = selectedNoteIds.has(note.id);
-                const isMindMap = note.type === 'mindmap';
-                
-                return (
-                  <div 
+            {visibleNotes.map((note) => (
+                <NoteCard
                     key={note.id}
-                    className={`
-                      p-4 rounded-xl shadow-sm border relative overflow-hidden
-                      transition-all active:scale-[0.99] cursor-pointer 
-                      ${isSelected 
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                          : isMindMap 
-                              ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800' 
-                              : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
-                      }
-                    `}
-                    onClick={(e) => handleItemClick('note', note.id, e)}
-                    onTouchStart={() => handleTouchStart('note', note.id)}
+                    note={note}
+                    isSelected={selectedNoteIds.has(note.id)}
+                    selectionMode={selectionMode}
+                    onItemClick={handleItemClick}
+                    onTouchStart={handleTouchStart}
                     onTouchEnd={handleTouchEnd}
-                    onTouchMove={handleTouchEnd}
-                  >
-                      {selectionMode && (
-                          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400">
-                                {isSelected ? <CheckCircle2 size={24} fill="currentColor" className="text-white dark:text-gray-900" /> : <Circle size={24} className="text-gray-300 dark:text-gray-600" />}
-                          </div>
-                      )}
-
-                      <div className={selectionMode ? "pr-10" : ""}>
-                          <div className="flex justify-between items-start mb-2">
-                              <h3 className={`font-bold text-lg line-clamp-1 flex items-center gap-2 ${isSelected ? 'text-blue-700 dark:text-blue-300' : (isMindMap ? 'text-indigo-800 dark:text-indigo-200' : 'text-gray-800 dark:text-gray-100')}`}>
-                                  {isMindMap && <Network size={16} className="shrink-0" />}
-                                  {note.title || "Untitled"}
-                              </h3>
-                          </div>
-                          
-                          <p className={`text-sm line-clamp-2 mb-3 h-10 ${isMindMap ? 'text-indigo-600/70 dark:text-indigo-300/70' : 'text-gray-500 dark:text-gray-400'}`}>
-                              {getPreview(note.content) || <span className="italic opacity-50">No content</span>}
-                          </p>
-
-                          {/* FOOTER WAKTU & UKURAN FILE */}
-                          <div className={`flex items-center justify-between mt-3 pt-2 border-t ${isMindMap ? 'border-indigo-100 dark:border-indigo-800' : 'border-gray-100 dark:border-gray-800'}`}>
-                              <div className="flex items-center text-[10px] text-gray-400 dark:text-gray-500">
-                                  <Calendar size={10} className="mr-1" />
-                                  <span>
-                                      {formatNoteCreatedDate(note.id)}
-                                  </span>
-                              </div>
-
-                              {/* Indikator Ukuran File */}
-                              <div className="flex items-center text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono">
-                                  <HardDrive size={10} className="mr-1 opacity-70" />
-                                  <span>{formatBytes(note.content, note.title)}</span>
-                              </div>
-
-                              <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                                  <span className="mr-1">
-                                      {formatNoteUpdatedDate(note.updatedAt)}
-                                  </span>
-                                  <Clock size={10} className="ml-0.5" />
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-                );
-              })}
+                />
+              ))}
         </div>
       </div>
 

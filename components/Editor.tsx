@@ -862,6 +862,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
               nextVal = nextVal.slice(0, m.start) + replaceQuery + nextVal.slice(m.end);
           }
           ta.value = nextVal;
+          lastLocalHTML.current = nextVal;
           onUpdate({ ...note, content: nextVal });
           recordHistory(nextVal);
           performSearch(searchQuery);
@@ -971,6 +972,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   // Sync content awal perubahan
   useEffect(() => {
+    // Jika konten sama dengan yang terakhir dikirim oleh editor lokal (saat typing),
+    // JANGAN rewrite DOM agar tidak mengganggu kursor / menyebabkan flicker.
+    if (editorRef.current && lastLocalHTML.current === note.content) {
+      addCheckboxListeners();
+      return;
+    }
     // Cek apakah konten berbeda
     if (editorRef.current && editorRef.current.innerHTML !== note.content) {
       
@@ -1003,26 +1010,29 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   const addCheckboxListeners = () => {
     if (!editorRef.current) return;
+    
+    // Cleanup listeners lama untuk mencegah event stacking
+    if (checkboxAbortRef.current) {
+        checkboxAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    checkboxAbortRef.current = controller;
+    
     const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => {
         const target = cb as HTMLInputElement;
         const parent = target.closest('.todo-item') as HTMLElement;
         
         if (parent) {
-            // --- FIX KURSOR LOMPAT KE KIRI ---
-            // 1. Matikan edit di container utama (agar kursor tidak bisa ke kiri checkbox)
             parent.contentEditable = 'false';
-            
-            // 2. Hidupkan edit HANYA pada teks (span)
             let span = parent.querySelector('span');
             if (span) {
                 span.contentEditable = 'true';
-                span.style.outline = 'none'; // Hilangkan garis biru fokus
+                span.style.outline = 'none';
             }
         }
 
-        // Event Listener Klik Checkbox
-        target.onclick = (e) => {
+        target.addEventListener('click', (e) => {
             const el = e.target as HTMLInputElement;
             const p = el.closest('.todo-item');
             
@@ -1030,26 +1040,24 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
                 if (el.checked) {
                     el.setAttribute('checked', 'checked');
                     p.classList.add('completed');
-                    
-                    // --- LOGIKA BARU: Simpan Waktu Centang (Khusus Berjangka) ---
                     if (el.dataset.days) {
                         el.setAttribute('data-checked-time', Date.now().toString());
                     }
                 } else {
                     el.removeAttribute('checked');
                     p.classList.remove('completed');
-                    
-                    // Hapus waktu jika di-uncheck manual
                     el.removeAttribute('data-checked-time');
                 }
                 handleInput(); 
             }
-        }
+        }, { signal: controller.signal });
     });
   };
 
   // Di dalam komponen Editor, sejajar dengan ref lain:
   const isIgnoringClick = useRef(false); // Tambahan untuk mencegah klik tidak sengaja
+  const checkboxAbortRef = useRef<AbortController | null>(null); // Cleanup checkbox listeners
+  const mentionCreatedIdsRef = useRef<Set<string>>(new Set()); // Track newly created note IDs for autocomplete
   
     // --- KEYBOARD HANDLING (FULL FIX) ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1130,17 +1138,48 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             return;
         }
 
-        // --- B. ENTER: SPLIT LINE (Potong Teks ke Bawah) ---
+        // --- B. ENTER: HAPUS JIKA KOSONG, SPLIT JIKA ADA KONTEN ---
         if (e.key === 'Enter') {
             e.preventDefault();
             
-            // Buat elemen baru
+            // Cek apakah span kosong (hanya &nbsp;, <br>, atau benar-benar kosong)
+            const spanText = currentSpan?.textContent?.replace(/[\u00A0\s]/g, '') || '';
+            const spanHtml = currentSpan?.innerHTML?.replace(/&nbsp;/g, '').replace(/<br\s*\/?>/gi, '').trim() || '';
+            const isEmpty = spanText.length === 0 && spanHtml.length === 0;
+            
+            if (isEmpty) {
+                // --- KOSONG: Hapus checkbox, konversi ke paragraf ---
+                const p = document.createElement('p');
+                p.innerHTML = '<br>';
+                
+                if (todoItem.parentNode) {
+                    todoItem.parentNode.replaceChild(p, todoItem);
+                    
+                    // Kursor di awal paragraf baru
+                    const newRange = document.createRange();
+                    newRange.setStart(p, 0);
+                    newRange.collapse(true);
+                    selection.removeAllRanges();
+                    selection.addRange(newRange);
+                }
+                
+                handleInput();
+                return;
+            }
+            
+            // --- ADA KONTEN: Split line (buat checkbox baru di bawah) ---
+            // Buat elemen baru (wariskan recurring dari parent jika ada)
+            const isRecurringParent = currentItem.classList.contains('recurring');
             const newItem = document.createElement('div');
-            newItem.className = 'todo-item';
+            newItem.className = 'todo-item' + (isRecurringParent ? ' recurring' : '');
             newItem.contentEditable = 'false';
             
             const newCheckbox = document.createElement('input');
             newCheckbox.type = 'checkbox';
+            if (isRecurringParent) {
+                const srcDays = currentItem.querySelector('input')?.getAttribute('data-days');
+                if (srcDays) newCheckbox.setAttribute('data-days', srcDays);
+            }
             
             const newSpan = document.createElement('span');
             newSpan.contentEditable = 'true';
@@ -1279,6 +1318,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     // Hapus tag highlight pencarian agar tidak ikut tersimpan ke dalam konten
     const content = editorRef.current.innerHTML
         .replace(/<mark class="search-(?:hit|current)">(.*?)<\/mark>/gi, '$1');
+    lastLocalHTML.current = content;
     onUpdate({ ...note, content });
     recordHistory(content); // Rekam perubahan ke dalam Mesin Waktu
   };
@@ -1412,15 +1452,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (existingNote) {
       insertMention(existingNote.id, existingNote.title);
     } else {
-      // Perubahan: onCreateNewNote sekarang bisa mengembalikan object Note lengkap atau ID string
-      // Kita asumsikan implementasi di App.tsx mengembalikan ID (string)
       const newNoteResult = await onCreateNewNote(mentionQuery); 
       
-      // Jika hasil kembalian adalah string (ID), gunakan langsung
-      // Jika hasil kembalian object Note, ambil .id-nya
-      const newNoteId = typeof newNoteResult === 'string' ? newNoteResult : (newNoteResult as any).id;
+      const newNoteId = typeof newNoteResult === 'string' ? newNoteResult : (newNoteResult as any)?.id;
       
       if (newNoteId) {
+          mentionCreatedIdsRef.current.add(newNoteId);
           insertMention(newNoteId, mentionQuery);
       }
     }
@@ -1747,7 +1784,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
   };
 
   const filteredNotes = allNotes.filter(n => 
-    n.title.toLowerCase().includes(mentionQuery.toLowerCase()) && 
+    (n.title.toLowerCase().includes(mentionQuery.toLowerCase()) || 
+     mentionCreatedIdsRef.current.has(n.id)) && 
     n.id !== note.id // Mencegah catatan nge-link ke dirinya sendiri
   );
 
@@ -1768,8 +1806,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 .replace(/ style="[^"]*"/gi, '') 
                 // 2. Hapus status contenteditable bawaan editor
                 .replace(/ contenteditable="[^"]*"/gi, '') 
-                // 3. Hapus atribut data sementara (opsional untuk kebersihan)
-                .replace(/ data-[a-zA-Z\-]+="[^"]*"/gi, '') 
+                // 3. Hapus atribut data sementara (kecuali data-days, data-checked-time, data-id yang penting)
+                .replace(/ data-(?!days|checked-time|id)[a-zA-Z\-]+="[^"]*"/gi, '') 
                 // 4. Hapus karakter gaib / kosong penyita spasi (seperti ‎)
                 .replace(/[\u200B-\u200D\uFEFF\u200E]/g, '') 
                 // 5. Rapikan tag pembuka dan penutup agar menurun (Pretty Print dasar)

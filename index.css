@@ -1,5 +1,27 @@
 /* index.css - VERSI BERSIH */
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- FRACTIONELE SPACING UTILITIES (PLATFORM-FIX arm64-android) --- */
+/* De standaard fractionele spacing-schaal (0.5 / 1.5 / 2.5 / 3.5) wordt door
+   de JIT niet automatisch uitgestoot op dit platform. Deze classes worden wél
+   gebruikt in de app, dus definieren we ze hier handmatig. We gebruiken de
+   [class~="..."]-selector i.p.v. backslash-escaping omdat Vite de backslash
+   niet betrouwbaar doorgeeft, noch in dev noch van config naar build. */
+[class~="gap-1.5"] { gap: 0.375rem; }
+[class~="ml-0.5"] { margin-left: 0.125rem; }
+[class~="ml-1.5"] { margin-left: 0.375rem; }
+[class~="mx-0.5"] { margin-left: 0.125rem; margin-right: 0.125rem; }
+[class~="pt-0.5"] { padding-top: 0.125rem; }
+[class~="px-1.5"] { padding-left: 0.375rem; padding-right: 0.375rem; }
+[class~="px-2.5"] { padding-left: 0.625rem; padding-right: 0.625rem; }
+[class~="py-0.5"] { padding-top: 0.125rem; padding-bottom: 0.125rem; }
+[class~="py-1.5"] { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+[class~="py-2.5"] { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+[class~="py-3.5"] { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+
 /* --- 1. MENTION CHIP --- */
 .mention-chip {
     color: #2563eb;
