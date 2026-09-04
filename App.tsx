@@ -8,6 +8,7 @@ import { HomeView } from './components/HomeView';
 import { PreviewSheet } from './components/PreviewSheet';
 import { SettingsView } from './components/SettingsView';
 import { TractView } from './components/TractView';
+import { MindmapEditor } from './components/MindmapEditor';
 import { db, auth } from './services/firebase'; 
 import { 
   collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, updateDoc, where 
@@ -698,6 +699,13 @@ export default function App() {
     const newNote: Note = { 
       id, userId: user.uid, title: finalTitle, content: '', updatedAt: Date.now(), type, folderId: folderId || "" 
     };
+    // Inisialisasi mindmapData untuk type mindmap
+    if (type === 'mindmap') {
+      newNote.mindmapData = {
+        nodes: [{ id, text: finalTitle || 'Konsep Utama', x: 400, y: 300 }],
+        connections: []
+      };
+    }
     setNotes(p => [newNote, ...p]);
     saveToLocalStorage(newNote); 
     const isOffline = user.uid === 'offline-local';
@@ -1048,6 +1056,16 @@ export default function App() {
             const n = notes.find(x => x.id === currentNoteId);
             // Jika data belum siap (isReady = false), tampilkan loading. Jika sudah siap tapi data tetap tidak ada, baru tampilkan 404.
             if (!n) return !isReady ? <div className="p-6 text-gray-400">Membuka catatan...</div> : <div>Catatan tidak ditemukan (404)</div>;
+            if (n.type === 'mindmap') {
+                return (
+                    <MindmapEditor
+                        note={n}
+                        onUpdate={handleUpdateNote}
+                        onGoHome={() => navigateTo('HOME')}
+                        isDarkMode={isDarkMode}
+                    />
+                );
+            }
             return (
                 <Editor 
                     ref={editorRef} 

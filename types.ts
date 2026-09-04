@@ -12,6 +12,23 @@ export interface Activity {
   userId?: string;
 }
 
+export interface MindmapNode {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+}
+
+export interface MindmapConnection {
+  from: string;
+  to: string;
+}
+
+export interface MindmapData {
+  nodes: MindmapNode[];
+  connections: MindmapConnection[];
+}
+
 export interface Note {
   id: string;
   title: string;
@@ -22,6 +39,7 @@ export interface Note {
   type: 'note' | 'mindmap';
   folderId?: string;
   deletedAt?: number | null; // Penanda waktu dihapus
+  mindmapData?: MindmapData;
 }
 
 export interface Folder {
