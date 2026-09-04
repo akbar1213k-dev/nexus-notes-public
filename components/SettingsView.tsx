@@ -11,6 +11,7 @@ interface SettingsViewProps {
   onLogout: () => void;
   userEmail?: string | null;
   isAnonymous?: boolean;
+  isOffline?: boolean;
   // Props baru untuk Backup
   notes: Note[];
   folders: Folder[];
@@ -28,6 +29,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onLogout,
   userEmail,
   isAnonymous,
+  isOffline,
   notes,        // Baru
   folders,      // Baru
   onImportData, // Baru
@@ -71,7 +73,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div className="flex-1 mr-4">
                     {!isEditingEmail ? (
                       <p className="font-medium text-gray-900 dark:text-white truncate">
-                          {isAnonymous ? 'Guest User' : (userEmail || 'Unknown User')}
+                          {isOffline ? 'Mode Offline' : (isAnonymous ? 'Guest User' : (userEmail || 'Unknown User'))}
                       </p>
                     ) : (
                       <input 
@@ -84,13 +86,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       />
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                        {isAnonymous ? 'Data saved locally (mostly)' : 'Signed in via Email'}
+                        {isOffline ? 'Semua data tersimpan lokal' : (isAnonymous ? 'Data saved locally (mostly)' : 'Signed in via Email')}
                     </p>
                 </div>
             </div>
             
-            {/* Tombol Edit / Simpan (Disembunyikan jika Guest User) */}
-            {!isAnonymous && (
+            {/* Tombol Edit / Simpan (Disembunyikan jika Guest User atau Offline) */}
+            {!isAnonymous && !isOffline && (
               <div className="flex items-center gap-1 shrink-0">
                 {!isEditingEmail ? (
                   <button 
@@ -129,8 +131,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       {/* Sync Section */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Sync Configuration</h3>
+      <section className={`space-y-4 ${isOffline ? 'opacity-50 pointer-events-none' : ''}`}>
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+          Sync Configuration {isOffline && '(Tidak tersedia di mode offline)'}
+        </h3>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
 
             {/* Auto Sync Toggle */}

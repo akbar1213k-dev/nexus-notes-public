@@ -17,8 +17,7 @@ import {
   signOut, 
   User,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signInAnonymously,
+
   sendPasswordResetEmail,
   updateEmail
 } from 'firebase/auth';
@@ -48,6 +47,20 @@ const removeFromLocalStorage = (noteId: string) => {
   localStorage.setItem('nexus_backup_notes', JSON.stringify(filtered));
 };
 const clearLocalStorage = () => localStorage.removeItem('nexus_backup_notes');
+
+const getLocalFolders = (): Folder[] => {
+  try { return JSON.parse(localStorage.getItem('nexus_backup_folders') || '[]'); } catch { return []; }
+};
+const saveFolderToLocalStorage = (folder: Folder) => {
+  const local = getLocalFolders();
+  const filtered = local.filter(f => f.id !== folder.id);
+  localStorage.setItem('nexus_backup_folders', JSON.stringify([...filtered, folder]));
+};
+const removeFolderFromLocalStorage = (folderId: string) => {
+  const local = getLocalFolders();
+  localStorage.setItem('nexus_backup_folders', JSON.stringify(local.filter(f => f.id !== folderId)));
+};
+const clearLocalFolders = () => localStorage.removeItem('nexus_backup_folders');
 
 export default function App() {
   // [PERCEPAT 1] Inisialisasi User langsung dari LocalStorage!
@@ -116,32 +129,82 @@ export default function App() {
     }
 
     const time = Date.now();
-    const batchPromises = [
-      ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })),
-      ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: time }))
-    ];
-    await Promise.all(batchPromises);
+    const isOffline = user?.uid === 'offline-local';
+
+    if (isOffline) {
+      noteIds.forEach(id => {
+        const note = notes.find(n => n.id === id);
+        if (note) {
+          const updated = { ...note, deletedAt: time, updatedAt: time };
+          saveToLocalStorage(updated);
+          setNotes(prev => prev.map(n => n.id === id ? updated : n));
+        }
+      });
+      folderIds.forEach(id => {
+        const folder = folders.find(f => f.id === id);
+        if (folder) {
+          const updated = { ...folder, deletedAt: time } as Folder;
+          saveFolderToLocalStorage(updated);
+          setFolders(prev => prev.map(f => f.id === id ? updated : f));
+        }
+      });
+    } else {
+      const batchPromises = [
+        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })),
+        ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: time }))
+      ];
+      await Promise.all(batchPromises);
+    }
     alert("Item dipindahkan ke Sampah. Akan dihapus permanen dalam 24 jam.");
   };
   
   const handleRestore = async (noteIds: string[], folderIds: string[]) => {
-    const batchPromises = [
-      ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: null })),
-      ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: null }))
-    ];
-    await Promise.all(batchPromises);
+    const isOffline = user?.uid === 'offline-local';
+
+    if (isOffline) {
+      noteIds.forEach(id => {
+        const note = notes.find(n => n.id === id);
+        if (note) {
+          const updated = { ...note, deletedAt: undefined, updatedAt: Date.now() };
+          saveToLocalStorage(updated);
+          setNotes(prev => prev.map(n => n.id === id ? updated : n));
+        }
+      });
+      folderIds.forEach(id => {
+        const folder = folders.find(f => f.id === id);
+        if (folder) {
+          const updated = { ...folder, deletedAt: undefined } as Folder;
+          saveFolderToLocalStorage(updated);
+          setFolders(prev => prev.map(f => f.id === id ? updated : f));
+        }
+      });
+    } else {
+      const batchPromises = [
+        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: null })),
+        ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: null }))
+      ];
+      await Promise.all(batchPromises);
+    }
   };
 
   const handleHardDelete = async (noteIds: string[], folderIds: string[]) => {
     if(!confirm("Hapus permanen? Data tidak bisa dikembalikan.")) return;
-    noteIds.forEach(id => { deleteDoc(doc(db, "notes", id)); removeFromLocalStorage(id); });
-    folderIds.forEach(id => deleteDoc(doc(db, "folders", id)));
+    const isOffline = user?.uid === 'offline-local';
+
+    if (isOffline) {
+      noteIds.forEach(id => { removeFromLocalStorage(id); });
+      folderIds.forEach(id => { removeFolderFromLocalStorage(id); });
+      setNotes(prev => prev.filter(n => !noteIds.includes(n.id)));
+      setFolders(prev => prev.filter(f => !folderIds.includes(f.id)));
+    } else {
+      noteIds.forEach(id => { deleteDoc(doc(db, "notes", id)); removeFromLocalStorage(id); });
+      folderIds.forEach(id => { deleteDoc(doc(db, "folders", id)); });
+    }
   };
    
   // Auth State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isLoadingAuth, setIsLoadingAuth] = useState(false); 
    
@@ -276,10 +339,16 @@ export default function App() {
             n.id === noteId ? { ...n, lastOpenedAt: now } : n
         ));
 
-        // 2. Update ke Firebase (Silent update, tidak perlu loading state)
-        // Kita gunakan updateDoc langsung tanpa menunggu
-        updateDoc(doc(db, "notes", noteId), { lastOpenedAt: now })
-            .catch(err => console.error("Failed to update last opened:", err));
+        const isOffline = user?.uid === 'offline-local';
+        if (isOffline) {
+          // Mode offline: simpan ke localStorage saja
+          const note = notes.find(n => n.id === noteId);
+          if (note) saveToLocalStorage({ ...note, lastOpenedAt: now });
+        } else {
+          // Mode online: update ke Firebase
+          updateDoc(doc(db, "notes", noteId), { lastOpenedAt: now })
+              .catch(err => console.error("Failed to update last opened:", err));
+        }
     }
     // --------------
     setViewMode(mode);
@@ -328,6 +397,9 @@ export default function App() {
   
   // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
+    // Mode offline: skip Firebase auth listener
+    if (user?.uid === 'offline-local') return;
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
           // [PERCEPAT 2] Jika login valid, simpan UID ke local storage
@@ -343,9 +415,19 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // --- MODE OFFLINE: Load data dari localStorage ---
+  useEffect(() => {
+    if (user?.uid !== 'offline-local') return;
+    setNotes(getLocalNotes());
+    setFolders(getLocalFolders());
+    setIsReady(true);
+  }, [user]);
+
   // --- FIREBASE LISTENERS ---
   useEffect(() => {
     if (!user) return;
+    // Mode offline: skip Firestore listeners
+    if (user.uid === 'offline-local') return;
     setDbError('');
 
     // Karena user.uid mungkin dari local storage (fake user), query tetap akan jalan
@@ -478,23 +560,37 @@ export default function App() {
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault(); setAuthError(''); setIsLoadingAuth(true);
     try {
-      if (isRegistering) await createUserWithEmailAndPassword(auth, email, password);
-      else await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) { setAuthError(err.message); } 
     finally { setIsLoadingAuth(false); }
   };
 
-  const handleAnonymousLogin = async () => {
-    try { await signInAnonymously(auth); } catch (err: any) { setAuthError(err.message); }
+  const handleOfflineMode = () => {
+    const offlineUser = { uid: 'offline-local', email: null, isAnonymous: false, isOffline: true } as any;
+    setUser(offlineUser);
+    localStorage.setItem('nexus_user_uid', 'offline-local');
+    setNotes(getLocalNotes());
+    setFolders(getLocalFolders());
+    setIsReady(true);
   };
 
   const handleLogout = async () => {
+      const isOffline = user?.uid === 'offline-local';
       // [PERCEPAT 3] Hapus jejak saat logout
       localStorage.removeItem('nexus_user_uid');
-      await signOut(auth); 
-      clearLocalStorage(); 
+
+      if (!isOffline) {
+        await signOut(auth);
+        clearLocalStorage();
+        clearLocalFolders();
+      }
+      // Mode offline: jangan clear localStorage agar data tetap tersimpan
+
+      setNotes([]);
+      setFolders([]);
+      setIsReady(false);
       setViewMode('HOME');
-      // setUser(null) ditangani di listener auth
+      setUser(null);
   };
 
   const handleUpdateEmail = async (newEmail: string) => {
@@ -538,6 +634,8 @@ export default function App() {
 
   const handleManualSync = async () => {
       if (!user) return;
+      // Mode offline: skip sync
+      if (user.uid === 'offline-local') return;
       setSyncStatus('syncing');
       try {
           const localNotes = getLocalNotes();
@@ -572,7 +670,8 @@ export default function App() {
     setNotes(prev => prev.map(n => n.id === updated.id ? noteWithUser : n));
     saveToLocalStorage(noteWithUser);
     
-    if (isAutoSync) {
+    const isOffline = user.uid === 'offline-local';
+    if (!isOffline && isAutoSync) {
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
         syncTimerRef.current = setTimeout(() => {
              setDoc(doc(db, "notes", updated.id), noteWithUser, { merge: true })
@@ -582,7 +681,7 @@ export default function App() {
                    setTimeout(() => setSyncStatus('idle'), 2000); 
                 });
         }, syncInterval); 
-    } else {
+    } else if (!isOffline) {
         setSyncStatus('unsaved');
     }
   };
@@ -601,7 +700,8 @@ export default function App() {
     };
     setNotes(p => [newNote, ...p]);
     saveToLocalStorage(newNote); 
-    if (isAutoSync) setDoc(doc(db, "notes", id), newNote, { merge: true });
+    const isOffline = user.uid === 'offline-local';
+    if (!isOffline && isAutoSync) setDoc(doc(db, "notes", id), newNote, { merge: true });
     if (shouldNavigate) navigateTo('EDITOR', id);
     return id;
   };
@@ -630,8 +730,9 @@ export default function App() {
     // 2. Simpan setiap catatan baru ke penyimpanan lokal
     duplicatedNotes.forEach(n => saveToLocalStorage(n));
 
-    // 3. Simpan ke database Firebase jika fitur auto sync aktif
-    if (isAutoSync) {
+    // 3. Simpan ke database Firebase jika fitur auto sync aktif dan tidak offline
+    const isOffline = user.uid === 'offline-local';
+    if (!isOffline && isAutoSync) {
       const batchPromises = duplicatedNotes.map(n => setDoc(doc(db, "notes", n.id), n));
       await Promise.all(batchPromises);
     }
@@ -663,19 +764,33 @@ export default function App() {
             return;
         }
 
-        const promises = [
-            ...notesToImport.map(x => setDoc(doc(db, "notes", x.id), { 
-                ...x, 
-                userId: user.uid, 
-                updatedAt: x.updatedAt || Date.now() 
-            })),
-            ...foldersToImport.map(x => setDoc(doc(db, "folders", x.id), { 
-                ...x, 
-                userId: user.uid 
-            }))
-        ];
+        const isOffline = user.uid === 'offline-local';
 
-        await Promise.all(promises);
+        if (isOffline) {
+            // Mode offline: simpan ke localStorage saja
+            notesToImport.forEach(x => {
+                const noteWithUser = { ...x, userId: 'offline-local', updatedAt: x.updatedAt || Date.now() };
+                saveToLocalStorage(noteWithUser);
+            });
+            foldersToImport.forEach(x => {
+                const folderWithUser = { ...x, userId: 'offline-local' } as Folder;
+                saveFolderToLocalStorage(folderWithUser);
+            });
+        } else {
+            const promises = [
+                ...notesToImport.map(x => setDoc(doc(db, "notes", x.id), { 
+                    ...x, 
+                    userId: user.uid, 
+                    updatedAt: x.updatedAt || Date.now() 
+                })),
+                ...foldersToImport.map(x => setDoc(doc(db, "folders", x.id), { 
+                    ...x, 
+                    userId: user.uid 
+                }))
+            ];
+            await Promise.all(promises);
+        }
+
         alert(`✅ Sukses! Berhasil memulihkan ${notesToImport.length} catatan dan ${foldersToImport.length} folder.`);
         window.location.reload(); 
 
@@ -705,15 +820,25 @@ export default function App() {
 
   const handleMoveCurrentNote = async (targetFolderId: string | undefined) => {
     if (!currentNoteId || !user) return;
+    const isOffline = user.uid === 'offline-local';
     try {
-      await updateDoc(doc(db, "notes", currentNoteId), { 
-        folderId: targetFolderId || "", updatedAt: Date.now() 
-      });
-      setNotes(prev => prev.map(n => 
-        n.id === currentNoteId 
-          ? { ...n, folderId: targetFolderId || "", updatedAt: Date.now() } 
-          : n
-      ));
+      if (isOffline) {
+        const note = notes.find(n => n.id === currentNoteId);
+        if (note) {
+          const updated = { ...note, folderId: targetFolderId || "", updatedAt: Date.now() };
+          saveToLocalStorage(updated);
+          setNotes(prev => prev.map(n => n.id === currentNoteId ? updated : n));
+        }
+      } else {
+        await updateDoc(doc(db, "notes", currentNoteId), { 
+          folderId: targetFolderId || "", updatedAt: Date.now() 
+        });
+        setNotes(prev => prev.map(n => 
+          n.id === currentNoteId 
+            ? { ...n, folderId: targetFolderId || "", updatedAt: Date.now() } 
+            : n
+        ));
+      }
       setShowEditorMoveDialog(false);
       alert("Catatan berhasil dipindahkan!");
     } catch (err: any) {
@@ -777,21 +902,13 @@ export default function App() {
                   placeholder="Password" required
                 />
                 
-                {!isRegistering && (
-                  <div className="flex justify-end">
-                    <button type="button" onClick={() => setIsResetting(true)} className="text-xs text-blue-600 hover:underline">Lupa Password?</button>
-                  </div>
-                )}
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => setIsResetting(true)} className="text-xs text-blue-600 hover:underline">Lupa Password?</button>
+                </div>
 
                 <button type="submit" disabled={isLoadingAuth} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 rounded-2xl shadow-lg active:scale-95 disabled:opacity-50">
-                  {isLoadingAuth ? 'Memproses...' : (isRegistering ? 'Buat Akun Baru' : 'Masuk Ke Nexus')}
+                  {isLoadingAuth ? 'Memproses...' : 'Masuk Ke Nexus'}
                 </button>
-
-                <div className="mt-6 text-center">
-                  <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-xs text-gray-500 hover:text-blue-600">
-                    {isRegistering ? 'Sudah punya akun? Login' : 'Belum punya akun? Daftar Sekarang'}
-                  </button>
-                </div>
               </form>
             )}
 
@@ -801,7 +918,10 @@ export default function App() {
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100 dark:border-gray-700"></div></div>
                   <div className="relative flex justify-center"><span className="px-4 bg-white dark:bg-gray-800 text-gray-400 text-[10px] font-bold">Atau</span></div>
                 </div>
-                <button onClick={handleAnonymousLogin} className="w-full bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-3 border border-gray-100 dark:border-gray-700">Jelajahi Sebagai Tamu</button>
+                <button onClick={handleOfflineMode} className="w-full bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-3 border border-gray-100 dark:border-gray-700">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m-2.829-2.829a5 5 0 000-7.07m-4.243 2.121a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.283 8.283l1.414 1.414m-1.414-1.414L3 21" /></svg>
+                  Jelajahi Mode Offline
+                </button>
               </>
             )}
         </div>
@@ -819,13 +939,23 @@ export default function App() {
   }, [handleSoftDelete]);
 
   const handleGraphMoveItems = useCallback((noteIds: string[], targetFolderId: string | undefined) => {
+    const isOffline = user?.uid === 'offline-local';
     noteIds.forEach(id => {
-      updateDoc(doc(db, "notes", id), { 
-          folderId: targetFolderId || "", 
-          updatedAt: Date.now() 
-      });
+      if (isOffline) {
+        const note = notes.find(n => n.id === id);
+        if (note) {
+          const updated = { ...note, folderId: targetFolderId || "", updatedAt: Date.now() };
+          saveToLocalStorage(updated);
+          setNotes(prev => prev.map(n => n.id === id ? updated : n));
+        }
+      } else {
+        updateDoc(doc(db, "notes", id), { 
+            folderId: targetFolderId || "", 
+            updatedAt: Date.now() 
+        });
+      }
     });
-  }, []);
+  }, [user, notes]);
 
   const renderContent = () => {
     if (dbError) {
@@ -891,6 +1021,7 @@ export default function App() {
                   onLogout={handleLogout}
                   userEmail={user?.email}
                   isAnonymous={user?.isAnonymous}
+                  isOffline={user?.uid === 'offline-local'}
                   notes={notes}
                   folders={folders}
                   onImportData={handleImportData}
@@ -938,7 +1069,11 @@ export default function App() {
                                 deletedAt: null 
                             };
                             setFolders(prev => [newFolder, ...prev]);
-                            await setDoc(doc(db, "folders", targetId), newFolder);
+                            if (user.uid !== 'offline-local') {
+                              await setDoc(doc(db, "folders", targetId), newFolder);
+                            } else {
+                              saveFolderToLocalStorage(newFolder);
+                            }
                         }
                         return handleCreateNote(title, 'note', targetId, false);
                     }}
@@ -959,34 +1094,70 @@ export default function App() {
                     onCreateNote={(type, folderId) => handleCreateNote('', type, folderId, true)} 
                     onCreateFolder={async (name, parentId) => {
                         const id = 'f_' + Date.now();
-                        await setDoc(doc(db, "folders", id), { 
+                        const newFolder: Folder = { 
                             id, 
                             name, 
                             createdAt: Date.now(), 
-                            userId: user?.uid,
-                            parentId: parentId || null // Simpan Parent ID
-                        });
+                            userId: user?.uid || '',
+                            parentId: parentId || null
+                        };
+                        if (user?.uid === 'offline-local') {
+                          saveFolderToLocalStorage(newFolder);
+                        } else {
+                          await setDoc(doc(db, "folders", id), newFolder);
+                        }
+                        setFolders(prev => [newFolder, ...prev]);
                     }} 
-                    onRenameFolder={(id, n) => updateDoc(doc(db, "folders", id), { name: n })} 
+                    onRenameFolder={async (id, n) => {
+                        if (user?.uid === 'offline-local') {
+                          const folder = folders.find(f => f.id === id);
+                          if (folder) {
+                            const updated = { ...folder, name: n };
+                            saveFolderToLocalStorage(updated);
+                            setFolders(prev => prev.map(f => f.id === id ? updated : f));
+                          }
+                        } else {
+                          await updateDoc(doc(db, "folders", id), { name: n });
+                        }
+                    }} 
                     onDeleteItems={handleSoftDelete} 
                     onRestoreItems={handleRestore}
                     onOpenTractApp={() => navigateTo('TRACT')}
                     onPermanentDelete={handleHardDelete}
                     onDuplicateNotes={handleDuplicateNotes}
                     onMoveItems={(noteIds, folderIds, targetFolderId) => {
+                        const isOffline = user?.uid === 'offline-local';
                          // 1. Pindahkan Notes
                          noteIds.forEach(id => {
-                            updateDoc(doc(db, "notes", id), { 
-                                folderId: targetFolderId || "", 
-                                updatedAt: Date.now() 
-                            });
+                            if (isOffline) {
+                              const note = notes.find(n => n.id === id);
+                              if (note) {
+                                const updated = { ...note, folderId: targetFolderId || "", updatedAt: Date.now() };
+                                saveToLocalStorage(updated);
+                                setNotes(prev => prev.map(n => n.id === id ? updated : n));
+                              }
+                            } else {
+                              updateDoc(doc(db, "notes", id), { 
+                                  folderId: targetFolderId || "", 
+                                  updatedAt: Date.now() 
+                              });
+                            }
                          });
             
                          // 2. Pindahkan Folders (Nested)
                          folderIds.forEach(id => {
-                            updateDoc(doc(db, "folders", id), { 
-                                parentId: targetFolderId || null 
-                            });
+                            if (isOffline) {
+                              const folder = folders.find(f => f.id === id);
+                              if (folder) {
+                                const updated = { ...folder, parentId: targetFolderId || null } as Folder;
+                                saveFolderToLocalStorage(updated);
+                                setFolders(prev => prev.map(f => f.id === id ? updated : f));
+                              }
+                            } else {
+                              updateDoc(doc(db, "folders", id), { 
+                                  parentId: targetFolderId || null 
+                              });
+                            }
                          });
                     }}
                     onImportData={handleImportData} 
