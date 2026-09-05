@@ -9,7 +9,7 @@ import {
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code, ArrowLeft,
   Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download,
-  Upload, Replace, ReplaceAll, Clipboard
+  Upload, Replace, ReplaceAll, Clipboard, AlertTriangle
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -123,6 +123,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- STATE BARU UNTUK NOTIFIKASI COPY & CUT ---
   const [showCopyToast, setShowCopyToast] = useState(false);
   const [showCutToast, setShowCutToast] = useState(false);
+  const [showClipboardFailToast, setShowClipboardFailToast] = useState(false);
   // --- STATE BARU: NOTIFIKASI CLIPBOARD KOSONG (PASTE) ---
   const [showPasteEmptyToast, setShowPasteEmptyToast] = useState(false);
   // --- STATE: MENUNGGU TEMPEL NATIVE (FALLBACK SAAT IZIN DITOLAK) ---
@@ -325,51 +326,43 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (isCodeView) {
         // MODE KODE: Salin isi textarea, lalu kosongkan
         if (!codeEditorRef.current) return;
-        try {
-            const textContent = codeEditorRef.current.value;
-            await navigator.clipboard.writeText(textContent);
-            // Kosongkan textarea via React native setter
-            const nativeSetter = Object.getOwnPropertyDescriptor(
-                window.HTMLTextAreaElement.prototype, 'value'
-            )?.set;
-            if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
-            else codeEditorRef.current.value = '';
-            codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-            onUpdate({ ...note, content: '' });
-            setShowCutToast(true);
-            setTimeout(() => setShowCutToast(false), 2000);
-        } catch (err) {
-            console.error("Gagal memotong (kode):", err);
+        const textContent = codeEditorRef.current.value;
+        const copied = await writeToClipboard(textContent);
+        if (!copied) {
+            setShowClipboardFailToast(true);
+            setTimeout(() => setShowClipboardFailToast(false), 3000);
+            return;
         }
+        // Hanya kosongkan textarea SETELAH penyalinan berhasil (cegah kehilangan data)
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLTextAreaElement.prototype, 'value'
+        )?.set;
+        if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
+        else codeEditorRef.current.value = '';
+        codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+        pushUndoState(note.content, '');
+        onUpdate({ ...note, content: '' });
+        setShowCutToast(true);
+        setTimeout(() => setShowCutToast(false), 2000);
         return;
     }
 
     // MODE VISUAL
     if (editorRef.current) {
-        try {
-            const htmlContent = editorRef.current.innerHTML;
-            const textContent = editorRef.current.innerText;
-            const clipboardItem = new ClipboardItem({
-                "text/html": new Blob([htmlContent], { type: "text/html" }),
-                "text/plain": new Blob([textContent], { type: "text/plain" })
-            });
-            await navigator.clipboard.write([clipboardItem]);
-            editorRef.current.innerHTML = '<p><br/></p>';
-            onUpdate({ ...note, content: '<p><br/></p>' });
-            setShowCutToast(true);
-            setTimeout(() => setShowCutToast(false), 2000);
-        } catch (err) {
-            console.error("Gagal memotong:", err);
-            try {
-                await navigator.clipboard.writeText(editorRef.current.innerText);
-                editorRef.current.innerHTML = '<p><br/></p>';
-                onUpdate({ ...note, content: '<p><br/></p>' });
-                setShowCutToast(true);
-                setTimeout(() => setShowCutToast(false), 2000);
-            } catch (fallbackErr) {
-                console.error("Fallback cut juga gagal:", fallbackErr);
-            }
+        const htmlContent = editorRef.current.innerHTML;
+        const textContent = editorRef.current.innerText;
+        const copied = await writeToClipboard(textContent, htmlContent);
+        if (!copied) {
+            setShowClipboardFailToast(true);
+            setTimeout(() => setShowClipboardFailToast(false), 3000);
+            return;
         }
+        // Hanya kosongkan editor SETELAH penyalinan berhasil (cegah kehilangan data)
+        editorRef.current.innerHTML = '<p><br/></p>';
+        pushUndoState(note.content, '<p><br/></p>');
+        onUpdate({ ...note, content: '<p><br/></p>' });
+        setShowCutToast(true);
+        setTimeout(() => setShowCutToast(false), 2000);
     }
   };
 
@@ -511,6 +504,66 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       if (nativeSetter) nativeSetter.call(codeEditorRef.current, value);
       else codeEditorRef.current.value = value;
       codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  // --- HELPER: COPY LEGACY (TIDAK BUTUH IZIN ASYNC CLIPBOARD) ---
+  // Menyalin via textarea tersembunyi + document.execCommand('copy').
+  // Jalur ini tetap bekerja walau navigator.clipboard ditolak per-situs,
+  // karena hanya butuh aksi user (tap) seperti command clipboard bawaan.
+  const legacyCopyText = (text: string): boolean => {
+      try {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.top = '0';
+          textarea.style.left = '-9999px';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          textarea.setSelectionRange(0, textarea.value.length);
+          const success = document.execCommand('copy');
+          document.body.removeChild(textarea);
+          return success;
+      } catch (err) {
+          console.error("Legacy copy gagal:", err);
+          return false;
+      }
+  };
+
+  // --- HELPER: WRITE KE CLIPBOARD DENGAN FALLBACK 3 TINGKAT ---
+  // 1) ClipboardItem (HTML+teks) -> 2) writeText -> 3) execCommand('copy').
+  // Mengembalikan true jika setidaknya satu saluran berhasil.
+  const writeToClipboard = async (text: string, html?: string): Promise<boolean> => {
+      // Tingkat 1: tulis kaya (HTML + plain text) bila API & ClipboardItem tersedia
+      try {
+          if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+              const htmlContent = html ?? text;
+              const clipboardItem = new ClipboardItem({
+                  "text/html": new Blob([htmlContent], { type: "text/html" }),
+                  "text/plain": new Blob([text], { type: "text/plain" })
+              });
+              await navigator.clipboard.write([clipboardItem]);
+              return true;
+          }
+      } catch (err) {
+          // langsung coba tingkat berikutnya
+          console.error("ClipboardItem write gagal:", err);
+      }
+
+      // Tingkat 2: tulis teks polos via Async Clipboard API
+      try {
+          if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(text);
+              return true;
+          }
+      } catch (err) {
+          console.error("writeText gagal:", err);
+      }
+
+      // Tingkat 3: jalur legacy execCommand (tanpa izin async clipboard)
+      return legacyCopyText(text);
   };
 
   // --- FALLBACK NATIVE PASTE ---
@@ -1800,71 +1853,56 @@ const handleEditorClick = (e: React.MouseEvent) => {
   const handleCopyContent = async () => {
     // --- TAMBAHAN BARU: Jika sedang di Mode Kode, bersihkan HTML sebelum disalin ---
     if (isCodeView) {
-        try {
-            let cleanHtml = note.content
-                // 1. Hapus ratusan style bawaan (--tw-scale, shadow, dll)
-                .replace(/ style="[^"]*"/gi, '') 
-                // 2. Hapus status contenteditable bawaan editor
-                .replace(/ contenteditable="[^"]*"/gi, '') 
-                // 3. Hapus atribut data sementara (kecuali data-days, data-checked-time, data-id yang penting)
-                .replace(/ data-(?!days|checked-time|id)[a-zA-Z\-]+="[^"]*"/gi, '') 
-                // 4. Hapus karakter gaib / kosong penyita spasi (seperti ‎)
-                .replace(/[\u200B-\u200D\uFEFF\u200E]/g, '') 
-                // 5. Rapikan tag pembuka dan penutup agar menurun (Pretty Print dasar)
-                .replace(/></g, '>\n<');
+        let cleanHtml = note.content
+            // 1. Hapus ratusan style bawaan (--tw-scale, shadow, dll)
+            .replace(/ style="[^"]*"/gi, '') 
+            // 2. Hapus status contenteditable bawaan editor
+            .replace(/ contenteditable="[^"]*"/gi, '') 
+            // 3. Hapus atribut data sementara (kecuali data-days, data-checked-time, data-id yang penting)
+            .replace(/ data-(?!days|checked-time|id)[a-zA-Z\-]+="[^"]*"/gi, '') 
+            // 4. Hapus karakter gaib / kosong penyita spasi (seperti ‎)
+            .replace(/[\u200B-\u200D\uFEFF\u200E]/g, '') 
+            // 5. Rapikan tag pembuka dan penutup agar menurun (Pretty Print dasar)
+            .replace(/></g, '>\n<');
 
-            // Salin hanya sebagai teks murni (Teks Kode HTML Bersih)
-            await navigator.clipboard.writeText(cleanHtml);
-            
+        // Salin hanya sebagai teks murni (Teks Kode HTML Bersih)
+        const copied = await writeToClipboard(cleanHtml);
+        if (copied) {
             setShowCopyToast(true);
             setTimeout(() => setShowCopyToast(false), 2000);
-        } catch (err) {
-            console.error("Gagal menyalin kode:", err);
+        } else {
+            setShowClipboardFailToast(true);
+            setTimeout(() => setShowClipboardFailToast(false), 3000);
         }
         return; // Hentikan fungsi di sini agar tidak menjalankan copy visual
     }
 
     // --- LOGIKA NORMAL JIKA DI MODE VISUAL ---
     if (editorRef.current) {
-        try {
-            // 1. SYNC CHECKBOX STATE KE ATTRIBUTE
-            // Browser tidak otomatis menyalin status 'checked' input ke HTML string.
-            // Kita harus memaksanya manual.
-            const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
-            checkboxes.forEach((cb) => {
-                const input = cb as HTMLInputElement;
-                if (input.checked) {
-                    input.setAttribute('checked', 'true');
-                } else {
-                    input.removeAttribute('checked');
-                }
-            });
+        // 1. SYNC CHECKBOX STATE KE ATTRIBUTE
+        // Browser tidak otomatis menyalin status 'checked' input ke HTML string.
+        // Kita harus memaksanya manual.
+        const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach((cb) => {
+            const input = cb as HTMLInputElement;
+            if (input.checked) {
+                input.setAttribute('checked', 'true');
+            } else {
+                input.removeAttribute('checked');
+            }
+        });
 
-            // 2. Ambil HTML lengkap
-            const htmlContent = editorRef.current.innerHTML;
-            
-            // 3. Buat Blob
-            const textContent = editorRef.current.innerText;
-            const clipboardItem = new ClipboardItem({
-                "text/html": new Blob([htmlContent], { type: "text/html" }),
-                "text/plain": new Blob([textContent], { type: "text/plain" })
-            });
+        // 2. Ambil HTML lengkap
+        const htmlContent = editorRef.current.innerHTML;
+        const textContent = editorRef.current.innerText;
 
-            await navigator.clipboard.write([clipboardItem]);
-            
+        const copied = await writeToClipboard(textContent, htmlContent);
+        if (copied) {
             setShowCopyToast(true);
-            setTimeout(() => {
-                setShowCopyToast(false);
-            }, 2000);
-
-        } catch (err) {
-            console.error("Gagal menyalin:", err);
-            // Fallback
-            try {
-                await navigator.clipboard.writeText(editorRef.current.innerText);
-                 setShowCopyToast(true);
-                 setTimeout(() => setShowCopyToast(false), 2000);
-            } catch (fallbackErr) { console.error(fallbackErr); }
+            setTimeout(() => setShowCopyToast(false), 2000);
+        } else {
+            setShowClipboardFailToast(true);
+            setTimeout(() => setShowClipboardFailToast(false), 3000);
         }
     }
   };
@@ -2189,6 +2227,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
             <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
                 <Scissors size={16} className="text-red-400 dark:text-red-600" />
                 <span className="text-sm font-semibold">Berhasil dipotong!</span>
+            </div>
+        )}
+
+      {/* --- TOAST NOTIFICATION (COPY/CUT GAGAL - SEMUA SALURAN CLIPBOARD DITOLAK) --- */}
+        {showClipboardFailToast && (
+            <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/90 dark:bg-white/95 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[70] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                <AlertTriangle size={16} className="text-amber-400 dark:text-amber-600" />
+                <span className="text-sm font-semibold">Gagal mengakses clipboard</span>
             </div>
         )}
 
