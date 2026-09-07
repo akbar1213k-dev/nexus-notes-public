@@ -404,11 +404,17 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
           if (event.data && event.data.type === 'SYNC_APP_STATE') {
+              // Lindungi dari payload tidak valid
+              if (typeof event.data.html !== 'string') return;
+
               // 1. Catat bahwa HTML ini berasal dari ketikan perangkat ini (Lokal)
               lastLocalHTML.current = event.data.html; 
               
               // 2. Diam-diam simpan ke Firebase (tanpa mengganggu/me-refresh iframe kita)
               onUpdate({ ...note, content: event.data.html });
+              
+              // 3. Rekam ke Mesin Waktu agar perubahan dari Preview bisa di-undo
+              recordHistory(event.data.html);
               
               // PERBAIKAN: Kita HAPUS perintah setPreviewContent() di sini
               // agar layar Iframe tidak berkedip dan kursor tidak hilang saat Anda mengetik!
