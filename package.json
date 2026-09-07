@@ -15,7 +15,9 @@
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
     "date-fns": "^3.6.0",
+    "diff-match-patch": "^1.0.5",
     "firebase": "^12.8.0",
+    "idb": "^8.0.3",
     "isomorphic-git": "^1.27.0",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
@@ -26,6 +28,7 @@
     "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
+    "@types/diff-match-patch": "^1.0.36",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.5.4",

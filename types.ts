@@ -69,3 +69,29 @@ export interface EditorHandle {
   redo: () => void;
   getContent: () => string; 
 }
+
+// --- MESIN WAKTU: Model Data History (Diff-Based, IndexedDB) ---
+export interface HistoryWordDiff {
+  added: string[];
+  removed: string[];
+}
+
+// Satu versi dalam rantai riwayat:
+// - index 0 SELALU 'base' (menyimpan content penuh)
+// - sisanya 'patch' (patchText = selisih dari versi sebelumnya)
+export interface HistoryChainEntry {
+  kind: 'base' | 'patch';
+  time: number;
+  content?: string;
+  patchText?: string;
+  preview?: string;
+  charCount?: number;
+}
+
+// Rantai riwayat per catatan (disimpan sebagai satu objek di IndexedDB).
+export interface HistoryChain {
+  noteId: string;
+  currentIndex: number;
+  entries: HistoryChainEntry[];
+  updatedAt: number;
+}

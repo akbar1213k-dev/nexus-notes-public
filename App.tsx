@@ -10,6 +10,7 @@ import { SettingsView } from './components/SettingsView';
 import { TractView } from './components/TractView';
 import { MindmapEditor } from './components/MindmapEditor';
 import { db, auth } from './services/firebase'; 
+import { clearHistory as clearHistoryFromIndexedDB } from './utils/historyStore'; 
 import { 
   collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, updateDoc, where 
 } from 'firebase/firestore';
@@ -604,33 +605,14 @@ export default function App() {
     setUser({ ...auth.currentUser, email: newEmail });
   };
 
-  const handleClearHistoryCache = (halfOnly: boolean) => {
-      const keys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('nexus_history_')) {
-              try {
-                  const data = JSON.parse(localStorage.getItem(k) || '{}');
-                  keys.push({ key: k, ts: data.timestamp || 0 });
-              } catch(e) {
-                  keys.push({ key: k, ts: 0 });
-              }
-          }
-      }
-      
-      if (keys.length === 0) {
+  const handleClearHistoryCache = async (halfOnly: boolean) => {
+      // Bersihkan dari IndexedDB (sumber riwayat Mesin Waktu saat ini)
+      const deleted = await clearHistoryFromIndexedDB(halfOnly);
+      if (deleted === 0) {
           alert("Tidak ada riwayat mesin waktu/cache yang menyumbat memori.");
           return;
       }
-
-      // FIFO: Urutkan dari timestamp terkecil (Paling Tua) ke terbesar (Paling Baru)
-      keys.sort((a, b) => a.ts - b.ts);
-      const deleteCount = halfOnly ? Math.ceil(keys.length / 2) : keys.length;
-      
-      for (let i = 0; i < deleteCount; i++) {
-          localStorage.removeItem(keys[i].key);
-      }
-      alert(`✅ Sukses! ${deleteCount} riwayat ${halfOnly ? 'paling lama ' : ''}telah dibersihkan dari memori perangkat.`);
+      alert(`✅ Sukses! ${deleted} versi riwayat ${halfOnly ? 'paling lama ' : ''}telah dibersihkan dari memori perangkat.`);
   };
 
   const handleManualSync = async () => {

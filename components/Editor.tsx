@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle, useLayoutEffect } from 'react';
-import { Note, EditorHandle } from '../types';
+import { Note, EditorHandle, HistoryChain, HistoryWordDiff } from '../types';
+import { makePatch, applyPatch, replayChain } from '../utils/diff';
+import { getHistoryChain, saveHistoryChain, cleanupLegacyLocalStorage } from '../utils/historyStore';
 import { 
   Image as ImageIcon, Table, AtSign, 
   Bold, Italic, Underline, Strikethrough,
@@ -96,6 +98,56 @@ const formatAndCleanHTML = (html: string) => {
     return formatted.replace(/\n{3,}/g, '\n\n').trim();
 };
 
+// --- MESIN WAKTU: Tipe Entri History Di Memori ---
+// Setiap entri di RAM selalu membawa `content` (konten penuh sudah dimaterialisasi),
+// sementara di penyimpanan hanya index 0 yang menyimpan content penuh ('base'),
+// sisanya menyimpan selisih ('patch').
+interface HistEntry {
+  kind: 'base' | 'patch';
+  time: number;
+  content: string;
+  patchText?: string;
+  preview: string;
+  charCount: number;
+  wordDiff: HistoryWordDiff | null;
+}
+
+const MAX_HISTORY_VERSIONS = 50;
+const HISTORY_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
+
+// Bersihkan HTML menjadi teks polos (untuk preview & diff kata)
+const cleanText = (htmlStr: string): string => {
+  const temp = document.createElement('div');
+  // Ubah tag ganti baris menjadi spasi biasa agar teks tidak menempel
+  temp.innerHTML = htmlStr.replace(/<br\s*[\/]?>/gi, ' ').replace(/<\/p>/gi, ' </p>');
+  return (temp.textContent || temp.innerText || "").replace(/\s+/g, ' ').trim();
+};
+
+const wordsFrom = (text: string): string[] => text.split(/\s+/).filter(Boolean);
+
+// Bandingkan dua teks bersih -> kata yang ditambah / dihapus
+const computeWordDiff = (prevText: string, currentText: string): HistoryWordDiff => {
+  const cur = wordsFrom(currentText);
+  const prv = wordsFrom(prevText);
+  return {
+    added: cur.filter((w) => !prv.includes(w)),
+    removed: prv.filter((w) => !cur.includes(w)),
+  };
+};
+
+// Bentuk entri memory dari konten penuh (dipakai untuk seed/base)
+const makeMemEntry = (content: string, time: number): HistEntry => {
+  const text = cleanText(content);
+  return {
+    kind: 'base',
+    time,
+    content,
+    preview: text.substring(0, 120) || "(Kosong)",
+    charCount: text.length,
+    wordDiff: null,
+  };
+};
+
 export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
   note: rawNote, 
   allNotes = [], 
@@ -180,11 +232,92 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const iframeRef = useRef<HTMLIFrameElement>(null); // Referensi pengendali untuk browser mini (Iframe)
   const fileInputRef = useRef<HTMLInputElement>(null); // Referensi input file untuk impor
 
-  // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM) ---
-  const [history, setHistory] = useState<any[]>([]); 
+  // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM, DIFF-BASED + INDEXEDDB) ---
+  const [history, setHistory] = useState<HistEntry[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [hydrated, setHydrated] = useState(false);
   const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null); // State untuk buka/tutup rincian
   const isTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref sinkron untuk menghindari stale closure di timer/handler (fix bug historyIndex).
+  const historyContentRef = useRef<HistEntry[]>([]);
+  const historyIndexRef = useRef(-1);
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  // Update ref + state secara atomik (satu-satunya jalur mutasi history di memori)
+  const applyHistory = (entries: HistEntry[], index: number) => {
+    historyContentRef.current = entries;
+    historyIndexRef.current = index;
+    setHistory(entries);
+    setHistoryIndex(index);
+  };
+
+  // Konversi entri memori -> rantai penyimpanan ringkas (base di index 0 + patch sisanya)
+  const toStoredChain = (entries: HistEntry[], index: number): HistoryChain => ({
+    noteId: note.id,
+    currentIndex: index,
+    entries: entries.map((e, i) => {
+      const common = { time: e.time, preview: e.preview, charCount: e.charCount };
+      if (i === 0) return { kind: 'base', content: e.content, ...common };
+      return { kind: 'patch', patchText: e.patchText ?? '', ...common };
+    }),
+    updatedAt: Date.now(),
+  });
+
+  // Tulis rantai ke IndexedDB, serial agar put yang lebih baru tidak ditimpa yang lama
+  const persistChain = (entries: HistEntry[], index: number) => {
+    if (note.id === 'safe-temp') return;
+    const chain = toStoredChain(entries, index);
+    const task = persistQueueRef.current
+      .catch(() => {})
+      .then(() => saveHistoryChain(chain));
+    persistQueueRef.current = task;
+  };
+
+  // Tambahkan versi baru (dengan debounce dijalankan pemanggil). Memangkas masa depan
+  // bila terakhir kali user melakukan undo, dedupe, lalu memotong ke 50 versi maksimal.
+  const appendHistory = (newContent: string, time?: number) => {
+    const entries = historyContentRef.current;
+    const index = historyIndexRef.current;
+    const now = time ?? Date.now();
+
+    if (entries.length === 0) {
+      const seed = makeMemEntry(newContent, now);
+      applyHistory([seed], 0);
+      persistChain([seed], 0);
+      return;
+    }
+
+    // Jika habis undo (misal C -> B) lalu ketik hal baru (D), buang masa depan (C).
+    let current = entries.slice(0, index + 1);
+    const last = current[current.length - 1];
+    if (!last || last.content === newContent) return; // dedupe
+    const patchText = makePatch(last.content, newContent);
+    if (!patchText) return; // secara byte identik
+
+    const text = cleanText(newContent);
+    const entry: HistEntry = {
+      kind: 'patch',
+      patchText,
+      time: now,
+      content: newContent,
+      preview: text.substring(0, 120) || "(Kosong)",
+      charCount: text.length,
+      wordDiff: null,
+    };
+    current.push(entry);
+
+    if (current.length > MAX_HISTORY_VERSIONS) {
+      current.splice(0, current.length - MAX_HISTORY_VERSIONS);
+      // Pastikan entri terdepan selalu 'base' agar replay selalu punya titik mulai
+      const head = current[0];
+      if (head && head.kind !== 'base') {
+        current[0] = { ...head, kind: 'base', patchText: undefined };
+      }
+    }
+
+    applyHistory(current, current.length - 1);
+    persistChain(current, current.length - 1);
+  };
 
   // --- FUNGSI BARU: Sinkronisasi Preview & Memori Lokal ---
   useEffect(() => {
@@ -285,40 +418,81 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       return () => window.removeEventListener('message', handleMessage);
   }, [note, onUpdate]);
   
-  // Fungsi untuk Memuat History dari Brankas Lokal saat Catatan Dibuka
+  // Fungsi untuk Memuat History dari IndexedDB saat Catatan Dibuka
   useEffect(() => {
-      const loadHistory = () => {
-          const storageKey = `nexus_history_${note.id}`;
-          const savedData = localStorage.getItem(storageKey);
-          
-          if (savedData) {
-              try {
-                  const { timestamp, pastVersions } = JSON.parse(savedData);
-                  // Cek apakah usianya belum 24 Jam (24 * 60 * 60 * 1000 milidetik)
-                  if (Date.now() - timestamp < 86400000) {
-                      // Migrasi otomatis jika data lama masih berupa string (Teks biasa)
-                      const formattedVersions = typeof pastVersions[0] === 'string' 
-                          ? pastVersions.map((v: string) => ({ content: v, timestamp: timestamp }))
-                          : pastVersions;
+    let cancelled = false;
 
-                      setHistory(formattedVersions);
-                      setHistoryIndex(formattedVersions.length - 1);
-                      return; // Berhasil dimuat
-                  } else {
-                      // Sudah basi (lebih 24 jam), buang!
-                      localStorage.removeItem(storageKey);
-                  }
-              } catch (e) {
-                  console.error("Gagal membaca history", e);
-              }
+    const initialize = async () => {
+      // Jangan tersisa timer ketikan dari catatan sebelumnya
+      if (isTypingTimer.current) {
+        clearTimeout(isTypingTimer.current);
+        isTypingTimer.current = null;
+      }
+      cleanupLegacyLocalStorage(); // one-time: buang history localStorage lama
+
+      // Seed instan agar UI tidak menunggu IndexedDB (anti-flicker)
+      applyHistory([makeMemEntry(note.content, Date.now())], 0);
+      setHydrated(false);
+
+      if (!note.id || note.id === 'safe-temp') {
+        setHydrated(true);
+        return;
+      }
+
+      try {
+        const chain = await getHistoryChain(note.id);
+        if (cancelled) return;
+        if (chain && chain.entries && chain.entries.length > 0) {
+          const now = Date.now();
+          const fresh = chain.entries.filter((e) => now - e.time < HISTORY_TTL_MS);
+          if (fresh.length > 0) {
+            const titled: (HistEntry)[] = [];
+            const contents = replayChain(fresh);
+            for (let i = 0; i < fresh.length; i++) {
+              const e = fresh[i];
+              const preview = e.preview ?? (cleanText(contents[i]).substring(0, 120) || "(Kosong)");
+              const entry: HistEntry = {
+                kind: i === 0 ? 'base' : (e.kind === 'base' ? 'base' : 'patch'),
+                time: e.time,
+                content: contents[i],
+                patchText: i > 0 && e.kind === 'patch' ? e.patchText : undefined,
+                preview,
+                charCount: e.charCount ?? cleanText(contents[i]).length,
+                wordDiff: null,
+              };
+              titled.push(entry);
+            }
+
+            // Tuning: hanya index terdepan boleh 'base' (jaga invariant replay)
+            if (titled[0].kind !== 'base') {
+              titled[0] = { ...titled[0], kind: 'base', patchText: undefined };
+            }
+
+            const restoredIndex = Math.min(chain.currentIndex ?? titled.length - 1, titled.length - 1);
+            historyContentRef.current = titled;
+            historyIndexRef.current = restoredIndex;
+            setHistory(titled);
+            setHistoryIndex(restoredIndex);
+            setHydrated(true);
+            return;
           }
-          
-          // Jika tidak ada history (atau sudah basi), jadikan konten saat ini sebagai titik awal
-          setHistory([{ content: note.content, timestamp: Date.now() }]);
-          setHistoryIndex(0);
-      };
-      
-      loadHistory();
+        }
+      } catch (e) {
+        console.error("Gagal membaca sejarah dari IndexedDB:", e);
+        if (cancelled) return;
+      }
+
+      // Jika tidak ada history (atau semua sudah basi), konten saat ini jadi titik awal
+      applyHistory([makeMemEntry(note.content, Date.now())], 0);
+      setHydrated(true);
+    };
+
+    initialize();
+    return () => {
+      cancelled = true;
+      historyContentRef.current = [];
+      historyIndexRef.current = -1;
+    };
   }, [note.id]); // Berjalan tiap kali kamu ganti/buka catatan
 
   // --- FUNGSI CUT (PERBAIKAN: Salin isi sebelum dihapus, mendukung mode kode & visual) ---
@@ -414,23 +588,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Dorong kondisi 'before' (isi sebelumnya) dan 'after' (isi baru) ke riwayat Undo.
   // Memungkinkan aksi penimpaan/penghapusan (Tempel & Hapus Semua) dapat di-undo sempurna.
   const pushUndoState = (beforeContent: string, afterContent: string) => {
-      const currentHistory = history.slice(0, historyIndex + 1);
-      const newVersions = [
-          ...currentHistory,
-          { content: beforeContent, timestamp: Date.now() },
-          { content: afterContent, timestamp: Date.now() + 1 }
-      ];
-      if (newVersions.length > 50) newVersions.shift();
-      setHistoryIndex(newVersions.length - 1);
-      setHistory(newVersions);
-      try {
-          localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
-              timestamp: Date.now(),
-              pastVersions: newVersions
-          }));
-      } catch (error) {
-          console.warn("⚠️ Gagal menyimpan riwayat mesin waktu.");
-      }
+    const t = Date.now();
+    const beforeFlag = historyContentRef.current.length === 0
+      || historyContentRef.current[historyIndexRef.current]?.content !== beforeContent;
+    if (beforeFlag) appendHistory(beforeContent, t);
+    if (beforeContent !== afterContent) appendHistory(afterContent, t + 1);
   };
 
   // --- FUNGSI TEMPEL (PASTE) DARI SYSTEM CLIPBOARD ---
@@ -507,12 +669,25 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   };
 
   // --- HELPER: COPY LEGACY (TIDAK BUTUH IZIN ASYNC CLIPBOARD) ---
-  // Menyalin via textarea tersembunyi + document.execCommand('copy').
-  // Jalur ini tetap bekerja walau navigator.clipboard ditolak per-situs,
-  // karena hanya butuh aksi user (tap) seperti command clipboard bawaan.
+  // Jalur ini menerapkan deteksi lewat event 'copy': bila peramban benar-benar
+  // menjalankan operasi salin, listener override data dengan teks kita. Hasil
+  // true HANYA berarti data benar-benar disetel -- hindari 'true' palsu yang
+  // membuat toast sukses padahal clipboard kosong.
   const legacyCopyText = (text: string): boolean => {
+      let ok = false;
+      const handler = (e: ClipboardEvent) => {
+          try {
+              e.clipboardData?.setData('text/plain', text);
+              e.preventDefault();
+              ok = true;
+          } catch (err) {
+              console.error("Set clipboard data (legacy) gagal:", err);
+          }
+      };
+      let textarea: HTMLTextAreaElement | null = null;
+      document.addEventListener('copy', handler);
       try {
-          const textarea = document.createElement('textarea');
+          textarea = document.createElement('textarea');
           textarea.value = text;
           textarea.setAttribute('readonly', '');
           textarea.style.position = 'fixed';
@@ -523,36 +698,48 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           textarea.focus();
           textarea.select();
           textarea.setSelectionRange(0, textarea.value.length);
-          const success = document.execCommand('copy');
-          document.body.removeChild(textarea);
-          return success;
+          document.execCommand('copy');
       } catch (err) {
           console.error("Legacy copy gagal:", err);
-          return false;
+          ok = false;
+      } finally {
+          if (textarea && textarea.parentNode) textarea.parentNode.removeChild(textarea);
+          document.removeEventListener('copy', handler);
       }
+      return ok;
   };
 
-  // --- HELPER: WRITE KE CLIPBOARD DENGAN FALLBACK 3 TINGKAT ---
-  // 1) ClipboardItem (HTML+teks) -> 2) writeText -> 3) execCommand('copy').
-  // Mengembalikan true jika setidaknya satu saluran berhasil.
+  // Chrome Android / Safari iOS tidak andal menulis text/html via ClipboardItem
+  // (bisa resolve tapi clipboard tetap kosong). Rich-copy dibatasi ke desktop.
+  const isMobileDevice = typeof navigator !== 'undefined' && /Android|iPad|iPhone|iPod/i.test(navigator.userAgent);
+
+  // --- HELPER: WRITE KE CLIPBOARD DENGAN FALLBACK BERTINGKAT ---
+  // A) Tanpa API async (non-secure/WebView): legacy sinkron langsung (dalam gesture).
+  // B) Kaya HTML+teks via ClipboardItem -- khusus desktop.
+  // C) Teks polos via writeText -- paling andal di Chrome Android (secure context).
+  // D) Legacy sinkron dengan deteksi event copy (tidak pernah 'sukses' palsu).
   const writeToClipboard = async (text: string, html?: string): Promise<boolean> => {
-      // Tingkat 1: tulis kaya (HTML + plain text) bila API & ClipboardItem tersedia
+      // Tingkat A: API async tidak tersedia -> langsung jalur legacy sinkron
+      if (!navigator.clipboard?.write && !navigator.clipboard?.writeText) {
+          return legacyCopyText(text);
+      }
+
+      // Tingkat B: tulis kaya (HTML + plain text) hanya di desktop
       try {
-          if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-              const htmlContent = html ?? text;
+          if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write && html && !isMobileDevice) {
               const clipboardItem = new ClipboardItem({
-                  "text/html": new Blob([htmlContent], { type: "text/html" }),
+                  "text/html": new Blob([html], { type: "text/html" }),
                   "text/plain": new Blob([text], { type: "text/plain" })
               });
               await navigator.clipboard.write([clipboardItem]);
               return true;
           }
       } catch (err) {
-          // langsung coba tingkat berikutnya
-          console.error("ClipboardItem write gagal:", err);
+          // lanjut ke tingkat berikutnya
+          console.error("ClipboardItem (HTML) write gagal:", err);
       }
 
-      // Tingkat 2: tulis teks polos via Async Clipboard API
+      // Tingkat C: teks polos via writeText
       try {
           if (navigator.clipboard?.writeText) {
               await navigator.clipboard.writeText(text);
@@ -562,7 +749,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           console.error("writeText gagal:", err);
       }
 
-      // Tingkat 3: jalur legacy execCommand (tanpa izin async clipboard)
+      // Tingkat D: jalur legacy sinkron (hasil akurat berkat deteksi event copy)
       return legacyCopyText(text);
   };
 
@@ -953,36 +1140,60 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   // --- MESIN WAKTU: SISTEM UNDO/REDO BUATAN SENDIRI ---
   const performUndo = () => {
-      if (historyIndex > 0) {
-          const newIndex = historyIndex - 1;
-          const restoredContent = history[newIndex].content; // <-- PANGGIL KONTEN SAJA
-          setHistoryIndex(newIndex);
-          onUpdate({ ...note, content: restoredContent });
-          
-          // Fokuskan kembali kursor agar user tidak bingung
-          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
-          else if (!isCodeView && editorRef.current) editorRef.current.focus();
-      }
+    const index = historyIndexRef.current;
+    const entries = historyContentRef.current;
+    if (index > 0) {
+      const newIndex = index - 1;
+      const restoredContent = entries[newIndex].content;
+      historyIndexRef.current = newIndex;
+      setHistoryIndex(newIndex);
+      onUpdate({ ...note, content: restoredContent });
+      persistChain(entries, newIndex); // simpan posisi kursor agar supaya stabil setelah reload
+
+      // Fokuskan kembali kursor agar user tidak bingung
+      if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+      else if (!isCodeView && editorRef.current) editorRef.current.focus();
+    }
   };
 
   const performRedo = () => {
-      if (historyIndex < history.length - 1) {
-          const newIndex = historyIndex + 1;
-          const restoredContent = history[newIndex].content; // <-- PANGGIL KONTEN SAJA
-          setHistoryIndex(newIndex);
-          onUpdate({ ...note, content: restoredContent });
-          
-          // Fokuskan kembali kursor
-          if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
-          else if (!isCodeView && editorRef.current) editorRef.current.focus();
-      }
+    const index = historyIndexRef.current;
+    const entries = historyContentRef.current;
+    if (index < entries.length - 1) {
+      const newIndex = index + 1;
+      const restoredContent = entries[newIndex].content;
+      historyIndexRef.current = newIndex;
+      setHistoryIndex(newIndex);
+      onUpdate({ ...note, content: restoredContent });
+      persistChain(entries, newIndex);
+
+      // Fokuskan kembali kursor
+      if (isCodeView && codeEditorRef.current) codeEditorRef.current.focus();
+      else if (!isCodeView && editorRef.current) editorRef.current.focus();
+    }
   };
-  
+
+  // Hitung sekali diff kata per versi saat modal dibuka (lazy + cache), sehingga
+  // render modal tidak membebani CPU untuk setiap item.
+  useEffect(() => {
+    if (!showHistoryModal) return;
+    const entries = historyContentRef.current;
+    let changed = false;
+    const next = entries.map((e, i) => {
+      if (i > 0 && !e.wordDiff) {
+        changed = true;
+        return { ...e, wordDiff: computeWordDiff(cleanText(entries[i - 1].content), cleanText(e.content)) };
+      }
+      return e;
+    });
+    if (changed) applyHistory(next, historyIndexRef.current);
+  }, [showHistoryModal]);
 
   // Expose undo/redo to parent via Ref
   useImperativeHandle(ref, () => ({
     undo: performUndo,
-    redo: performRedo
+    redo: performRedo,
+    getContent: () => historyContentRef.current[historyIndexRef.current]?.content ?? note.content
   }));
 
   // --- TOMBOL UTAMA: Atur Opacity Solid (100%) sementara selama 3 detik ---
@@ -1376,72 +1587,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     recordHistory(content); // Rekam perubahan ke dalam Mesin Waktu
   };
 
-  // --- FUNGSI BARU: Perekam Mesin Waktu (Debounced) ---
+  // --- FUNGSI BARU: Perekam Mesin Waktu (Debounced, Diff-Based) ---
   const recordHistory = (newContent: string) => {
       // Tunggu user berhenti mengetik 1 detik sebelum merekam, agar history tidak dipenuhi per huruf
       if (isTypingTimer.current) clearTimeout(isTypingTimer.current);
-      
+
       isTypingTimer.current = setTimeout(() => {
-          setHistory(prev => {
-              // Jika kita habis melakukan Undo (misal dari C ke B), lalu mengetik hal baru (D)
-              // Maka masa depan (C) harus dibuang, jadinya A -> B -> D
-              const currentHistory = prev.slice(0, historyIndex + 1);
-              
-              // Cek agar tidak merekam hal yang sama persis dua kali berturut-turut
-              if (currentHistory.length > 0 && currentHistory[currentHistory.length - 1].content === newContent) return prev;
-              
-              // TAMBAHAN: Kita rekam teks BERSAMAAN dengan waktu persis ia diketik (hingga milidetik)
-              const newVersions = [...currentHistory, { content: newContent, timestamp: Date.now() }];
-              
-              // Batasi maksimal 50 versi agar memori lokal tidak jebol
-              if (newVersions.length > 50) newVersions.shift();
-              
-              setHistoryIndex(newVersions.length - 1);
-              
-              // Simpan ke Brankas Lokal dengan Pengaman (Self-Healing Auto-Pilot)
-              try {
-                  localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
-                      timestamp: Date.now(),
-                      pastVersions: newVersions
-                  }));
-              } catch (error) {
-                  console.warn("⚠️ Memori penuh! Menjalankan pembersihan otomatis (Self-Healing)...");
-                  
-                  // LOGIKA FIFO: Ambil semua riwayat, urutkan dari yang terlama
-                  const keys = [];
-                  for (let i = 0; i < localStorage.length; i++) {
-                      const k = localStorage.key(i);
-                      if (k && k.startsWith('nexus_history_')) {
-                          try {
-                              const data = JSON.parse(localStorage.getItem(k) || '{}');
-                              keys.push({ key: k, ts: data.timestamp || 0 });
-                          } catch(e) {
-                              keys.push({ key: k, ts: 0 });
-                          }
-                      }
-                  }
-                  
-                  keys.sort((a, b) => a.ts - b.ts); // Urutkan: Terlama di urutan pertama
-                  const deleteCount = Math.max(1, Math.ceil(keys.length / 2)); // Hapus 50%
-                  
-                  for (let i = 0; i < deleteCount; i++) {
-                      localStorage.removeItem(keys[i].key);
-                  }
-                  
-                  // Coba simpan kembali setelah ada ruang kosong (Mencegah Crash Layar Putih)
-                  try {
-                      localStorage.setItem(`nexus_history_${note.id}`, JSON.stringify({
-                          timestamp: Date.now(),
-                          pastVersions: newVersions
-                      }));
-                      console.log(`✅ Self-healing berhasil. ${deleteCount} riwayat mesin waktu terlama telah dikorbankan.`);
-                  } catch(e2) {
-                      console.error("❌ Gagal menyimpan history, memori perangkat benar-benar habis.");
-                  }
-              }
-              
-              return newVersions;
-          });
+          isTypingTimer.current = null;
+          if (!note.id || note.id === 'safe-temp') return;
+          appendHistory(newContent);
       }, 1000); // 1 detik delay
   };
 
@@ -2674,7 +2828,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 
                 <div className="p-4 overflow-y-auto flex-1 space-y-3 bg-gray-50 dark:bg-gray-900/20">
                     {history.length === 0 ? (
-                        <div className="text-center text-gray-500 py-8 text-sm">Belum ada riwayat perubahan.</div>
+                        <div className="text-center text-gray-500 py-8 text-sm">
+                            {hydrated ? 'Belum ada riwayat perubahan.' : 'Memuat riwayat...'}
+                        </div>
                     ) : (
                         /* Kita balik urutannya (reverse) agar versi TERBARU muncul paling atas */
                         [...history].reverse().map((histItem, reverseIdx) => {
@@ -2694,24 +2850,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                 return `${h}:${m}:${s}.${ms}`;
                             };
 
-                            // 2. HELPER PEMBERSIH KODE: Menghapus &nbsp;, <br>, dan memfilter tag HTML
-                            const getCleanText = (htmlStr: string) => {
-                                const temp = document.createElement('div');
-                                // Ubah tag ganti baris menjadi spasi biasa agar teks tidak menempel
-                                temp.innerHTML = htmlStr.replace(/<br\s*[\/]?>/gi, ' ').replace(/<\/p>/gi, ' </p>'); 
-                                // textContent akan secara ajaib memusnahkan &nbsp; menjadi spasi biasa
-                                return (temp.textContent || temp.innerText || "").replace(/\s+/g, ' ').trim();
-                            };
-
-                            const currentText = getCleanText(histItem.content);
-                            const prevSnapshot = originalIdx > 0 ? history[originalIdx - 1].content : "";
-                            const prevText = getCleanText(prevSnapshot);
-                            
-                            const currentWords = currentText.split(/\s+/).filter(w => w);
-                            const prevWords = prevText.split(/\s+/).filter(w => w);
-                            
-                            const addedWords = currentWords.filter(w => !prevWords.includes(w)).join(' ');
-                            const removedWords = prevWords.filter(w => !currentWords.includes(w)).join(' ');
+// 2. PREVIEW & DIFF (sudah dihitung saat merekam / lazy-cache saat modal dibuka)
+                            const addedWords = histItem.wordDiff?.added.join(' ') ?? '';
+                            const removedWords = histItem.wordDiff?.removed.join(' ') ?? '';
+                            const previewText = histItem.preview || "(Kosong)";
 
                             return (
                                 <div 
@@ -2733,7 +2875,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                                     Versi {originalIdx + 1}
                                                 </span>
                                                 <span className="text-[10px] font-mono bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-md">
-                                                    {formatTimeWithMs(histItem.timestamp)}
+                                                    {formatTimeWithMs(histItem.time)}
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
@@ -2746,7 +2888,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                                             </div>
                                         </div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 italic text-left">
-                                            {currentText.substring(0, 100) || "(Kosong)"}
+                                            {previewText}
                                         </div>
                                     </button>
 
@@ -2774,8 +2916,13 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
                                             <button
                                                 onClick={() => {
+                                                    const entries = historyContentRef.current;
+                                                    const target = entries[originalIdx];
+                                                    if (!target) return;
+                                                    historyIndexRef.current = originalIdx;
                                                     setHistoryIndex(originalIdx);
-                                                    onUpdate({ ...note, content: histItem.content });
+                                                    onUpdate({ ...note, content: target.content });
+                                                    persistChain(entries, originalIdx);
                                                     setShowHistoryModal(false);
                                                     setExpandedHistoryIdx(null);
                                                     
