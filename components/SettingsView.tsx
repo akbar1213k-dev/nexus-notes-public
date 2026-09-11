@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { LogOut, Cloud, User, Clock, Edit2, Check, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { LogOut, Cloud, User, Clock, Edit2, Check, X, HardDrive, RefreshCw } from 'lucide-react';
 import BackupManager from './BackupManager'; // <--- Tambahkan ini
 import { Note, Folder } from '../types';     // <--- Tambahkan ini
+import { getStorageStats, formatBytes, StorageStats } from '../utils/storageStats';
 
 interface SettingsViewProps {
   isAutoSync: boolean;
@@ -39,6 +40,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [newEmail, setNewEmail] = useState(userEmail || '');
   const [isUpdating, setIsUpdating] = useState(false);
+
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+
+  const loadStorageStats = async () => {
+    setStorageStats(null);
+    const stats = await getStorageStats();
+    setStorageStats(stats);
+  };
+
+  useEffect(() => {
+    loadStorageStats();
+  }, []);
 
   const handleEmailSubmit = async () => {
     if (!newEmail || newEmail === userEmail || !onUpdateEmail) {
@@ -183,6 +196,89 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             folders={folders}
             onImport={onImportData}
         />
+      </section>
+
+      {/* Storage Usage Website */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Storage Website</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <HardDrive size={20} className="text-gray-400" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Penyimpanan Website</p>
+                  <p className="text-xs text-gray-500">Ukuran data yang tersimpan di perangkat ini</p>
+                </div>
+              </div>
+              <button
+                onClick={loadStorageStats}
+                disabled={!storageStats}
+                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-lg transition-all disabled:opacity-50"
+                title="Segarkan"
+              >
+                <RefreshCw size={18} className={!storageStats ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          {storageStats ? (
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900/50 rounded-lg px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">localStorage</p>
+                  <p className="text-xs text-gray-500">{storageStats.localItemCount} key tersimpan</p>
+                </div>
+                <span className="font-mono text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  {formatBytes(storageStats.localBytes)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900/50 rounded-lg px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Cache (IndexedDB + Cache API)</p>
+                  <p className="text-xs text-gray-500">
+                    {storageStats.historyVersions > 0
+                      ? `${storageStats.historyVersions} versi riwayat dalam ${storageStats.historyRecords} catatan`
+                      : 'Tidak ada data cache'}
+                  </p>
+                </div>
+                <span className="font-mono text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  {formatBytes(storageStats.cacheBytes)}
+                </span>
+              </div>
+
+              {storageStats.supported && storageStats.quota > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+                    <span>Total Terpakai</span>
+                    <span className="font-mono">
+                      {formatBytes(storageStats.totalUsage)} dari {formatBytes(storageStats.quota)} (
+                      {Math.min(100, Math.round((storageStats.totalUsage / storageStats.quota) * 100))}%)
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        storageStats.totalUsage / storageStats.quota > 0.9
+                          ? 'bg-red-500'
+                          : storageStats.totalUsage / storageStats.quota > 0.7
+                          ? 'bg-amber-500'
+                          : 'bg-blue-600'
+                      }`}
+                      style={{ width: `${Math.min(100, (storageStats.totalUsage / storageStats.quota) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-4 animate-pulse">
+              <div className="h-12 rounded-lg bg-gray-200 dark:bg-gray-700 mb-2" />
+              <div className="h-12 rounded-lg bg-gray-200 dark:bg-gray-700" />
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Danger Zone & Cache Management */}
