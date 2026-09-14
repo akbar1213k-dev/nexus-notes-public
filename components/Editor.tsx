@@ -1365,6 +1365,99 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         // Agar aman, fokus pada perbaikan Checkbox di bawah ini
     }
 
+    // 4. HANDLE MENTION CHIP DELETION (Backspace/Delete)
+    // Chip ber-contenteditable="false" tidak bisa dihapus normal oleh browser;
+    // deteksi saat kursor tepat bersebelahan lalu hapus chip secara manual.
+    if ((e.key === 'Backspace' || e.key === 'Delete') && selection.rangeCount > 0) {
+      const caretRange = selection.getRangeAt(0);
+      if (caretRange.collapsed) {
+        const selNode = selection.anchorNode;
+        const selOffset = selection.anchorOffset;
+        let chipToRemove: HTMLElement | null = null;
+        let caretParent: Node | null = null;
+        let caretOffset = 0;
+        let removeSpacerText = false;
+
+        const findPrevChip = (start: Node | null): HTMLElement | null => {
+          let prev = start;
+          while (prev && prev.nodeType === Node.TEXT_NODE && !prev.textContent) {
+            prev = prev.previousSibling;
+          }
+          return prev && (prev as HTMLElement).classList?.contains('mention-chip')
+            ? (prev as HTMLElement)
+            : null;
+        };
+        const findNextChip = (start: Node | null): HTMLElement | null => {
+          let next = start;
+          while (next && next.nodeType === Node.TEXT_NODE && !next.textContent) {
+            next = next.nextSibling;
+          }
+          return next && (next as HTMLElement).classList?.contains('mention-chip')
+            ? (next as HTMLElement)
+            : null;
+        };
+
+        if (e.key === 'Backspace') {
+          if (selNode && selNode.nodeType === Node.TEXT_NODE) {
+            const text = selNode.textContent || '';
+            if (selOffset === 0) {
+              chipToRemove = findPrevChip(selNode.previousSibling);
+              if (chipToRemove) { caretParent = selNode.parentNode; caretOffset = 0; }
+            } else if (
+              selOffset === text.length &&
+              /^[\u00A0\s]*$/.test(text.slice(0, selOffset))
+            ) {
+              // Kursor di ujung teks pemisah (hanya nbsp/spasi) setelah chip
+              chipToRemove = findPrevChip(selNode.previousSibling);
+              if (chipToRemove) { caretParent = selNode.parentNode; caretOffset = 0; removeSpacerText = true; }
+            }
+          } else if (selNode && selNode.nodeType === Node.ELEMENT_NODE && selOffset > 0) {
+            const prevChild = (selNode as HTMLElement).childNodes[selOffset - 1];
+            chipToRemove = prevChild ? findPrevChip(prevChild) : null;
+            if (chipToRemove) { caretParent = selNode; caretOffset = selOffset - 1; }
+          }
+        } else { // Delete
+          if (selNode && selNode.nodeType === Node.TEXT_NODE) {
+            const text = selNode.textContent || '';
+            if (selOffset >= text.length) {
+              chipToRemove = findNextChip(selNode.nextSibling);
+              if (chipToRemove) { caretParent = selNode.parentNode; caretOffset = selOffset; }
+            }
+          } else if (selNode && selNode.nodeType === Node.ELEMENT_NODE) {
+            const nextChild = (selNode as HTMLElement).childNodes[selOffset] || null;
+            chipToRemove = nextChild ? findNextChip(nextChild) : null;
+            if (chipToRemove) { caretParent = selNode; caretOffset = selOffset; }
+          }
+        }
+
+        if (chipToRemove) {
+          e.preventDefault();
+
+          // Buang teks pemisah (nbsp/spasi) yang menggantung setelah chip
+          if (removeSpacerText && selNode && selNode.nodeType === Node.TEXT_NODE) {
+            (selNode as Text).remove();
+          }
+          chipToRemove.remove();
+
+          // Pulihkan kursor di posisi chip yang baru saja dihapus
+          if (caretParent) {
+            try {
+              const r = document.createRange();
+              r.setStart(caretParent, caretOffset);
+              r.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(r);
+            } catch (err) {
+              console.error("Error restoring caret after chip delete:", err);
+            }
+          }
+
+          handleInput();
+          return;
+        }
+      }
+    }
+
     // 3. HANDLE TODO ITEMS (CHECKBOX)
     const todoItem = (node as HTMLElement).closest('.todo-item');
     if (todoItem) {
