@@ -1651,11 +1651,37 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       selection.addRange(cursorRange);
     }
 
-    // 2. Ganti DOM Manipulation manual dengan execCommand
-    // Metode ini mencegah HTML pecah/berantakan saat kita menyisipkan elemen
-    // ke dalam tag yang sudah kompleks seperti baris checkbox (todo-item).
-    const chipHtml = `<span class="mention-chip" contenteditable="false" data-id="${targetNoteId}">@${targetTitle}</span>&nbsp;`;
-    document.execCommand('insertHTML', false, chipHtml);
+    // 2. Sisipkan chip via DOM manipulation (bukan execCommand).
+    // execCommand('insertHTML') menghapus atribut class/data-id di Chrome
+    // saat menyisipkan ke dalam <li> atau checkbox <span> (nested contentEditable).
+    // Ambil range FRESH dari seleksi yang hidup agar aman jika teks node
+    // tadi ikut terhapus/diubah browser saat deleteContents.
+    const liveSel = window.getSelection();
+    let insertRange = liveSel && liveSel.rangeCount > 0
+      ? liveSel.getRangeAt(0).cloneRange()
+      : null;
+    if (!insertRange) return;
+    insertRange.collapse(true);
+
+    const chip = document.createElement('span');
+    chip.className = 'mention-chip';
+    chip.contentEditable = 'false';
+    chip.dataset.id = targetNoteId;
+    chip.textContent = '@' + targetTitle;
+
+    const space = document.createTextNode('\u00A0');
+    const frag = document.createDocumentFragment();
+    frag.appendChild(chip);
+    frag.appendChild(space);
+    insertRange.insertNode(frag);
+
+    const newRange = document.createRange();
+    newRange.setStartAfter(space);
+    newRange.collapse(true);
+    if (liveSel) {
+      liveSel.removeAllRanges();
+      liveSel.addRange(newRange);
+    }
 
     setShowMentionList(false);
     handleInput();
