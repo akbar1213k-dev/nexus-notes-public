@@ -53,9 +53,18 @@ export const MindmapEditor: React.FC<MindmapEditorProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
+  // Pulihkan node yang posisinya rusak (NaN) akibat bug koordinat touch sebelumnya
   const data = note.mindmapData || { nodes: [], connections: [] };
-  const [nodes, setNodes] = useState<MindmapNode[]>(data.nodes);
-  const [connections, setConnections] = useState<MindmapConnection[]>(data.connections);
+  const sanitizedData = {
+    nodes: data.nodes.map((n, i) => ({
+      ...n,
+      x: Number.isFinite(n.x) ? n.x : 300 + i * 40,
+      y: Number.isFinite(n.y) ? n.y : 180 + i * 40,
+    })),
+    connections: data.connections,
+  };
+  const [nodes, setNodes] = useState<MindmapNode[]>(sanitizedData.nodes);
+  const [connections, setConnections] = useState<MindmapConnection[]>(sanitizedData.connections);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedConnIdx, setSelectedConnIdx] = useState<number | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -228,10 +237,8 @@ export const MindmapEditor: React.FC<MindmapEditorProps> = ({
         event.sourceEvent.stopPropagation();
       })
       .on('drag', (event, d) => {
-        const transform = d3.zoomTransform(svgRef.current!);
-        const [mx, my] = transform.invert([event.sourceEvent.offsetX, event.sourceEvent.offsetY]);
-        d.x = mx;
-        d.y = my;
+        d.x = event.x;
+        d.y = event.y;
         d3.select(event.sourceEvent.target.closest('g'))
           .attr('transform', `translate(${d.x},${d.y})`);
 
