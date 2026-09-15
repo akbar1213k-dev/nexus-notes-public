@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as d3 from 'd3';
-import { Trash2, ArrowLeft } from 'lucide-react';
+import { Trash2, ArrowLeft, Plus } from 'lucide-react';
 import { Note, MindmapNode, MindmapConnection } from '../types';
 
 interface MindmapEditorProps {
@@ -89,6 +89,27 @@ export const MindmapEditor: React.FC<MindmapEditorProps> = ({
       updatedAt: Date.now(),
     });
   }, [note, onUpdate]);
+
+  // Create a new node at (x, y) in canvas coordinates
+  const addNodeAt = useCallback((x: number, y: number) => {
+    const newId = Date.now().toString();
+    const newNode: MindmapNode = { id: newId, text: 'Konsep Baru', x, y };
+    const newNodes = [...nodesRef.current, newNode];
+    setNodes(newNodes);
+    saveData(newNodes, connectionsRef.current);
+    setSelectedNodeId(newId);
+    setEditingNodeId(newId);
+  }, [saveData]);
+
+  // Add a node at the center of the currently visible viewport (works with touch too)
+  const addNodeAtViewportCenter = useCallback(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const transform = d3.zoomTransform(svg);
+    const [mx, my] = transform.invert([rect.width / 2, rect.height / 2]);
+    addNodeAt(mx, my);
+  }, [addNodeAt]);
 
   // Build depth map
   const depthMap = new Map<string, number>();
@@ -194,15 +215,10 @@ export const MindmapEditor: React.FC<MindmapEditorProps> = ({
     // --- Double-click canvas to add node ---
     svg.on('dblclick', (event) => {
       if (event.target !== svgRef.current && event.target !== g.node()) return;
+      const rect = svgRef.current!.getBoundingClientRect();
       const transform = d3.zoomTransform(svgRef.current!);
-      const [mx, my] = transform.invert([event.offsetX, event.offsetY]);
-      const newId = Date.now().toString();
-      const newNode: MindmapNode = { id: newId, text: 'Konsep Baru', x: mx, y: my };
-      const newNodes = [...nodesRef.current, newNode];
-      setNodes(newNodes);
-      saveData(newNodes, connectionsRef.current);
-      setSelectedNodeId(newId);
-      setEditingNodeId(newId);
+      const [mx, my] = transform.invert([event.clientX - rect.left, event.clientY - rect.top]);
+      addNodeAt(mx, my);
     });
 
     // --- Node drag ---
@@ -280,7 +296,7 @@ export const MindmapEditor: React.FC<MindmapEditorProps> = ({
     // Cleanup
     return () => { svg.selectAll('*').remove(); };
 
-  }, [nodes, connections, dimensions, isDarkMode, selectedNodeId, selectedConnIdx, depthMap, rootId, saveData]);
+  }, [nodes, connections, dimensions, isDarkMode, selectedNodeId, selectedConnIdx, depthMap, rootId, saveData, addNodeAt]);
 
   // --- Keyboard handler ---
   useEffect(() => {
@@ -387,10 +403,18 @@ export const MindmapEditor: React.FC<MindmapEditorProps> = ({
         <button onClick={onGoHome} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 transition-colors">
           <ArrowLeft size={20} />
         </button>
+        <button
+          onClick={addNodeAtViewportCenter}
+          aria-label="Tambah node"
+          title="Tambah node"
+          className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white shadow transition-colors flex items-center gap-1"
+        >
+          <Plus size={18} />
+        </button>
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-bold text-gray-800 dark:text-white truncate">{note.title || 'Peta Konsep'}</h2>
           <p className="text-[10px] text-gray-400">
-            {nodes.length} node · {connections.length} koneksi · Double-click canvas untuk tambah node
+            {nodes.length} node · {connections.length} koneksi · Tombol + atau double-tap untuk tambah node
           </p>
         </div>
         {connectingFrom && (
