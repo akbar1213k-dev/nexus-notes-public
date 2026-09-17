@@ -1958,6 +1958,205 @@ const handleEditorClick = (e: React.MouseEvent) => {
     setActiveMenu('NONE');
   };
 
+  // --- KONVERSI TIPE DAFTAR (BULLET/NUMBER/TODO) BERDASARKAN SELEKSI ---
+  // Mengumpulkan blok (li/p/todo-item) yang bersinggungan dengan seleksi.
+  const getSelectedListBlocks = (): HTMLElement[] => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return [];
+    const range = sel.getRangeAt(0);
+    if (range.collapsed) return [];
+
+    const isBlock = (el: HTMLElement) =>
+      el.tagName === 'LI' || el.tagName === 'P' || el.classList.contains('todo-item');
+
+    const blocks: HTMLElement[] = [];
+    const walk = (node: HTMLElement) => {
+      if (node.tagName === 'UL' || node.tagName === 'OL') {
+        Array.from(node.children).forEach(child => {
+          if (child.tagName === 'LI' && range.intersectsNode(child)) {
+            blocks.push(child as HTMLElement);
+          }
+        });
+        return;
+      }
+      if (isBlock(node)) {
+        if (range.intersectsNode(node)) blocks.push(node);
+        return; // jangan masuk ke dalam blok lagi
+      }
+      Array.from(node.children).forEach(child => walk(child as HTMLElement));
+    };
+    walk(editorRef.current!);
+    return blocks;
+  };
+
+  const createTodoItem = (innerHtml: string | null): HTMLElement => {
+    const div = document.createElement('div');
+    div.className = 'todo-item';
+    div.contentEditable = 'false';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    const span = document.createElement('span');
+    span.contentEditable = 'true';
+    span.style.outline = 'none';
+    span.innerHTML = (innerHtml && innerHtml.trim()) ? innerHtml : '\u00A0';
+    div.append(input, span);
+    return div;
+  };
+
+  const cleanupEmptyLists = () => {
+    if (!editorRef.current) return;
+    editorRef.current.querySelectorAll('ul, ol').forEach(list => {
+      if (!list.querySelector('li')) list.remove();
+    });
+  };
+
+  // Ubah seluruh daftar (ul/ol) menjadi deretan todo-item.
+  // Item yang TIDAK diseleksi tetap dibungkus ul/ol baru (jenis daftar dipertahankan).
+  const replaceListWithTodos = (list: HTMLElement, group: HTMLElement[], listTag: string): HTMLElement | null => {
+    const selected = new Set(group);
+    const frag = document.createDocumentFragment();
+    let currentList: HTMLElement | null = null;
+    let lastTodo: HTMLElement | null = null;
+    const lis = Array.from(list.children) as HTMLElement[];
+
+    const startList = () => {
+      if (!currentList) {
+        currentList = document.createElement(listTag);
+        frag.appendChild(currentList);
+      }
+      return currentList;
+    };
+
+    lis.forEach(li => {
+      if (selected.has(li)) {
+        currentList = null;
+        const todo = createTodoItem(li.innerHTML);
+        frag.appendChild(todo);
+        lastTodo = todo;
+      } else {
+        startList().appendChild(li);
+      }
+    });
+
+    list.replaceWith(frag);
+    return lastTodo;
+  };
+
+  // Ubah blok terpilih (li/p) menjadi todo-item. Mengembalikan elemen terakhir.
+  const convertBlocksToTodo = (blocks: HTMLElement[]): HTMLElement | null => {
+    let last: HTMLElement | null = null;
+
+    const byParent = new Map<Element, HTMLElement[]>();
+    blocks.forEach(b => {
+      const key = b.parentElement;
+      if (!key) return;
+      const arr = byParent.get(key) || [];
+      arr.push(b);
+      byParent.set(key, arr);
+    });
+
+    byParent.forEach((group, parent) => {
+      if (parent.tagName === 'UL' || parent.tagName === 'OL') {
+        const converted = replaceListWithTodos(parent as HTMLElement, group, parent.tagName);
+        if (converted) last = converted;
+      } else {
+        group.forEach(b => {
+          const todo = createTodoItem(b.innerHTML);
+          b.replaceWith(todo);
+          last = todo;
+        });
+      }
+    });
+
+    cleanupEmptyLists();
+    return last;
+  };
+
+  // Ubah todo-item terpilih menjadi daftar biasa (ul/ol).
+  const convertTodoToSimpleList = (blocks: HTMLElement[], tag: 'ul' | 'ol'): HTMLElement => {
+    const list = document.createElement(tag);
+    blocks.forEach(todo => {
+      const span = todo.querySelector('span');
+      const li = document.createElement('li');
+      const inner = span ? span.innerHTML : '';
+      li.innerHTML = inner && inner.trim() ? inner : '\u00A0';
+      list.appendChild(li);
+    });
+    blocks[0].replaceWith(list);
+    blocks.slice(1).forEach(t => t.remove());
+    return list;
+  };
+
+  const placeCaretAfter = (node: HTMLElement | null) => {
+    if (!node || !editorRef.current) return;
+    try {
+      const range = document.createRange();
+      range.setStartAfter(node);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch (e) {
+      // abaikan error seleksi
+    }
+  };
+
+  // Tombol Bullet / 123 / Todo:
+  // - Seleksi non-kosong → konversi daftar antar tipe.
+  // - Tanpa seleksi → perilaku lama (insert checkbox / buat daftar).
+  const handleListToolbar = (listType: 'bullet' | 'number' | 'todo') => {
+    if (isCodeView || isPreviewMode) return;
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+
+    const sel = window.getSelection();
+    const collapsed = !sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed;
+    const execCommandFor = (cmd: string) => {
+
+      execCmd(cmd, '', false);
+      setActiveMenu('NONE');
+    };
+
+    if (collapsed) {
+      if (listType === 'todo') insertCheckbox();
+      else execCommandFor(listType === 'bullet' ? 'insertUnorderedList' : 'insertOrderedList');
+      return;
+    }
+
+    const blocks = getSelectedListBlocks();
+    const allTodo = blocks.length > 0 && blocks.every(b => b.classList.contains('todo-item'));
+
+    // --- TODO: ubah bullet/number/paragraf terpilih menjadi checkbox ---
+    if (listType === 'todo') {
+      if (blocks.length === 0) {
+        insertCheckbox();
+        setActiveMenu('NONE');
+        return;
+      }
+      if (allTodo) return; // sudah checkbox semua
+      const last = convertBlocksToTodo(blocks);
+      addCheckboxListeners();
+      handleInput();
+      setActiveMenu('NONE');
+      placeCaretAfter(last);
+      return;
+    }
+
+    // --- BULLET / NUMBER: ubah checkbox terpilih menjadi daftar biasa ---
+    if (allTodo) {
+      const tag = listType === 'bullet' ? 'ul' : 'ol';
+      const list = convertTodoToSimpleList(blocks, tag);
+      addCheckboxListeners();
+      handleInput();
+      setActiveMenu('NONE');
+      placeCaretAfter(list);
+      return;
+    }
+
+    // Bukan checkbox: biarkan browser menangani konversinya (native)
+    execCommandFor(listType === 'bullet' ? 'insertUnorderedList' : 'insertOrderedList');
+  };
+
   // Ubah fungsi insertCheckbox yang lama menjadi ini:
   const insertCheckbox = () => {
       // Simpan posisi kursor saat ini agar tidak hilang saat dialog muncul
@@ -2694,9 +2893,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
         {activeMenu === 'LIST' && (
             <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-2 z-40 flex flex-wrap gap-2 animate-in slide-in-from-bottom-5 fade-in">
-                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('insertUnorderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><List size={18} /> Bullet</button>
-                 <button onMouseDown={preventFocusLoss} onClick={() => execCmd('insertOrderedList')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><ListOrdered size={18} /> 123</button>
-                 <button onMouseDown={preventFocusLoss} onClick={() => { insertCheckbox(); setActiveMenu('NONE'); }} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><CheckSquare size={18} /> Todo</button>
+<button onMouseDown={preventFocusLoss} onClick={() => handleListToolbar('bullet')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><List size={18} /> Bullet</button>
+                <button onMouseDown={preventFocusLoss} onClick={() => handleListToolbar('number')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><ListOrdered size={18} /> 123</button>
+                <button onMouseDown={preventFocusLoss} onClick={() => handleListToolbar('todo')} className="p-3 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex-1 flex items-center justify-center gap-2"><CheckSquare size={18} /> Todo</button>
             </div>
         )}
 
