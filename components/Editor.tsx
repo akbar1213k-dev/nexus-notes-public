@@ -168,6 +168,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const savedSelection = useRef<Range | null>(null); // Menyimpan posisi seleksi teks
+  const lastSelectionRef = useRef<Range | null>(null); // Simpan seleksi drag terakhir (non-kosong) di editor
   const [showMentionList, setShowMentionList] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
@@ -1240,6 +1241,22 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       return () => document.removeEventListener('click', handleOutsideClick);
   }, [showOptionMenu]);
 
+  // Tangkap seleksi teks terakhir (non-kosong) di dalam editor.
+  // Pada perangkat sentuh, mengetuk tombol toolbar meng-collapse pilihan teks,
+  // jadi simpan range saat drag/selectionchange agar konversi daftar tetap bisa
+  // membaca pilihan user (block → checkbox/bullet).
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !editorRef.current) return;
+      const range = sel.getRangeAt(0);
+      if (!editorRef.current.contains(range.startContainer)) return;
+      lastSelectionRef.current = range.cloneRange();
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, []);
+
   // Sync content awal perubahan
   useEffect(() => {
     // Jika konten sama dengan yang terakhir dikirim oleh editor lokal (saat typing),
@@ -1274,6 +1291,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           }
         }
         addCheckboxListeners();
+        lastSelectionRef.current = null; // konten diganti, seleksi lama tidak relevan
       }, [note.id, note.content, isCodeView]); // <--- PERBAIKAN: Tambahkan isCodeView di dalam kurung siku ini
 
       // akhir perubahan
@@ -1294,10 +1312,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         const parent = target.closest('.todo-item') as HTMLElement;
         
         if (parent) {
-            parent.contentEditable = 'false';
+            // SELURUH wrapper jadi editing-host TUNGGAL agar drag-select bisa
+            // melintasi beberapa checkbox sekaligus (bukan non-editable + span editable
+            // terpisah yang mengunci seleksi di satu item).
+            parent.contentEditable = 'true';
             let span = parent.querySelector('span');
             if (span) {
-                span.contentEditable = 'true';
+                span.removeAttribute('contenteditable');
                 span.style.outline = 'none';
             }
         }
@@ -1466,8 +1487,33 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         
         // Cek apakah kursor ada di AWAL baris (offset 0)
         const range = selection.getRangeAt(0);
-        // Kita perlu memastikan range benar-benar di start dari SPAN, bukan wrapper
-        const isAtStart = range.startOffset === 0 && range.collapsed; 
+        const startContainer = range.startContainer;
+        const startInSpan = !!(currentSpan && (currentSpan === startContainer || currentSpan.contains(startContainer)));
+        // Wrapper sekarang editable: kursor bisa berada di dalam span (biasanya)
+        // atau langsung di div (saat klik sebelum spasi/area kosong).
+        const isAtStart = range.collapsed && (
+          (startInSpan && range.startOffset === 0) ||
+          (startContainer === currentItem && range.startOffset <= 1)
+        );
+
+        // --- START: DELETE di akhir item ---
+        // Dengan wrapper editable, Delete di ujung item bisa "menelan" checkbox
+        // berikutnya. Cegah agar tidak menggabungkan dua checkbox.
+        if (e.key === 'Delete' && range.collapsed && startInSpan) {
+            const textLen = currentSpan?.textContent?.length || 0;
+            let atEndOfSpan = false;
+            if (startContainer.nodeType === Node.TEXT_NODE) {
+                if (range.startOffset >= textLen && !startContainer.nextSibling) atEndOfSpan = true;
+            } else if (startContainer === currentSpan) {
+                if (range.startOffset >= currentSpan!.childNodes.length) atEndOfSpan = true;
+            }
+            const nextTodo = currentItem.nextElementSibling;
+            if (atEndOfSpan && nextTodo && nextTodo.classList.contains('todo-item')) {
+                e.preventDefault();
+                return;
+            }
+        }
+        // --- END: DELETE di akhir item ---
 
         // --- A. BACKSPACE: UBAH JADI TEKS BIASA ---
         if (e.key === 'Backspace' && isAtStart) {
@@ -1535,7 +1581,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             const isRecurringParent = currentItem.classList.contains('recurring');
             const newItem = document.createElement('div');
             newItem.className = 'todo-item' + (isRecurringParent ? ' recurring' : '');
-            newItem.contentEditable = 'false';
+            newItem.contentEditable = 'true';
             
             const newCheckbox = document.createElement('input');
             newCheckbox.type = 'checkbox';
@@ -1545,7 +1591,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             }
             
             const newSpan = document.createElement('span');
-            newSpan.contentEditable = 'true';
             newSpan.style.outline = 'none';
 
             // Logika Potong Teks (Cut & Paste ke bawah)
@@ -1992,11 +2037,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
   const createTodoItem = (innerHtml: string | null): HTMLElement => {
     const div = document.createElement('div');
     div.className = 'todo-item';
-    div.contentEditable = 'false';
+    div.contentEditable = 'true';
     const input = document.createElement('input');
     input.type = 'checkbox';
     const span = document.createElement('span');
-    span.contentEditable = 'true';
     span.style.outline = 'none';
     span.innerHTML = (innerHtml && innerHtml.trim()) ? innerHtml : '\u00A0';
     div.append(input, span);
@@ -2061,6 +2105,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
         if (converted) last = converted;
       } else {
         group.forEach(b => {
+          if (b.classList.contains('todo-item')) return; // sudah checkbox, biarkan
           const todo = createTodoItem(b.innerHTML);
           b.replaceWith(todo);
           last = todo;
@@ -2109,7 +2154,33 @@ const handleEditorClick = (e: React.MouseEvent) => {
     if (!editorRef.current) return;
     editorRef.current.focus();
 
-    const sel = window.getSelection();
+    let sel = window.getSelection();
+    const hasLiveSelection = !!sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed;
+
+    // Seleksi sering hilang/di-collapse saat mengetuk tombol toolbar (terutama touch).
+    // Pulihkan dari simpanan: drag terakhir (lastSelectionRef) lalu dari menu (savedSelection).
+    const restoreRange = (range: Range | null): boolean => {
+      if (!range || range.collapsed) return false;
+      if (!editorRef.current?.contains(range.startContainer)) return false;
+      if (sel) {
+        sel.removeAllRanges();
+        try {
+          sel.addRange(range);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+      return false;
+    };
+
+    if (!hasLiveSelection) {
+      if (!restoreRange(lastSelectionRef.current)) {
+        restoreRange(savedSelection.current);
+      }
+      sel = window.getSelection();
+    }
+
     const collapsed = !sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed;
     const execCommandFor = (cmd: string) => {
 
@@ -2134,10 +2205,23 @@ const handleEditorClick = (e: React.MouseEvent) => {
         return;
       }
       if (allTodo) return; // sudah checkbox semua
-      const last = convertBlocksToTodo(blocks);
+      // Abaikan paragraf kosong (mis. "<p><br></p>" di akhir editor) dan todo-item lama
+      const toConvert = blocks.filter(b => {
+        if (b.classList.contains('todo-item')) return false;
+        if (b.tagName === 'P' && !(b.textContent || '').replace(/[\u00A0\s]/g, '')) return false;
+        return true;
+      });
+      if (toConvert.length === 0) {
+        insertCheckbox();
+        setActiveMenu('NONE');
+        return;
+      }
+      const last = convertBlocksToTodo(toConvert);
       addCheckboxListeners();
       handleInput();
       setActiveMenu('NONE');
+      lastSelectionRef.current = null;
+      savedSelection.current = null;
       placeCaretAfter(last);
       return;
     }
@@ -2149,6 +2233,8 @@ const handleEditorClick = (e: React.MouseEvent) => {
       addCheckboxListeners();
       handleInput();
       setActiveMenu('NONE');
+      lastSelectionRef.current = null;
+      savedSelection.current = null;
       placeCaretAfter(list);
       return;
     }
@@ -2182,9 +2268,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
       
       // Buat HTML Checkbox
       // Jika recurring, kita tambah class 'recurring' dan atribut 'data-days'
-      const html = `<div class="todo-item ${isRecurring ? 'recurring' : ''}" contentEditable="false">
+      const html = `<div class="todo-item ${isRecurring ? 'recurring' : ''}" contentEditable="true">
           <input type="checkbox" ${isRecurring ? `data-days="${days}"` : ''}>
-          <span contentEditable="true">\u00A0</span>
+          <span>\u00A0</span>
       </div>`;
 
       execCmd('insertHTML', html);
