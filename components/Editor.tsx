@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle, us
 import { Note, EditorHandle, HistoryChain, HistoryWordDiff } from '../types';
 import { makePatch, applyPatch, replayChain } from '../utils/diff';
 import { getHistoryChain, saveHistoryChain, cleanupLegacyLocalStorage } from '../utils/historyStore';
+import { exportNetworkAsJSON } from '../utils/networkExport';
 import { 
   Image as ImageIcon, Table, AtSign, 
   Bold, Italic, Underline, Strikethrough,
@@ -3092,6 +3093,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 {/* --- TOMBOL UNDUH KODE HTML --- */}
                 <button onMouseDown={preventFocusLoss} onClick={handleDownloadHTML} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Unduh Kode HTML">
                     <Download size={20} />
+                </button>
+
+                {/* --- TOMBOL SEMENTARA: EKSPOR JARINGAN --- */}
+                <button onMouseDown={preventFocusLoss} onClick={() => exportNetworkAsJSON(note, allNotes)} className="p-2 rounded min-w-[40px] flex justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300" title="Ekspor Jaringan Catatan">
+                    <Network size={20} />
                 </button>
 
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg mx-1">
