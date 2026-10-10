@@ -379,8 +379,10 @@ export default function App() {
           const note = notes.find(n => n.id === noteId);
           if (note) saveToLocalStorage({ ...note, lastOpenedAt: now });
         } else {
-          // Mode online: update ke Firebase
-          updateDoc(doc(db, "notes", noteId), { lastOpenedAt: now })
+          // Mode online: update ke Firebase.
+          // setDoc(merge) dipakai agar aman bila catatan belum pernah tersimpan
+          // di server (updateDoc menolak dokumen yang belum ada di rules).
+          setDoc(doc(db, "notes", noteId), { lastOpenedAt: now, userId: user.uid }, { merge: true })
               // [DEBUG] catat juga di sini — inilah satu-satunya error yang tadinya sempat terlihat
               .catch((err: any) => {
                  syncDebug.error('tulis', 'CATATAN_DIBUKA',

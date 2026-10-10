@@ -90,7 +90,7 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
   ];
   potongan.forEach((isi, index) => {
     operasi.push((batch) =>
-      batch.set(doc(db, 'notes', catatan.id, 'chunks', String(index)), { index, content: isi })
+      batch.set(doc(db, 'notes', catatan.id, 'chunks', String(index)), { index, content: isi, userId })
     );
   });
 

@@ -1,0 +1,94 @@
+rules_version = '2';
+
+// ============================================================================
+// Firestore Security Rules — Nexus Notes
+// ----------------------------------------------------------------------------
+// CATATAN: file ini hanya REFERENSI di repo. Rules yang aktif berada di
+// Firebase Console → Firestore Database → Rules. Salin isi blok service
+// di bawah ke Console, lalu Publish.
+//
+// Perubahan penting terhadap versi lama:
+//   1. match /notes/{noteId}/chunks/{chunkId} — WAJIB ada, menampung
+//      potongan content catatan besar (>800 KB) yang tersimpan di
+//      subcollection. Tanpa blok ini semua write ke chunks ditolak
+//      dengan permission-denied.
+//   2. allow create — membuat catatan baru yang belum pernah ada di server.
+//   3. allow update dengan resource == null — mengizinkan merge ke dokumen
+//      yang belum ada (mis. lastOpenedAt catatan yang belum sempat tersinkron).
+//   4. Field userId WAJIB ada di setiap dokumen catatan/chunk, dan harus
+//      sama dengan uid pengguna yang login.
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- CATATAN -----------------------------------------------------------
+    match /notes/{noteId} {
+
+      function pemilikDokumenIni() {
+        return request.auth.uid == resource.data.userId;
+      }
+      function pemilikDokumenBaru() {
+        return request.auth.uid == request.resource.data.userId;
+      }
+
+      // read/create/update/delete hanya untuk pemilik sah
+      allow read: if request.auth != null && pemilikDokumenIni();
+      allow create: if request.auth != null && pemilikDokumenBaru();
+
+      // update/delete: resource == null → dokumen belum ada (path baru),
+      //                 cocokkan kepemilikan versi baru sebagai gantinya
+      allow update: if request.auth != null
+                    && (resource == null || pemilikDokumenIni())
+                    && pemilikDokumenBaru();
+      allow delete: if request.auth != null
+                    && (resource == null || pemilikDokumenIni());
+
+      // --- POTONGAN CONTENT (catatan >800 KB) ------------------------------
+      match /chunks/{chunkId} {
+
+        function pemilikChunkIni() {
+          return request.auth.uid == resource.data.userId;
+        }
+        function pemilikChunkBaru() {
+          return request.auth.uid == request.resource.data.userId;
+        }
+
+        allow read: if request.auth != null && pemilikChunkIni();
+        allow create: if request.auth != null && pemilikChunkBaru();
+        allow update: if request.auth != null
+                      && (resource == null || pemilikChunkIni())
+                      && pemilikChunkBaru();
+        allow delete: if request.auth != null
+                      && (resource == null || pemilikChunkIni());
+      }
+    }
+
+    // --- FOLDER ------------------------------------------------------------
+    match /folders/{folderId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null
+                    && (resource == null || request.auth.uid == resource.data.userId)
+                    && request.auth.uid == request.resource.data.userId;
+      allow delete: if request.auth != null
+                    && (resource == null || request.auth.uid == resource.data.userId);
+    }
+
+    // --- AKTIVITAS (Activity Tracker) --------------------------------------
+    match /activities/{activityId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null
+                    && (resource == null || request.auth.uid == resource.data.userId)
+                    && request.auth.uid == request.resource.data.userId;
+      allow delete: if request.auth != null
+                    && (resource == null || request.auth.uid == resource.data.userId);
+    }
+
+    // --- PENGATURAN TRACT (per user) ---------------------------------------
+    match /tract_settings/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
