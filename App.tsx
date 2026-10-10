@@ -932,8 +932,10 @@ export default function App() {
         ...salinan,
         id: newId,
         title: `(Copy) ${currentTitle}`,
-        updatedAt: now + index
-      };
+        updatedAt: now + index,
+        // Pastikan field userId terdefinisi dan cocok dengan UID yang sedang login
+        userId: user.uid
+      } as Note;
     });
 
     // 1. Perbarui state catatan lokal
