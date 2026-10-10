@@ -81,12 +81,12 @@ const checkProximityMatch = (htmlContent: string, searchQuery: string, maxDistan
 // --------------------------------------------------------------------------
 
 // --- HELPER BARU: Menghitung dan Memformat Ukuran File ---
-const formatBytes = (content: string = '', title: string = '') => {
-  const totalText = (title || '') + (content || '');
-  if (!totalText) return "0 B";
-  // Menghitung ukuran murni string (judul + isi teks) dalam satuan Byte
-  const bytes = new Blob([totalText]).size;
-  
+// contentSize dipakai bila content = null (catatan besar tersimpan terpecah)
+const formatBytes = (content: string | null = '', title: string = '', contentSize?: number) => {
+  const byteIsi = contentSize ?? (content ? new Blob([content]).size : 0);
+  const bytes = new Blob([title || '']).size + byteIsi;
+
+  if (!bytes) return "0 B";
   if (bytes < 1024) return bytes + " B";
   else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
   else return (bytes / 1048576).toFixed(2) + " MB";
@@ -145,7 +145,7 @@ const NoteCard = React.memo(({ note, isSelected, selectionMode, onItemClick, onT
   onTouchEnd: () => void;
 }) => {
   const isMindMap = note.type === 'mindmap';
-  const preview = useMemo(() => getPreviewMemo(note.content), [note.content]);
+  const preview = useMemo(() => getPreviewMemo(note.content || note.preview || ''), [note.content, note.preview]);
   return (
     <div 
       className={`
@@ -190,7 +190,7 @@ const NoteCard = React.memo(({ note, isSelected, selectionMode, onItemClick, onT
 
             <div className="flex items-center text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono">
               <HardDrive size={10} className="mr-1 opacity-70" />
-              <span>{formatBytes(note.content, note.title)}</span>
+              <span>{formatBytes(note.content, note.title, note.contentSize)}</span>
             </div>
 
             <div className={`flex items-center text-[10px] font-medium ${isMindMap ? 'text-indigo-500 dark:text-indigo-400' : 'text-blue-600 dark:text-blue-400'}`}>
@@ -317,7 +317,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Pre-compute note sizes ONLY when notes change (not on every keystroke)
   const noteSizeMap = useMemo(() => {
     const map = new Map<string, number>();
-    notes.forEach(n => map.set(n.id, new Blob([(n.title || '') + (n.content || '')]).size));
+    notes.forEach(n => map.set(n.id, n.contentSize ?? new Blob([(n.title || '') + (n.content || '')]).size));
     return map;
   }, [notes]);
 
@@ -786,7 +786,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                                          </div>
                                          <div className="flex items-center gap-2">
                                             <span className="text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded font-mono">
-                                               {formatBytes(note.content, note.title)}
+                                               {formatBytes(note.content, note.title, note.contentSize)}
                                             </span>
                                             <span className="text-[10px] text-gray-400 whitespace-nowrap">
                                                {(() => {

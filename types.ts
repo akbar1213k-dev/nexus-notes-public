@@ -32,13 +32,16 @@ export interface MindmapData {
 export interface Note {
   id: string;
   title: string;
-  content: string;
+  content: string | null; // null = disimpan terpecah di subcollection chunks
   updatedAt: number;
   lastOpenedAt?: number; // <--- Tambahkan baris ini
   userId?: string;
   type: 'note' | 'mindmap';
   folderId?: string;
   deletedAt?: number | null; // Penanda waktu dihapus
+  preview?: string; // Cuplikan teks untuk daftar (dipakai saat content = null)
+  contentSize?: number; // Ukuran byte content asli (dipakai saat content = null)
+  chunkCount?: number; // Jumlah potongan di subcollection chunks; kosong/0 = content utuh di dokumen utama
   mindmapData?: MindmapData;
 }
 

@@ -12,6 +12,7 @@ import { MindmapEditor } from './components/MindmapEditor';
 import { SyncDebugPanel } from './components/SyncDebugPanel';
 import { syncDebug } from './utils/syncDebug';
 import { db, auth } from './services/firebase'; 
+import { simpanCatatanKeServer, muatKontenPenuh, hapusCatatanDariServer } from './services/noteRepo';
 import { clearHistory as clearHistoryFromIndexedDB } from './utils/historyStore'; 
 import { 
   collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, updateDoc, where 
@@ -102,7 +103,7 @@ export default function App() {
 
       const expiredNotes = currentNotes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
       expiredNotes.forEach(async (n) => {
-        await deleteDoc(doc(db, "notes", n.id))
+        await hapusCatatanDariServer(n.id)
           .then(() => { removeFromLocalStorage(n.id); })
           .catch((err: any) => syncDebug.error('sistem', 'BERSIHKAN_SAMPAH',
             `Gagal menghapus catatan kedaluwarsa ${n.id}: ${err.message}`, { id: n.id, code: err.code }));
@@ -221,7 +222,7 @@ export default function App() {
     } else {
       // [DEBUG]
       noteIds.forEach(id => {
-        deleteDoc(doc(db, "notes", id))
+        hapusCatatanDariServer(id)
           .then(() => { removeFromLocalStorage(id); syncDebug.sukses('hapus', 'HAPUS_PERMANEN_CATATAN', `Catatan ${id} dihapus permanen`, { id }); })
           .catch((err: any) => syncDebug.error('hapus', 'HAPUS_PERMANEN_CATATAN',
             `Gagal menghapus permanen catatan ${id}: ${err.message}`, { id, code: err.code }));
@@ -386,6 +387,24 @@ export default function App() {
                    `Gagal memperbarui lastOpenedAt catatan ${noteId}: ${err.message}`,
                    { id: noteId, code: err.code, userId: user.uid });
                  console.error("Failed to update last opened:", err);
+              });
+        }
+
+        // Muat konten penuh bila catatan disimpan terpecah di subcollection chunks.
+        // User tetap melihat satu catatan utuh — pemecahan hanya di lapisan penyimpanan.
+        const noteTerbuka = notesRef.current.find(n => n.id === noteId);
+        if (noteTerbuka && noteTerbuka.chunkCount && !noteTerbuka.content) {
+           muatKontenPenuh(noteId)
+              .then(konten => {
+                 if (konten == null) return;
+                 setNotes(prev => prev.map(n => n.id === noteId ? { ...n, content: konten } : n));
+                 const terbaru = notesRef.current.find(n => n.id === noteId);
+                 if (terbaru) saveToLocalStorage({ ...terbaru, content: konten });
+              })
+              .catch((err: any) => {
+                 syncDebug.error('sistem', 'MUAT_CHUNK_GAGAL',
+                   `Gagal memuat isi catatan ${noteId} dari potongan Firestore: ${err.message}`,
+                   { id: noteId, code: err.code });
               });
         }
     }
@@ -745,8 +764,8 @@ export default function App() {
           const gagalDetail: any[] = [];
           for (const note of localNotes) {
               const noteToSync = { ...note, userId: user.uid };
-              try {
-                  await setDoc(doc(db, "notes", note.id), noteToSync, { merge: true });
+        try {
+           await simpanCatatanKeServer(noteToSync, user.uid);
                   removeFromLocalStorage(note.id);
                   sukses++;
                   syncDebug.sukses('tulis', 'UNGGAH_CATATAN',
@@ -791,10 +810,10 @@ export default function App() {
         syncDebug.info('tulis', 'EDIT_CATATAN',
           `Menjadwalkan penyimpanan catatan "${updated.title || updated.id}" dalam ${syncInterval} ms`,
           { id: updated.id, userId: user.uid, tungguMs: syncInterval });
-        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = setTimeout(() => {
-             const mulai = Date.now();
-             setDoc(doc(db, "notes", updated.id), noteWithUser, { merge: true })
+         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+         syncTimerRef.current = setTimeout(() => {
+              const mulai = Date.now();
+              simpanCatatanKeServer(noteWithUser, user.uid)
                 .then(() => { 
                    removeFromLocalStorage(updated.id); 
                    setSyncStatus('saved'); 
@@ -843,7 +862,7 @@ export default function App() {
       // [DEBUG]
       syncDebug.info('tulis', 'BUAT_CATATAN', `Membuat catatan "${finalTitle}" di Firestore`,
         { id: newNote.id, userId: user.uid });
-      setDoc(doc(db, "notes", id), newNote, { merge: true })
+      simpanCatatanKeServer(newNote, user.uid)
           .then(() => {
               removeFromLocalStorage(id);
               syncDebug.sukses('tulis', 'BUAT_CATATAN', `Catatan "${finalTitle}" tersimpan di Firestore`,
@@ -893,7 +912,7 @@ export default function App() {
       let gagal = 0;
       for (const n of duplicatedNotes) {
         try {
-          await setDoc(doc(db, "notes", n.id), n);
+          await simpanCatatanKeServer(n, user.uid);
           removeFromLocalStorage(n.id);
           sukses++;
           syncDebug.sukses('tulis', 'DUPLIKAT_CATATAN', `Duplikat "${n.title}" tersimpan di Firestore`,
@@ -955,11 +974,7 @@ export default function App() {
             const tugas: Array<{ label: string, promise: Promise<void> }> = [
               ...notesToImport.map(x => ({
                 label: `catatan "${x.title || x.id}"`,
-                promise: setDoc(doc(db, "notes", x.id), {
-                    ...x,
-                    userId: user.uid,
-                    updatedAt: x.updatedAt || Date.now()
-                }) as Promise<void>,
+                promise: simpanCatatanKeServer({ ...x, userId: user.uid, updatedAt: x.updatedAt || Date.now() } as Note, user.uid),
               })),
               ...foldersToImport.map(x => ({
                 label: `folder "${x.name || x.id}"`,
@@ -1266,6 +1281,8 @@ export default function App() {
             const n = notes.find(x => x.id === currentNoteId);
             // Jika data belum siap (isReady = false), tampilkan loading. Jika sudah siap tapi data tetap tidak ada, baru tampilkan 404.
             if (!n) return !isReady ? <div className="p-6 text-gray-400">Membuka catatan...</div> : <div>Catatan tidak ditemukan (404)</div>;
+            // Konten catatan besar tersimpan terpecah — tampilkan loading sampai digabung
+            if (n.chunkCount && !n.content) return <div className="p-6 text-gray-400">Memuat isi catatan...</div>;
             if (n.type === 'mindmap') {
                 return (
                     <MindmapEditor
