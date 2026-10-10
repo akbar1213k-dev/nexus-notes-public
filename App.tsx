@@ -868,12 +868,14 @@ export default function App() {
     const duplicatedNotes: Note[] = notesToDuplicate.map((note, index) => {
       const newId = (now + index).toString();
       const currentTitle = note.title || 'Untitled';
+      // Buang lastOpenedAt: Firestore menolak field bernilai undefined, dan duplikat
+      // sebaiknya tidak muncul sebagai "baru dibuka" di Beranda
+      const { lastOpenedAt: _lastOpenedAsli, ...salinan } = note;
       return {
-        ...note,
+        ...salinan,
         id: newId,
         title: `(Copy) ${currentTitle}`,
-        updatedAt: now + index,
-        lastOpenedAt: undefined
+        updatedAt: now + index
       };
     });
 

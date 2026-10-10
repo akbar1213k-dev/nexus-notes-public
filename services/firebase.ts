@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth } from "firebase/auth"; 
 import { syncDebug } from '../utils/syncDebug';
 
@@ -13,7 +13,10 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// ignoreUndefinedProperties: true — Firestore menolak field bernilai undefined
+// (error "invalid-argument"); setelan ini membuat field undefined dilewati
+// agar operasi tulis (duplikat, edit, impor) tidak gagal karena field kosong
+export const db = initializeFirestore(app, { ignoreUndefinedProperties: true });
 // Mengaktifkan sistem hybrid (Offline Persistence)
 enableIndexedDbPersistence(db)
   .catch((err) => {
