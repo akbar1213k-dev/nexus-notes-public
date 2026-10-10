@@ -486,6 +486,8 @@ export default function App() {
           localStorage.removeItem('nexus_user_uid');
           setUser(null);
           setNotes([]); setFolders([]); setIsReady(false); setAuthError(''); setDbError('');
+          // [DEBUG] statistik lokal-vs-server tidak relevan tanpa sesi
+          syncDebug.resetStatistik();
           // [DEBUG]
           syncDebug.warn('auth', 'SESI_HABIS',
             'Tidak ada sesi login aktif (logout atau sesi kedaluwarsa) — semua operasi Firestore akan ditolak dengan permission-denied',
@@ -498,9 +500,19 @@ export default function App() {
   // --- MODE OFFLINE: Load data dari localStorage ---
   useEffect(() => {
     if (user?.uid !== 'offline-local') return;
-    setNotes(getLocalNotes());
+    const lokal = getLocalNotes();
+    setNotes(lokal);
     setFolders(getLocalFolders());
     setIsReady(true);
+    // [DEBUG] mode lokal penuh: tidak ada catatan yang tersinkron ke server
+    syncDebug.catatStatistik({
+      server: 0,
+      hanyaLokal: lokal.length,
+      versiLokalMenang: 0,
+      total: lokal.length,
+      modeOffline: true,
+      diperbaruiPada: Date.now(),
+    });
   }, [user]);
 
   // --- FIREBASE LISTENERS ---
@@ -551,6 +563,30 @@ export default function App() {
           ukuranAntreanLokal: localNotes.length,
           userIdQuery: user.uid,
         });
+
+      // [DEBUG] Statistik ringkas untuk panel: berapa catatan sudah tersinkron
+      // ke Firestore vs hanya ada di lokal. Tulisan yang masih pending TIDAK
+      // dihitung sebagai "tersinkron" (belum dikonfirmasi server).
+      const idTerkonfirmasi = new Set(
+        snap.docs.filter(d => !d.metadata.hasPendingWrites).map(d => d.id)
+      );
+      let versiLokalMenang = 0;
+      let tersinkronDiServer = 0;
+      idTerkonfirmasi.forEach(id => {
+        const l = localNotes.find(x => x.id === id);
+        const s = serverNotes.find(x => x.id === id);
+        if (l && s && l.updatedAt > s.updatedAt) versiLokalMenang++;
+        else tersinkronDiServer++;
+      });
+      const hanyaLokal = localNotes.filter(l => !idTerkonfirmasi.has(l.id)).length;
+      syncDebug.catatStatistik({
+        server: tersinkronDiServer,
+        hanyaLokal,
+        versiLokalMenang,
+        total: mergedNotes.length,
+        modeOffline: false,
+        diperbaruiPada: Date.now(),
+      });
 
       // --- LOGIKA RESET CHECKBOX BERJANGKA ---
       const now = new Date();

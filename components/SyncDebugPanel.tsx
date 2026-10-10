@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Bug, X, Copy, Trash2, CheckCircle2, XCircle, AlertTriangle,
-  Info, ChevronDown, ChevronUp, ClipboardCheck
+  Info, ChevronDown, ChevronUp, ClipboardCheck, CloudCheck, CloudOff, Database
 } from 'lucide-react';
-import { syncDebug, SyncLevel, SyncLogEntry } from '../utils/syncDebug';
+import { syncDebug, SyncLevel, SyncLogEntry, StatistikSinkron } from '../utils/syncDebug';
 
 type FilterAktif = 'semua' | SyncLevel;
 
@@ -51,8 +51,29 @@ function TutupIkon() {
   return <ChevronUp size={10} />;
 }
 
+// Kartu angka ringkas: lokal vs Firestore
+function KartuStatistik({ label, nilai, sub, ikon, kelas }: {
+  label: string;
+  nilai: number | string;
+  sub: string;
+  ikon: React.ReactNode;
+  kelas: string;
+}) {
+  return (
+    <div className={`rounded-lg border px-2 py-1.5 min-w-0 ${kelas}`}>
+      <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide opacity-80">
+        {ikon}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="text-lg font-bold leading-tight">{nilai}</div>
+      <div className="text-[9px] opacity-70 leading-tight break-words">{sub}</div>
+    </div>
+  );
+}
+
 export function SyncDebugPanel() {
   const entri = useSyncExternalStore(syncDebug.berlangganan, syncDebug.ambilSnapshot);
+  const statistik: StatistikSinkron | null = useSyncExternalStore(syncDebug.berlangganan, syncDebug.ambilStatistik);
   const [terbuka, setTerbuka] = useState(false);
   const [filter, setFilter] = useState<FilterAktif>('semua');
   const [tersalin, setTersalin] = useState(false);
@@ -167,6 +188,38 @@ export function SyncDebugPanel() {
               >
                 <X size={14} />
               </button>
+            </div>
+          </div>
+
+          {/* Statistik lokal vs Firestore */}
+          <div className="px-3 py-2 border-b border-slate-700/50 bg-slate-900/60">
+            <div className="grid grid-cols-3 gap-1.5">
+              <KartuStatistik
+                label="Tersinkron"
+                nilai={statistik ? statistik.server : '—'}
+                sub="di Firestore"
+                ikon={<CloudCheck size={11} />}
+                kelas="text-emerald-300 bg-emerald-500/10 border-emerald-500/30"
+              />
+              <KartuStatistik
+                label="Belum sinkron"
+                nilai={statistik ? statistik.hanyaLokal + statistik.versiLokalMenang : '—'}
+                sub={statistik
+                  ? `${statistik.hanyaLokal} hanya lokal · ${statistik.versiLokalMenang} versi lokal lebih baru`
+                  : 'menunggu data listener…'}
+                ikon={<CloudOff size={11} />}
+                kelas="text-amber-300 bg-amber-500/10 border-amber-500/30"
+              />
+              <KartuStatistik
+                label="Total"
+                nilai={statistik ? statistik.total : '—'}
+                sub={statistik?.modeOffline ? 'mode offline' : 'catatan'}
+                ikon={<Database size={11} />}
+                kelas="text-slate-300 bg-slate-700/30 border-slate-700/60"
+              />
+            </div>
+            <div className="mt-1 text-right text-[9px] text-slate-500 font-mono">
+              {statistik ? `Diperbarui ${formatJam(statistik.diperbaruiPada)}` : 'Data listener belum masuk'}
             </div>
           </div>
 

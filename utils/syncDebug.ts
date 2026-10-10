@@ -18,6 +18,16 @@ export interface SyncLogEntry {
   detail?: unknown;
 }
 
+// Ringkasan status catatan: lokal vs Firestore (untuk panel debug)
+export interface StatistikSinkron {
+  server: number;            // catatan yang versi terbarunya sudah ada di Firestore
+  hanyaLokal: number;        // catatan yang hanya ada di antrean lokal (belum pernah tersinkron)
+  versiLokalMenang: number;  // ada di server, tapi versi lokal lebih baru (menunggu diunggah)
+  total: number;             // gabungan unik lokal + server
+  modeOffline: boolean;      // mode lokal penuh (user 'offline-local') — tidak ada sinkronisasi
+  diperbaruiPada: number;    // epoch ms statistik terakhir dihitung
+}
+
 type Pendengar = () => void;
 
 const BATAS_ENTRI = 300;
@@ -53,6 +63,7 @@ class PencatatSinkronisasi {
   private pendengar = new Set<Pendengar>();
   private urutan = 0;
   private jumlahError = 0;
+  private statistik: StatistikSinkron | null = null;
 
   catat(
     level: SyncLevel,
@@ -119,6 +130,19 @@ class PencatatSinkronisasi {
 
   ambilSnapshot = (): SyncLogEntry[] => this.snapshot;
 
+  // --- API statistik lokal vs Firestore (dipakai panel debug) ---
+  catatStatistik(s: StatistikSinkron): void {
+    this.statistik = s;
+    this.pendengar.forEach((fn) => fn());
+  }
+
+  resetStatistik(): void {
+    this.statistik = null;
+    this.pendengar.forEach((fn) => fn());
+  }
+
+  ambilStatistik = (): StatistikSinkron | null => this.statistik;
+
   get totalError(): number {
     return this.jumlahError;
   }
@@ -127,6 +151,7 @@ class PencatatSinkronisasi {
     this.entri = [];
     this.snapshot = [];
     this.jumlahError = 0;
+    this.statistik = null;
     this.pendengar.forEach((fn) => fn());
   }
 
@@ -161,6 +186,12 @@ class PencatatSinkronisasi {
     isi('Auto sync', autoSync);
     isi('Interval sync (ms)', interval);
     isi('Antrean lokal', `${antreanCatatan} catatan, ${antreanFolder} folder`);
+    const st = this.statistik;
+    isi('Tersinkron Firestore', st ? `${st.server} catatan` : '(belum diperbarui)');
+    isi('Belum tersinkron', st
+      ? `${st.hanyaLokal + st.versiLokalMenang} catatan (${st.hanyaLokal} hanya lokal, ${st.versiLokalMenang} versi lokal lebih baru)`
+      : '(belum diperbarui)');
+    isi('Total catatan', st ? `${st.total} catatan${st.modeOffline ? ' (mode offline — tidak disinkronkan ke server)' : ''}` : '(belum diperbarui)');
     baris.push('-'.repeat(64));
     isi('Ringkasan', `${this.entri.length} peristiwa | ${hitung('success')} sukses | ${hitung('warn')} warn | ${hitung('error')} error | ${hitung('info')} info`);
     baris.push('-'.repeat(64));
