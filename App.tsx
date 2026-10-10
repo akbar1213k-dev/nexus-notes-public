@@ -9,6 +9,8 @@ import { PreviewSheet } from './components/PreviewSheet';
 import { SettingsView } from './components/SettingsView';
 import { TractView } from './components/TractView';
 import { MindmapEditor } from './components/MindmapEditor';
+import { SyncDebugPanel } from './components/SyncDebugPanel';
+import { syncDebug } from './utils/syncDebug';
 import { db, auth } from './services/firebase'; 
 import { clearHistory as clearHistoryFromIndexedDB } from './utils/historyStore'; 
 import { 
@@ -100,13 +102,17 @@ export default function App() {
 
       const expiredNotes = currentNotes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
       expiredNotes.forEach(async (n) => {
-        await deleteDoc(doc(db, "notes", n.id));
-        removeFromLocalStorage(n.id);
+        await deleteDoc(doc(db, "notes", n.id))
+          .then(() => { removeFromLocalStorage(n.id); })
+          .catch((err: any) => syncDebug.error('sistem', 'BERSIHKAN_SAMPAH',
+            `Gagal menghapus catatan kedaluwarsa ${n.id}: ${err.message}`, { id: n.id, code: err.code }));
       });
 
       const expiredFolders = currentFolders.filter(f => f.deletedAt && (now - f.deletedAt > ONE_DAY_MS));
       expiredFolders.forEach(async (f) => {
-        await deleteDoc(doc(db, "folders", f.id));
+        await deleteDoc(doc(db, "folders", f.id))
+          .catch((err: any) => syncDebug.error('sistem', 'BERSIHKAN_SAMPAH',
+            `Gagal menghapus folder kedaluwarsa ${f.id}: ${err.message}`, { id: f.id, code: err.code }));
       });
     };
 
@@ -151,11 +157,18 @@ export default function App() {
         }
       });
     } else {
-      const batchPromises = [
-        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })),
-        ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: time }))
+      // [DEBUG] per dokumen supaya terlihat id mana yang ditolak rules, tetap ditunggu
+      const tugas = [
+        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })
+          .then(() => syncDebug.sukses('hapus', 'BUANG_CATATAN', `Catatan ${id} dipindah ke Sampah`))
+          .catch((err: any) => syncDebug.error('hapus', 'BUANG_CATATAN',
+            `Gagal memindahkan catatan ${id} ke Sampah: ${err.message}`, { id, code: err.code }))),
+        ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: time })
+          .then(() => syncDebug.sukses('hapus', 'BUANG_FOLDER', `Folder ${id} dipindah ke Sampah`))
+          .catch((err: any) => syncDebug.error('hapus', 'BUANG_FOLDER',
+            `Gagal memindahkan folder ${id} ke Sampah: ${err.message}`, { id, code: err.code })))
       ];
-      await Promise.all(batchPromises);
+      await Promise.all(tugas);
     }
     alert("Item dipindahkan ke Sampah. Akan dihapus permanen dalam 24 jam.");
   };
@@ -181,11 +194,18 @@ export default function App() {
         }
       });
     } else {
-      const batchPromises = [
-        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: null })),
-        ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: null }))
+      // [DEBUG] per dokumen, tetap ditunggu seperti sebelumnya
+      const tugas = [
+        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: null })
+          .then(() => syncDebug.sukses('hapus', 'PULIHKAN_CATATAN', `Catatan ${id} dipulihkan dari Sampah`))
+          .catch((err: any) => syncDebug.error('hapus', 'PULIHKAN_CATATAN',
+            `Gagal memulihkan catatan ${id}: ${err.message}`, { id, code: err.code }))),
+        ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: null })
+          .then(() => syncDebug.sukses('hapus', 'PULIHKAN_FOLDER', `Folder ${id} dipulihkan dari Sampah`))
+          .catch((err: any) => syncDebug.error('hapus', 'PULIHKAN_FOLDER',
+            `Gagal memulihkan folder ${id}: ${err.message}`, { id, code: err.code })))
       ];
-      await Promise.all(batchPromises);
+      await Promise.all(tugas);
     }
   };
 
@@ -199,8 +219,19 @@ export default function App() {
       setNotes(prev => prev.filter(n => !noteIds.includes(n.id)));
       setFolders(prev => prev.filter(f => !folderIds.includes(f.id)));
     } else {
-      noteIds.forEach(id => { deleteDoc(doc(db, "notes", id)); removeFromLocalStorage(id); });
-      folderIds.forEach(id => { deleteDoc(doc(db, "folders", id)); });
+      // [DEBUG]
+      noteIds.forEach(id => {
+        deleteDoc(doc(db, "notes", id))
+          .then(() => { removeFromLocalStorage(id); syncDebug.sukses('hapus', 'HAPUS_PERMANEN_CATATAN', `Catatan ${id} dihapus permanen`, { id }); })
+          .catch((err: any) => syncDebug.error('hapus', 'HAPUS_PERMANEN_CATATAN',
+            `Gagal menghapus permanen catatan ${id}: ${err.message}`, { id, code: err.code }));
+      });
+      folderIds.forEach(id => {
+        deleteDoc(doc(db, "folders", id))
+          .then(() => syncDebug.sukses('hapus', 'HAPUS_PERMANEN_FOLDER', `Folder ${id} dihapus permanen`, { id }))
+          .catch((err: any) => syncDebug.error('hapus', 'HAPUS_PERMANEN_FOLDER',
+            `Gagal menghapus permanen folder ${id}: ${err.message}`, { id, code: err.code }));
+      });
     }
   };
    
@@ -349,7 +380,13 @@ export default function App() {
         } else {
           // Mode online: update ke Firebase
           updateDoc(doc(db, "notes", noteId), { lastOpenedAt: now })
-              .catch(err => console.error("Failed to update last opened:", err));
+              // [DEBUG] catat juga di sini — inilah satu-satunya error yang tadinya sempat terlihat
+              .catch((err: any) => {
+                 syncDebug.error('tulis', 'CATATAN_DIBUKA',
+                   `Gagal memperbarui lastOpenedAt catatan ${noteId}: ${err.message}`,
+                   { id: noteId, code: err.code, userId: user.uid });
+                 console.error("Failed to update last opened:", err);
+              });
         }
     }
     // --------------
@@ -402,16 +439,36 @@ export default function App() {
     // Mode offline: skip Firebase auth listener
     if (user?.uid === 'offline-local') return;
 
+    // [DEBUG] Catat kondisi awal: apakah UI dirender dengan user "palsu" dari localStorage?
+    // Kunci utama diagnosa: bandingkan uidLocalStorage dengan uidSesiAuth.
+    syncDebug.info('auth', 'MULAI_APLIKASI',
+      `Aplikasi dimuat. UID di state: ${user?.uid ?? '(belum ada)'} — ${user?.email ? 'sesi asli' : 'USER PALSU dari localStorage (belum dikonfirmasi Firebase)'}`,
+      {
+        uidState: user?.uid ?? null,
+        emailState: user?.email ?? null,
+        uidLocalStorage: localStorage.getItem('nexus_user_uid'),
+        punyaSesiAuth: !!auth.currentUser,
+        uidSesiAuth: auth.currentUser?.uid ?? null,
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
           // [PERCEPAT 2] Jika login valid, simpan UID ke local storage
           localStorage.setItem('nexus_user_uid', currentUser.uid);
           setUser(currentUser); // Update user dengan data asli dari Firebase
+          // [DEBUG]
+          syncDebug.sukses('auth', 'SESI_AKTIF',
+            `Sesi login valid (uid: ${currentUser.uid})`,
+            { uid: currentUser.uid, email: currentUser.email, emailTerverifikasi: currentUser.emailVerified });
       } else {
           // Jika logout atau sesi habis
           localStorage.removeItem('nexus_user_uid');
           setUser(null);
           setNotes([]); setFolders([]); setIsReady(false); setAuthError(''); setDbError('');
+          // [DEBUG]
+          syncDebug.warn('auth', 'SESI_HABIS',
+            'Tidak ada sesi login aktif (logout atau sesi kedaluwarsa) — semua operasi Firestore akan ditolak dengan permission-denied',
+            { uidTersimpanSebelumnya: localStorage.getItem('nexus_user_uid') });
       }
     });
     return () => unsubscribe();
@@ -454,6 +511,26 @@ export default function App() {
       });
 
       mergedNotes.sort((a, b) => b.updatedAt - a.updatedAt);
+
+      // [DEBUG] Catat statistik gabungan server vs lokal untuk diagnosa race/konflik
+      const lokalMenang = serverNotes.filter(s => {
+        const l = localNotes.find(x => x.id === s.id);
+        return !!l && l.updatedAt > s.updatedAt;
+      }).length;
+      const hanyaDiLokal = localNotes.filter(l => !serverNotes.some(s => s.id === l.id)).length;
+      syncDebug.info('listener', 'TERIMA_CATATAN',
+        `Diterima ${snap.docs.length} dokumen dari server — gabungan akhir ${mergedNotes.length} catatan (lokal menang: ${lokalMenang}, hanya ada di lokal: ${hanyaDiLokal})`,
+        {
+          dariServer: snap.docs.length,
+          gabunganAkhir: mergedNotes.length,
+          lokalMenang,
+          hanyaDiLokal,
+          dariCache: snap.metadata.fromCache,
+          punyaTulisanTertunda: snap.metadata.hasPendingWrites,
+          ukuranAntreanLokal: localNotes.length,
+          userIdQuery: user.uid,
+        });
+
       // --- LOGIKA RESET CHECKBOX BERJANGKA ---
       const now = new Date();
       let hasUpdates = false;
@@ -533,11 +610,22 @@ export default function App() {
 
       if (localNotes.length > 0) setSyncStatus('unsaved');
     }, (err) => {
+      // [DEBUG] SELALU catat — termasuk permission-denied yang tadinya disembunyikan
+      syncDebug.error('listener', 'GAGAL_LISTEN_CATATAN',
+        `Listener catatan gagal: ${err.message}`,
+        {
+          code: err.code,
+          yangDiQuery: user.uid,
+          ukuranAntreanLokal: getLocalNotes().length,
+          petunjuk: err.code === 'permission-denied'
+            ? 'Firestore Rules menolak query notes. Periksa rules & apakah sesi login benar-benar aktif (bandingkan UID dengan sesi auth).'
+            : 'Bisa jadi index composite (userId + updatedAt) belum dibuat.',
+        });
       // Abaikan error permission sementara jika user object masih "fake"
       // karena update user asli akan segera menyusul
       if (err.code !== 'permission-denied') {
-          console.error("Notes Sync Error:", err);
-          setDbError(`Gagal memuat Catatan: ${err.message}`);
+        console.error("Notes Sync Error:", err);
+        setDbError(`Gagal memuat Catatan: ${err.message}`);
       }
     });
 
@@ -549,7 +637,19 @@ export default function App() {
     
     const unsubFolders = onSnapshot(qFolders, (snap) => {
       setFolders(snap.docs.map(d => d.data() as Folder));
+      // [DEBUG]
+      syncDebug.info('listener', 'TERIMA_FOLDER',
+        `Listener menerima ${snap.docs.length} folder dari server`,
+        {
+          jumlahFolder: snap.docs.length,
+          dariCache: snap.metadata.fromCache,
+          punyaTulisanTertunda: snap.metadata.hasPendingWrites,
+          userIdQuery: user.uid,
+        });
     }, (err) => {
+      // [DEBUG] Selalu catat (termasuk permission-denied yang tadinya disembunyikan)
+      syncDebug.error('listener', 'GAGAL_LISTEN_FOLDER',
+        `Listener folder gagal: ${err.message}`, { code: err.code, yangDiQuery: user.uid });
       if (err.code !== 'permission-denied') {
         console.error("Folder Sync Error:", err);
         setDbError(prev => prev ? prev : `Gagal memuat Folder: ${err.message}`);
@@ -563,7 +663,11 @@ export default function App() {
     e.preventDefault(); setAuthError(''); setIsLoadingAuth(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-    } catch (err: any) { setAuthError(err.message); } 
+      syncDebug.info('auth', 'LOGIN_BERHASIL', `Login berhasil untuk ${email}`);
+    } catch (err: any) {
+      setAuthError(err.message);
+      syncDebug.error('auth', 'LOGIN_GAGAL', `Login ditolak: ${err.message}`, { code: err.code, email });
+    } 
     finally { setIsLoadingAuth(false); }
   };
 
@@ -588,6 +692,9 @@ export default function App() {
       }
       // Mode offline: jangan clear localStorage agar data tetap tersimpan
 
+      // [DEBUG]
+      syncDebug.info('auth', 'KELUAR_AKUN', 'Pengguna keluar dari akun — sesi & antrean lokal dibersihkan',
+        { mode: isOffline ? 'offline' : 'online' });
       setNotes([]);
       setFolders([]);
       setIsReady(false);
@@ -620,22 +727,47 @@ export default function App() {
       // Mode offline: skip sync
       if (user.uid === 'offline-local') return;
       setSyncStatus('syncing');
+      const mulai = Date.now();
       try {
           const localNotes = getLocalNotes();
+          syncDebug.info('tulis', 'SINKRON_MANUAL_MULAI',
+            `Mengirim ${localNotes.length} catatan dari antrean lokal ke Firestore`,
+            { userIdTujuan: user.uid, jumlahAntrean: localNotes.length });
           if (localNotes.length === 0) {
+              syncDebug.info('tulis', 'SINKRON_MANUAL_SELESAI', 'Antrean lokal kosong — tidak ada yang perlu dikirim');
               setSyncStatus('saved');
               setTimeout(() => setSyncStatus('idle'), 2000);
               return;
           }
-          const promises = localNotes.map(async (note) => {
+          // [DEBUG] Kirim satu per satu agar kegagalan per-catatan tidak tertelan Promise.all
+          let sukses = 0;
+          let gagal = 0;
+          const gagalDetail: any[] = [];
+          for (const note of localNotes) {
               const noteToSync = { ...note, userId: user.uid };
-              await setDoc(doc(db, "notes", note.id), noteToSync, { merge: true });
-              removeFromLocalStorage(note.id); 
-          });
-          await Promise.all(promises);
-          setSyncStatus('saved');
+              try {
+                  await setDoc(doc(db, "notes", note.id), noteToSync, { merge: true });
+                  removeFromLocalStorage(note.id);
+                  sukses++;
+                  syncDebug.sukses('tulis', 'UNGGAH_CATATAN',
+                    `Catatan "${note.title || 'Tanpa judul'}" berhasil dikirim ke Firestore`,
+                    { id: note.id, userIdTujuan: user.uid });
+              } catch (err: any) {
+                  gagal++;
+                  gagalDetail.push({ id: note.id, code: err.code, pesan: err.message });
+                  syncDebug.error('tulis', 'UNGGAH_CATATAN_GAGAL',
+                    `Gagal mengirim catatan "${note.title || note.id}" ke Firestore: ${err.message}`,
+                    { id: note.id, code: err.code, userIdTujuan: user.uid });
+              }
+          }
+          syncDebug.info('tulis', 'SINKRON_MANUAL_SELESAI',
+            `Sinkronisasi manual selesai: ${sukses} berhasil, ${gagal} gagal (${Date.now() - mulai} ms)`,
+            { sukses, gagal, durasiMs: Date.now() - mulai, gagalDetail });
+          setSyncStatus(gagal > 0 ? 'error' : 'saved');
           setTimeout(() => setSyncStatus('idle'), 2000);
-      } catch (error) {
+      } catch (error: any) {
+          syncDebug.error('tulis', 'SINKRON_MANUAL_GAGAL',
+            `Sinkronisasi manual terhenti: ${error?.message ?? error}`, { code: error?.code });
           console.error("Manual Sync Error:", error);
           setSyncStatus('error');
       }
@@ -655,17 +787,33 @@ export default function App() {
     
     const isOffline = user.uid === 'offline-local';
     if (!isOffline && isAutoSync) {
+        // [DEBUG]
+        syncDebug.info('tulis', 'EDIT_CATATAN',
+          `Menjadwalkan penyimpanan catatan "${updated.title || updated.id}" dalam ${syncInterval} ms`,
+          { id: updated.id, userId: user.uid, tungguMs: syncInterval });
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
         syncTimerRef.current = setTimeout(() => {
+             const mulai = Date.now();
              setDoc(doc(db, "notes", updated.id), noteWithUser, { merge: true })
                 .then(() => { 
                    removeFromLocalStorage(updated.id); 
                    setSyncStatus('saved'); 
+                   syncDebug.sukses('tulis', 'EDIT_CATATAN',
+                     `Catatan "${updated.title || updated.id}" tersimpan ke Firestore`,
+                     { id: updated.id, durasiMs: Date.now() - mulai, berdasarkanJadwal: true });
                    setTimeout(() => setSyncStatus('idle'), 2000); 
+                })
+                // [DEBUG] catch(yang tadinya TIDAK ADA — kegagalan hapus catatan sebelumnya tidak berjejak sama sekali)
+                .catch((err: any) => {
+                   syncDebug.error('tulis', 'EDIT_CATATAN_GAGAL',
+                     `Gagal menyimpan catatan "${updated.title || updated.id}" ke Firestore: ${err.message}`,
+                     { id: updated.id, code: err.code, userId: user.uid,
+                       catatanTersisaDiAntreanLokal: getLocalNotes().findIndex(n => n.id === updated.id) >= 0 });
                 });
         }, syncInterval); 
     } else if (!isOffline) {
         setSyncStatus('unsaved');
+        syncDebug.warn('tulis', 'EDIT_CATATAN', 'Perubahan hanya disimpan lokal — auto sync sedang nonaktif', { id: updated.id });
     }
   };
 
@@ -691,7 +839,22 @@ export default function App() {
     setNotes(p => [newNote, ...p]);
     saveToLocalStorage(newNote); 
     const isOffline = user.uid === 'offline-local';
-    if (!isOffline && isAutoSync) setDoc(doc(db, "notes", id), newNote, { merge: true });
+    if (!isOffline && isAutoSync) {
+      // [DEBUG]
+      syncDebug.info('tulis', 'BUAT_CATATAN', `Membuat catatan "${finalTitle}" di Firestore`,
+        { id: newNote.id, userId: user.uid });
+      setDoc(doc(db, "notes", id), newNote, { merge: true })
+          .then(() => {
+              removeFromLocalStorage(id);
+              syncDebug.sukses('tulis', 'BUAT_CATATAN', `Catatan "${finalTitle}" tersimpan di Firestore`,
+                { id: newNote.id, userId: user.uid });
+          })
+          .catch((err: any) => {
+              syncDebug.error('tulis', 'BUAT_CATATAN_GAGAL',
+                `Gagal menyimpan catatan baru "${finalTitle}" ke Firestore: ${err.message}`,
+                { id: newNote.id, code: err.code, userId: user.uid });
+          });
+    }
     if (shouldNavigate) navigateTo('EDITOR', id);
     return id;
   };
@@ -723,8 +886,25 @@ export default function App() {
     // 3. Simpan ke database Firebase jika fitur auto sync aktif dan tidak offline
     const isOffline = user.uid === 'offline-local';
     if (!isOffline && isAutoSync) {
-      const batchPromises = duplicatedNotes.map(n => setDoc(doc(db, "notes", n.id), n));
-      await Promise.all(batchPromises);
+      // [DEBUG] per-catatan, bukan Promise.all buta
+      let sukses = 0;
+      let gagal = 0;
+      for (const n of duplicatedNotes) {
+        try {
+          await setDoc(doc(db, "notes", n.id), n);
+          removeFromLocalStorage(n.id);
+          sukses++;
+          syncDebug.sukses('tulis', 'DUPLIKAT_CATATAN', `Duplikat "${n.title}" tersimpan di Firestore`,
+            { idBaru: n.id, userId: user.uid });
+        } catch (err: any) {
+          gagal++;
+          syncDebug.error('tulis', 'DUPLIKAT_CATATAN',
+            `Gagal menyimpan duplikat "${n.title}" ke Firestore: ${err.message}`,
+            { idBaru: n.id, code: err.code, userId: user.uid });
+        }
+      }
+      syncDebug.info('tulis', 'DUPLIKAT_SELESAI',
+        `Duplikasi selesai: ${sukses} berhasil, ${gagal} gagal dari ${duplicatedNotes.length} catatan`);
     }
   };
 
@@ -767,24 +947,47 @@ export default function App() {
                 saveFolderToLocalStorage(folderWithUser);
             });
         } else {
-            const promises = [
-                ...notesToImport.map(x => setDoc(doc(db, "notes", x.id), { 
-                    ...x, 
-                    userId: user.uid, 
-                    updatedAt: x.updatedAt || Date.now() 
-                })),
-                ...foldersToImport.map(x => setDoc(doc(db, "folders", x.id), { 
-                    ...x, 
-                    userId: user.uid 
-                }))
+            // [DEBUG] kirim dan tangkap per dokumen, jangan sampai gagal mencantumkan dokumen mana
+            let sukses = 0;
+            const gagal: any[] = [];
+            const tugas: Array<{ label: string, promise: Promise<void> }> = [
+              ...notesToImport.map(x => ({
+                label: `catatan "${x.title || x.id}"`,
+                promise: setDoc(doc(db, "notes", x.id), {
+                    ...x,
+                    userId: user.uid,
+                    updatedAt: x.updatedAt || Date.now()
+                }) as Promise<void>,
+              })),
+              ...foldersToImport.map(x => ({
+                label: `folder "${x.name || x.id}"`,
+                promise: setDoc(doc(db, "folders", x.id), {
+                    ...x,
+                    userId: user.uid
+                }) as Promise<void>,
+              }))
             ];
-            await Promise.all(promises);
+            for (const t of tugas) {
+              try {
+                await t.promise; sukses++;
+              } catch (err: any) {
+                gagal.push({ dokumen: t.label, code: err.code, pesan: err.message });
+                syncDebug.error('tulis', 'IMPOR_DATA', `Gagal memulihkan ${t.label}: ${err.message}`,
+                  { code: err.code, userId: user.uid });
+              }
+            }
+            syncDebug.info('tulis', 'IMPOR_SELESAI',
+              `Impor selesai: ${sukses} berhasil, ${gagal.length} gagal`, { gagal });
+            if (gagal.length > 0) {
+                throw new Error(`${gagal.length} dokumen gagal dipulihkan. Contoh: ${gagal[0].dokumen} — ${gagal[0].pesan}`);
+            }
         }
 
         alert(`✅ Sukses! Berhasil memulihkan ${notesToImport.length} catatan dan ${foldersToImport.length} folder.`);
         window.location.reload(); 
 
     } catch (err: any) {
+        syncDebug.error('tulis', 'IMPOR_DATA', `Impor data gagal: ${err?.message ?? err}`, { code: err?.code });
         console.error("Detail Error Import:", err);
         alert(`❌ Terjadi kesalahan saat menyimpan ke database:\n\n${err.message}`);
     }
@@ -820,14 +1023,26 @@ export default function App() {
           setNotes(prev => prev.map(n => n.id === currentNoteId ? updated : n));
         }
       } else {
-        await updateDoc(doc(db, "notes", currentNoteId), { 
-          folderId: targetFolderId || "", updatedAt: Date.now() 
-        });
-        setNotes(prev => prev.map(n => 
-          n.id === currentNoteId 
-            ? { ...n, folderId: targetFolderId || "", updatedAt: Date.now() } 
-            : n
-        ));
+        try {
+          await updateDoc(doc(db, "notes", currentNoteId), {
+            folderId: targetFolderId || "", updatedAt: Date.now()
+          });
+          setNotes(prev => prev.map(n =>
+              n.id === currentNoteId
+                ? { ...n, folderId: targetFolderId || "", updatedAt: Date.now() }
+                : n
+          ));
+          // [DEBUG]
+          syncDebug.sukses('tulis', 'PINDAH_CATATAN',
+            `Catatan "${notes.find(n => n.id === currentNoteId)?.title || currentNoteId}" dipindah ke ${targetFolderId ? 'folder ' + targetFolderId : 'Home'}`,
+            { id: currentNoteId, folderIdTujuan: targetFolderId });
+        } catch (err: any) {
+          // [DEBUG] lempar ulang agar dialog pindah tetap terbuka untuk dicoba lagi
+          syncDebug.error('tulis', 'PINDAH_CATATAN',
+            `Gagal memindahkan catatan ${currentNoteId}: ${err.message}`,
+            { id: currentNoteId, code: err.code, folderIdTujuan: targetFolderId });
+          throw err;
+        }
       }
       setShowEditorMoveDialog(false);
       alert("Catatan berhasil dipindahkan!");
@@ -844,6 +1059,7 @@ export default function App() {
   // --- RENDER LOGIN SCREEN (Hanya tampil jika benar-benar logout / user null) ---
   if (!user) {
     return (
+      <>
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900 px-4 transition-colors">
         <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-2xl shadow-blue-500/10 border border-white dark:border-gray-700 max-w-sm w-full transform transition-all">
             
@@ -916,6 +1132,10 @@ export default function App() {
             )}
         </div>
       </div>
+
+      {/* [DEBUG] Panel juga tampil di layar login agar error auth terekam */}
+      <SyncDebugPanel />
+      </>
     );
   }
 
@@ -939,10 +1159,16 @@ export default function App() {
           setNotes(prev => prev.map(n => n.id === id ? updated : n));
         }
       } else {
+        // [DEBUG]
         updateDoc(doc(db, "notes", id), { 
             folderId: targetFolderId || "", 
             updatedAt: Date.now() 
-        });
+        })
+          .then(() => syncDebug.sukses('tulis', 'PINDAH_CATATAN_GRAF',
+              `Catatan ${id} dipindah ke ${targetFolderId ? 'folder ' + targetFolderId : 'Home'}`,
+              { id, folderIdTujuan: targetFolderId }))
+          .catch((err: any) => syncDebug.error('tulis', 'PINDAH_CATATAN_GRAF',
+              `Gagal memindahkan catatan ${id}: ${err.message}`, { id, code: err.code }));
       }
     });
   }, [user, notes]);
@@ -1250,6 +1476,9 @@ export default function App() {
         onClose={() => setPreviewNoteId(null)} 
         onOpenFull={() => previewNoteId && navigateTo('EDITOR', previewNoteId)} 
       />
+
+      {/* [DEBUG] Panel melayang: mencatat seluruh proses sinkronisasi & tombol salin laporan */}
+      <SyncDebugPanel />
     </div>
   );
 }

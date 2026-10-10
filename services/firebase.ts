@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth } from "firebase/auth"; 
+import { syncDebug } from '../utils/syncDebug';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCVe3kA9kTNvGt82laTPvIFgDrWA29VYNA",
@@ -16,11 +17,20 @@ export const db = getFirestore(app);
 // Mengaktifkan sistem hybrid (Offline Persistence)
 enableIndexedDbPersistence(db)
   .catch((err) => {
+    // [DEBUG] Catat alasan cache offline gagal aktif
+    let alasan = err.message;
     if (err.code == 'failed-precondition') {
-      console.warn('Gagal mengaktifkan cache: Banyak tab aplikasi terbuka.');
+        alasan = 'Banyak tab aplikasi terbuka — hanya satu tab yang boleh memakai cache Firestore.';
     } else if (err.code == 'unimplemented') {
-      console.warn('Browser ini tidak mendukung cache lokal Firebase.');
+        alasan = 'Browser ini tidak mendukung cache lokal Firebase.';
     }
+    syncDebug.warn('sistem', 'CACHE_OFFLINE_GAGAL',
+      `Cache offline Firestore tidak aktif: ${alasan}`,
+      { code: err.code, akibat: 'Tulisan saat offline tidak akan tertahan di cache perangkat.' });
   });
 export const auth = getAuth(app); 
 // GoogleAuthProvider dihapus
+
+// [DEBUG] Inisialisasi tercatat agar terlihat apakah modul firebase dimuat di depan
+syncDebug.info('sistem', 'FIREBASE_DIMUAT', 'Firebase Firestore & Auth siap digunakan',
+  { projectId: firebaseConfig.projectId });

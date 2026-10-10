@@ -32,6 +32,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../services/firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { syncDebug } from '../utils/syncDebug';
 
 // Utility for Tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -156,6 +157,18 @@ export function TractView({
         const fetchedData = snapshot.docs.map(doc => doc.data() as Activity);
         fetchedData.sort((a, b) => b.timestamp - a.timestamp); // Urutkan terbaru
         setActivities(fetchedData);
+        // [DEBUG]
+        syncDebug.info('listener', 'TERIMA_AKTIVITAS',
+          `Listener TractApp menerima ${snapshot.docs.length} aktivitas dari server`,
+          { jumlah: snapshot.docs.length, userId, dariCache: snapshot.metadata.fromCache });
+    }, (err: any) => {
+        // [DEBUG] termasuk permission-denied yang tadinya lewat tanpa jejak
+        syncDebug.error('listener', 'GAGAL_LISTEN_AKTIVITAS',
+          `Listener aktivitas TractApp gagal: ${err.message}`,
+          { code: err.code, userId,
+            petunjuk: err.code === 'permission-denied'
+              ? 'Firestore Rules menolak collection activities untuk userId ini.'
+              : undefined });
     });
     return () => unsubscribe();
   }, [userId]);
@@ -184,7 +197,12 @@ export function TractView({
             const data = docSnap.data();
             if (data.activitySuggestions) setActivitySuggestions(data.activitySuggestions);
             if (data.typeSuggestions) setTypeSuggestions(data.typeSuggestions);
+            syncDebug.info('listener', 'TERIMA_SETELAN_TRACT', 'Pengaturan TractApp diterima dari server', { userId });
         }
+    }, (err: any) => {
+        // [DEBUG]
+        syncDebug.error('listener', 'GAGAL_LISTEN_SETELAN_TRACT',
+          `Listener pengaturan TractApp gagal: ${err.message}`, { code: err.code, userId });
     });
     return () => unsub();
   }, [userId]);
@@ -194,7 +212,10 @@ export function TractView({
       setDoc(doc(db, 'tract_settings', userId), {
           activitySuggestions: newActSugg,
           typeSuggestions: newTypeSugg
-      }, { merge: true }).catch(err => console.error("Gagal simpan settings:", err));
+      }, { merge: true })
+        .then(() => syncDebug.sukses('tulis', 'SIMPAN_SETELAN_TRACT', 'Pengaturan TractApp tersimpan di Firestore', { userId }))
+        .catch((err: any) => syncDebug.error('tulis', 'SIMPAN_SETELAN_TRACT',
+          `Gagal menyimpan pengaturan TractApp: ${err.message}`, { code: err.code, userId }));
   };
 
   // Form State
@@ -289,7 +310,10 @@ export function TractView({
       updated.resumes = newResumes;
 
       if (userId) {
-          setDoc(doc(db, 'activities', updated.id), updated, { merge: true }).catch(err => console.error(err));
+          setDoc(doc(db, 'activities', updated.id), updated, { merge: true })
+          .then(() => syncDebug.sukses('tulis', 'UPDATE_AKTIVITAS', `Aktivitas "${updated.name}" diperbarui`, { id: updated.id, userId }))
+          .catch((err: any) => syncDebug.error('tulis', 'UPDATE_AKTIVITAS',
+            `Gagal memperbarui aktivitas "${updated.name}": ${err.message}`, { id: updated.id, code: err.code, userId }));
       }
       setActivities(prev => prev.map(a => a.id === updated.id ? updated : a));
       setDetailActivity(updated);
@@ -511,10 +535,14 @@ export function TractView({
     };
 
     if (userId) {
-      setDoc(doc(db, 'activities', newActivity.id), newActivity).catch(err => {
-         console.error("Gagal simpan ke Firebase:", err);
-         alert("Gagal sinkronisasi ke awan! Error: " + err.message);
-      });
+      setDoc(doc(db, 'activities', newActivity.id), newActivity)
+        .then(() => syncDebug.sukses('tulis', 'BUAT_AKTIVITAS', `Aktivitas "${newActivity.name}" tersimpan di Firestore`, { id: newActivity.id, userId }))
+        .catch((err: any) => {
+          syncDebug.error('tulis', 'BUAT_AKTIVITAS',
+            `Gagal sinkronisasi aktivitas "${newActivity.name}" ke awan: ${err.message}`,
+            { id: newActivity.id, code: err.code, userId });
+          alert("Gagal sinkronisasi ke awan! Error: " + err.message);
+        });
     }
 
     const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
@@ -587,7 +615,10 @@ export function TractView({
     };
 
     if (userId) {
-      setDoc(doc(db, 'activities', newActivity.id), newActivity).catch(err => console.error("Gagal:", err));
+      setDoc(doc(db, 'activities', newActivity.id), newActivity)
+        .then(() => syncDebug.sukses('tulis', 'BUAT_AKTIVITAS', `Aktivitas "${newActivity.name}" tersimpan di Firestore`, { id: newActivity.id, userId }))
+        .catch((err: any) => syncDebug.error('tulis', 'BUAT_AKTIVITAS',
+          `Gagal menyimpan aktivitas "${newActivity.name}": ${err.message}`, { id: newActivity.id, code: err.code, userId }));
     }
 
     const updatedActivities = [newActivity, ...activities].sort((a, b) => b.timestamp - a.timestamp);
@@ -642,7 +673,10 @@ export function TractView({
     };
 
     if (userId) {
-        setDoc(doc(db, 'activities', editingId), updatedActivity, { merge: true }).catch(err => console.error("Gagal update:", err));
+        setDoc(doc(db, 'activities', editingId), updatedActivity, { merge: true })
+          .then(() => syncDebug.sukses('tulis', 'EDIT_AKTIVITAS', `Aktivitas "${updatedActivity.name}" diperbarui`, { id: editingId, userId }))
+          .catch((err: any) => syncDebug.error('tulis', 'EDIT_AKTIVITAS',
+            `Gagal memperbarui aktivitas: ${err.message}`, { id: editingId, code: err.code, userId }));
     }
 
     const updatedActivities = activities.map(act => act.id === editingId ? updatedActivity : act);
@@ -698,7 +732,10 @@ export function TractView({
     }
 
     if (userId) {
-        setDoc(doc(db, 'activities', activity.id), updatedActivity, { merge: true }).catch(err => console.error(err));
+          setDoc(doc(db, 'activities', activity.id), updatedActivity, { merge: true })
+            .then(() => syncDebug.sukses('tulis', 'JADWALKAN_AKTIVITAS', `Aktivitas "${activity.name}" dijadwalkan ulang`, { id: activity.id, userId }))
+            .catch((err: any) => syncDebug.error('tulis', 'JADWALKAN_AKTIVITAS',
+              `Gagal menjadwalkan ulang aktivitas "${activity.name}": ${err.message}`, { id: activity.id, code: err.code, userId }));
     }
     setActivities(prev => prev.map(a => a.id === activity.id ? updatedActivity : a));
   };
@@ -707,7 +744,11 @@ export function TractView({
     if (deletingId) {
       // Hapus dari Firebase
       if (userId) {
-         deleteDoc(doc(db, 'activities', deletingId));
+         // [DEBUG]
+         deleteDoc(doc(db, 'activities', deletingId))
+           .then(() => syncDebug.sukses('hapus', 'HAPUS_AKTIVITAS', `Aktivitas ${deletingId} dihapus dari Firestore`, { id: deletingId, userId }))
+           .catch((err: any) => syncDebug.error('hapus', 'HAPUS_AKTIVITAS',
+             `Gagal menghapus aktivitas ${deletingId}: ${err.message}`, { id: deletingId, code: err.code, userId }));
       }
       setActivities(activities.filter(a => a.id !== deletingId));
       setDeletingId(null);
@@ -806,7 +847,12 @@ export function TractView({
       if (userId) {
           const activitiesToUpdate = activities.filter(a => a.name === nameToUpdate && a.type !== newType);
           activitiesToUpdate.forEach(act => {
-              setDoc(doc(db, 'activities', act.id), { type: newType }, { merge: true }).catch(e => console.error(e));
+              // [DEBUG]
+              setDoc(doc(db, 'activities', act.id), { type: newType }, { merge: true })
+                .then(() => syncDebug.sukses('tulis', 'UBAH_JENIS_AKTIVITAS',
+                  `Jenis aktivitas "${act.name}" diubah menjadi "${newType}"`, { id: act.id, userId }))
+                .catch((err: any) => syncDebug.error('tulis', 'UBAH_JENIS_AKTIVITAS',
+                  `Gagal mengubah jenis aktivitas "${act.name}": ${err.message}`, { id: act.id, code: err.code, userId }));
           });
       }
       
@@ -859,7 +905,12 @@ export function TractView({
               
               // Simpan ke Firebase jika sedang login
               if (userId) {
-                await setDoc(doc(db, 'activities', act.id), finalAct, { merge: true }).catch(err => console.error(err));
+                // [DEBUG]
+                await setDoc(doc(db, 'activities', act.id), finalAct, { merge: true })
+                  .then(() => syncDebug.sukses('tulis', 'PULIHKAN_AKTIVITAS',
+                    `Aktivitas "${act.name}" dipulihkan dari backup`, { id: act.id, userId }))
+                  .catch((err: any) => syncDebug.error('tulis', 'PULIHKAN_AKTIVITAS',
+                    `Gagal memulihkan aktivitas "${act.name}": ${err.message}`, { id: act.id, code: err.code, userId }));
               }
 
               // Update array lokal untuk antisipasi offline
@@ -924,7 +975,11 @@ export function TractView({
     if (window.confirm(`Apakah Anda yakin ingin menghapus ${selectedIds.length} aktivitas yang dipilih? Tindakan ini permanen.`)) {
       if (userId) {
         selectedIds.forEach(id => {
-           deleteDoc(doc(db, 'activities', id)).catch(e => console.error(e));
+           // [DEBUG]
+           deleteDoc(doc(db, 'activities', id))
+             .then(() => syncDebug.sukses('hapus', 'HAPUS_BANYAK_AKTIVITAS', `Aktivitas ${id} dihapus`, { id, userId }))
+             .catch((err: any) => syncDebug.error('hapus', 'HAPUS_BANYAK_AKTIVITAS',
+               `Gagal menghapus aktivitas ${id}: ${err.message}`, { id, code: err.code, userId }));
         });
       }
       setActivities(prev => prev.filter(a => !selectedIds.includes(a.id)));
