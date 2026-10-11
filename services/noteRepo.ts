@@ -10,6 +10,7 @@ import {
   orderBy,
   query,
   setDoc,
+  where,
   writeBatch,
   type WriteBatch,
 } from 'firebase/firestore';
@@ -70,7 +71,10 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
 
     try {
       potonganLama = await getDocs(
-        collection(db, 'notes', catatan.id, 'chunks')
+        query(
+          collection(db, 'notes', catatan.id, 'chunks'),
+          where('userId', '==', userId)
+        )
       );
 
       console.log('[SYNC-DEBUG] BERHASIL_BACA_CHUNKS', {
@@ -124,7 +128,12 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
   });
 
   // Hapus potongan lebih dari jumlah baru (kasus content mengecil)
-  const potonganLama = await getDocs(collection(db, 'notes', catatan.id, 'chunks'));
+  const potonganLama = await getDocs(
+    query(
+      collection(db, 'notes', catatan.id, 'chunks'),
+      where('userId', '==', userId)
+    )
+  );
   potonganLama.docs.forEach(d => {
     const idx = Number(d.id);
     if (!Number.isFinite(idx) || idx >= potongan.length) {
