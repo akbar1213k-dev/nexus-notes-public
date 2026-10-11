@@ -59,11 +59,40 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
   const catatan = { ...note, userId };
 
   if (!perluChunk(catatan)) {
-    // Inline: bersihkan potongan lama bila catatan ini sebelumnya besar
-    const potonganLama = await getDocs(collection(db, 'notes', catatan.id, 'chunks'));
-    if (!potonganLama.empty) {
-      await commitBertahap(potonganLama.docs.map(d => (batch) => batch.delete(d.ref)));
+    // DEBUG: periksa tahap pembacaan chunks
+    console.log('[SYNC-DEBUG] MULAI_BACA_CHUNKS', {
+      id: catatan.id,
+      title: catatan.title,
+      userId,
+    });
+
+    let potonganLama;
+
+    try {
+      potonganLama = await getDocs(
+        collection(db, 'notes', catatan.id, 'chunks')
+      );
+
+      console.log('[SYNC-DEBUG] BERHASIL_BACA_CHUNKS', {
+        id: catatan.id,
+        jumlahChunks: potonganLama.size,
+      });
+    } catch (error: any) {
+      console.error('[SYNC-DEBUG] GAGAL_BACA_CHUNKS', {
+        id: catatan.id,
+        code: error?.code,
+        message: error?.message,
+      });
+
+      throw error;
     }
+
+    if (!potonganLama.empty) {
+      await commitBertahap(
+        potonganLama.docs.map(d => (batch) => batch.delete(d.ref))
+      );
+    }
+
     await setDoc(doc(db, 'notes', catatan.id), catatan, { merge: true });
     bersihkanCacheKonten(catatan.id);
     return;
