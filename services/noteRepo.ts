@@ -15,7 +15,7 @@ import {
   type WriteBatch,
 } from 'firebase/firestore';
 import type { Note } from '../types';
-import { db } from './firebase';
+import { auth, db } from './firebase';
 import {
   buatPreview,
   gabungPotongan,
@@ -149,16 +149,37 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
  * Muat konten penuh catatan yang tersimpan terpecah (chunks).
  * Mengembalikan null bila catatan tidak punya potongan.
  */
-export const muatKontenPenuh = async (noteId: string): Promise<string | null> => {
-  if (cacheKonten.has(noteId)) return cacheKonten.get(noteId) as string;
+export const muatKontenPenuh = async (
+  noteId: string
+): Promise<string | null> => {
+  const userId = auth.currentUser?.uid;
+
+  if (!userId) {
+    throw new Error(
+      'Tidak dapat memuat isi catatan: sesi Firebase belum aktif.'
+    );
+  }
+
+  if (cacheKonten.has(noteId)) {
+    return cacheKonten.get(noteId) as string;
+  }
 
   const snap = await getDocs(
-    query(collection(db, 'notes', noteId, 'chunks'), orderBy('index', 'asc'))
+    query(
+      collection(db, 'notes', noteId, 'chunks'),
+      where('userId', '==', userId),
+      orderBy('index', 'asc')
+    )
   );
+
   if (snap.empty) return null;
 
-  const konten = gabungPotongan(snap.docs.map(d => (d.data().content as string) ?? ''));
+  const konten = gabungPotongan(
+    snap.docs.map(d => (d.data().content as string) ?? '')
+  );
+
   cacheKonten.set(noteId, konten);
+
   return konten;
 };
 
