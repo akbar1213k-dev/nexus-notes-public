@@ -534,9 +534,45 @@ export default function App() {
       const serverNotes = snap.docs.map(d => d.data() as Note);
       const localNotes = getLocalNotes();
        
+      // Ambil state React sebelumnya sebagai sumber tambahan.
+      // notesRef digunakan karena listener tidak bergantung pada state `notes`.
+      const previousNotes = notesRef.current;
+
       const mergedNotes = serverNotes.map(sNote => {
         const lNote = localNotes.find(l => l.id === sNote.id);
-        return (lNote && lNote.updatedAt > sNote.updatedAt) ? lNote : sNote;
+        const previousNote = previousNotes.find(p => p.id === sNote.id);
+
+        // Pertahankan aturan lama: versi lokal menang jika lebih baru.
+        const selectedNote =
+          (lNote && lNote.updatedAt > sNote.updatedAt)
+            ? lNote
+            : sNote;
+
+        // Perlindungan khusus untuk catatan berbasis chunk.
+        // Dokumen utama memang menyimpan content: null.
+        if (sNote.chunkCount && sNote.content == null) {
+          const contentSource = [
+            selectedNote,
+            previousNote,
+            lNote
+          ].find(candidate =>
+            candidate &&
+            candidate.chunkCount &&
+            typeof candidate.content === 'string' &&
+            candidate.updatedAt >= sNote.updatedAt
+          );
+
+          // Pertahankan isi yang sudah tersedia jika versinya
+          // tidak lebih lama daripada versi dokumen server.
+          if (contentSource) {
+            return {
+              ...selectedNote,
+              content: contentSource.content
+            };
+          }
+        }
+
+        return selectedNote;
       });
 
       localNotes.forEach(lNote => {
@@ -595,7 +631,10 @@ export default function App() {
       // Clone array agar bisa dimodifikasi
       const updatedNotes = mergedNotes.map(note => {
           // Hanya proses jika konten memiliki checkbox recurring
-          if (note.content?.includes('class="todo-item recurring"')) {
+          if (
+            !note.chunkCount &&
+            note.content?.includes('class="todo-item recurring"')
+          ) {
               let noteChanged = false;
 
               // Gunakan regex untuk hindari DOMParser round-trip yang bisa mengubah HTML
