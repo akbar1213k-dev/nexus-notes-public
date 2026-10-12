@@ -1045,54 +1045,178 @@ export default function App() {
 
   const handleDuplicateNotes = async (noteIds: string[]) => {
     if (!user) return;
+
     const notesToDuplicate = notes.filter(n => noteIds.includes(n.id));
     if (notesToDuplicate.length === 0) return;
 
-    const now = Date.now();
-    const duplicatedNotes: Note[] = notesToDuplicate.map((note, index) => {
-      const newId = (now + index).toString();
-      const currentTitle = note.title || 'Untitled';
-      // Buang lastOpenedAt: Firestore menolak field bernilai undefined, dan duplikat
-      // sebaiknya tidak muncul sebagai "baru dibuka" di Beranda
-      const { lastOpenedAt: _lastOpenedAsli, ...salinan } = note;
-      return {
-        ...salinan,
-        id: newId,
-        title: `(Copy) ${currentTitle}`,
-        updatedAt: now + index,
-        // Pastikan field userId terdefinisi dan cocok dengan UID yang sedang login
-        userId: user.uid
-      } as Note;
-    });
+    const isOffline = user.uid === 'offline-local';
 
-    // 1. Perbarui state catatan lokal
+    // 1. Siapkan isi lengkap setiap catatan sebelum membuat duplikat.
+    const catatanSiapDiduplikasi: Note[] = [];
+    let gagalMuat = 0;
+
+    for (const note of notesToDuplicate) {
+      try {
+        let content = note.content;
+
+        // Catatan dengan metadata chunk harus memiliki isi lengkap.
+        if (note.chunkCount && note.chunkCount > 0) {
+          if (isOffline) {
+            // Dalam mode offline, gunakan isi lokal hanya jika tersedia.
+            if (typeof content !== 'string') {
+              throw new Error(
+                'Isi lengkap catatan besar tidak tersedia secara lokal. ' +
+                'Hubungkan kembali ke Firebase sebelum menduplikasi catatan ini.'
+              );
+            }
+          } else {
+            // Ambil dan validasi isi sumber langsung melalui repository.
+            const kontenLengkap = await muatKontenPenuh(note.id);
+
+            if (kontenLengkap === null) {
+              throw new Error(
+                'Isi lengkap catatan sumber tidak ditemukan.'
+              );
+            }
+
+            content = kontenLengkap;
+          }
+        }
+
+        if (content === null) {
+          throw new Error(
+            'Isi catatan sumber tidak tersedia.'
+          );
+        }
+
+        // Buat salinan sementara dengan isi yang sudah dipastikan tersedia.
+        catatanSiapDiduplikasi.push({
+          ...note,
+          content,
+        });
+      } catch (err: unknown) {
+        gagalMuat++;
+
+        const pesan =
+          err instanceof Error ? err.message : String(err);
+
+        syncDebug.error(
+          'tulis',
+          'DUPLIKAT_CATATAN',
+          `Tidak dapat menyiapkan duplikat "${note.title}": ${pesan}`,
+          {
+            idSumber: note.id,
+            userId: user.uid,
+          }
+        );
+      }
+    }
+
+    // Jangan membuat duplikat jika semua catatan gagal disiapkan.
+    if (catatanSiapDiduplikasi.length === 0) {
+      syncDebug.info(
+        'tulis',
+        'DUPLIKAT_SELESAI',
+        `Tidak ada duplikat dibuat. ${gagalMuat} dari ` +
+        `${notesToDuplicate.length} catatan gagal disiapkan.`
+      );
+      return;
+    }
+
+    // 2. Buat duplikat setelah persiapan isi sumber selesai.
+    const now = Date.now();
+
+    const duplicatedNotes: Note[] = catatanSiapDiduplikasi.map(
+      (note, index) => {
+        const newId = (now + index).toString();
+        const currentTitle = note.title || 'Untitled';
+
+        // Hapus metadata yang akan dihitung ulang saat penyimpanan.
+        const {
+          lastOpenedAt: _lastOpenedAsli,
+          chunkCount: _chunkCountLama,
+          contentSize: _contentSizeLama,
+          ...salinan
+        } = note;
+
+        return {
+          ...salinan,
+          id: newId,
+          title: `(Copy) ${currentTitle}`,
+          updatedAt: now + index,
+          userId: user.uid,
+        };
+      }
+    );
+
+    // 3. Tambahkan duplikat yang sudah siap ke state lokal.
     setNotes(prev => [...duplicatedNotes, ...prev]);
 
-    // 2. Simpan setiap catatan baru ke penyimpanan lokal
+    // 4. Simpan duplikat yang valid ke local storage.
     duplicatedNotes.forEach(n => saveToLocalStorage(n));
 
-    // 3. Simpan ke database Firebase jika fitur auto sync aktif dan tidak offline
-    const isOffline = user.uid === 'offline-local';
+    // 5. Sinkronkan ke Firestore jika auto-sync aktif dan tidak offline.
     if (!isOffline && isAutoSync) {
-      // [DEBUG] per-catatan, bukan Promise.all buta
       let sukses = 0;
       let gagal = 0;
+
       for (const n of duplicatedNotes) {
         try {
           await simpanCatatanKeServer(n, user.uid);
+
           removeFromLocalStorage(n.id);
           sukses++;
-          syncDebug.sukses('tulis', 'DUPLIKAT_CATATAN', `Duplikat "${n.title}" tersimpan di Firestore`,
-            { idBaru: n.id, userId: user.uid });
-        } catch (err: any) {
+
+          syncDebug.sukses(
+            'tulis',
+            'DUPLIKAT_CATATAN',
+            `Duplikat "${n.title}" tersimpan di Firestore`,
+            {
+              idBaru: n.id,
+              userId: user.uid,
+            }
+          );
+        } catch (err: unknown) {
           gagal++;
-          syncDebug.error('tulis', 'DUPLIKAT_CATATAN',
-            `Gagal menyimpan duplikat "${n.title}" ke Firestore: ${err.message}`,
-            { idBaru: n.id, code: err.code, userId: user.uid });
+
+          const pesan =
+            err instanceof Error ? err.message : String(err);
+
+          const code =
+            typeof err === 'object' &&
+            err !== null &&
+            'code' in err
+              ? (err as { code?: string }).code
+              : undefined;
+
+          syncDebug.error(
+            'tulis',
+            'DUPLIKAT_CATATAN',
+            `Gagal menyimpan duplikat "${n.title}" ke Firestore: ${pesan}`,
+            {
+              idBaru: n.id,
+              code,
+              userId: user.uid,
+            }
+          );
         }
       }
-      syncDebug.info('tulis', 'DUPLIKAT_SELESAI',
-        `Duplikasi selesai: ${sukses} berhasil, ${gagal} gagal dari ${duplicatedNotes.length} catatan`);
+
+      syncDebug.info(
+        'tulis',
+        'DUPLIKAT_SELESAI',
+        `Duplikasi selesai: ${sukses} berhasil, ${gagal} gagal ` +
+        `dari ${duplicatedNotes.length} catatan. ` +
+        `${gagalMuat} catatan gagal disiapkan.`
+      );
+    } else {
+      syncDebug.info(
+        'tulis',
+        'DUPLIKAT_SELESAI',
+        `${duplicatedNotes.length} duplikat disiapkan secara lokal. ` +
+        `${gagalMuat} catatan gagal disiapkan. ` +
+        `Mode: ${isOffline ? 'offline' : 'auto-sync nonaktif'}.`
+      );
     }
   };
 
