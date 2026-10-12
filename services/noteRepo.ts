@@ -6,6 +6,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -146,100 +147,108 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
 };
 
 /**
- * Muat konten penuh catatan yang tersimpan terpecah (chunks).
- * Mengembalikan null bila catatan tidak punya potongan.
+ * Memuat dan memvalidasi konten penuh catatan yang disimpan sebagai chunks.
  *
- * LOG DIAGNOSTIK SEMENTARA:
- * Hapus log setelah penyebab masalah ditemukan.
+ * Mengembalikan null jika dokumen utama tidak memiliki metadata chunk
+ * atau tidak ditemukan chunk.
+ *
+ * Melempar error jika metadata, jumlah chunk, indeks, atau ukuran konten
+ * tidak konsisten.
  */
 export const muatKontenPenuh = async (
   noteId: string
 ): Promise<string | null> => {
   const userId = auth.currentUser?.uid;
 
-  console.info('[CHUNK-DIAG] MULAI_BACA', {
-    noteId,
-    userId: userId ?? null,
-    waktu: new Date().toISOString(),
-  });
-
   if (!userId) {
-    console.error('[CHUNK-DIAG] AUTH_TIDAK_AKTIF', { noteId });
-
     throw new Error(
       'Tidak dapat memuat isi catatan: sesi Firebase belum aktif.'
     );
   }
 
-  if (cacheKonten.has(noteId)) {
-    const kontenCache = cacheKonten.get(noteId) as string;
+  // Baca metadata utama agar validasi menggunakan informasi terbaru.
+  const dokumenUtama = await getDoc(doc(db, 'notes', noteId));
 
-    console.info('[CHUNK-DIAG] CACHE_DIGUNAKAN', {
-      noteId,
-      ukuranKarakter: kontenCache.length,
-      ukuranByte: ukuranByte(kontenCache),
-    });
-
-    return kontenCache;
+  if (!dokumenUtama.exists()) {
+    throw new Error(
+      `Tidak dapat memuat isi catatan: dokumen ${noteId} tidak ditemukan.`
+    );
   }
 
-  try {
-    const snap = await getDocs(
-      query(
-        collection(db, 'notes', noteId, 'chunks'),
-        where('userId', '==', userId),
-        orderBy('index', 'asc')
-      )
+  const metadata = dokumenUtama.data() as Note;
+
+  // Fungsi ini hanya digunakan untuk catatan yang mempunyai metadata chunk.
+  if (!metadata.chunkCount || metadata.chunkCount <= 0) {
+    return null;
+  }
+
+  const jumlahChunkDiharapkan = metadata.chunkCount;
+
+  const snap = await getDocs(
+    query(
+      collection(db, 'notes', noteId, 'chunks'),
+      where('userId', '==', userId),
+      orderBy('index', 'asc')
+    )
+  );
+
+  if (snap.empty) {
+    throw new Error(
+      `Isi catatan ${noteId} tidak dapat dimuat: ` +
+      `metadata menyatakan ${jumlahChunkDiharapkan} chunk, tetapi tidak ditemukan.`
     );
+  }
 
-    console.info('[CHUNK-DIAG] QUERY_SELESAI', {
-      noteId,
-      jumlahChunksDitemukan: snap.size,
-      idDokumen: snap.docs.map(d => d.id),
-      indexChunks: snap.docs.map(d => d.data().index),
-    });
+  // Pastikan jumlah chunk sesuai dengan metadata dokumen utama.
+  if (snap.size !== jumlahChunkDiharapkan) {
+    throw new Error(
+      `Isi catatan ${noteId} tidak lengkap: ` +
+      `diharapkan ${jumlahChunkDiharapkan} chunk, ditemukan ${snap.size}.`
+    );
+  }
 
-    if (snap.empty) {
-      console.warn('[CHUNK-DIAG] CHUNK_KOSONG', {
-        noteId,
-        userId,
-      });
+  const potongan: string[] = [];
 
-      return null;
+  // Pastikan indeks berurutan dan setiap chunk memiliki konten string.
+  snap.docs.forEach((dokumen, posisi) => {
+    const data = dokumen.data();
+
+    if (data.index !== posisi) {
+      throw new Error(
+        `Isi catatan ${noteId} tidak lengkap: ` +
+        `indeks chunk pada posisi ${posisi} adalah ${data.index}.`
+      );
     }
 
-    const potongan = snap.docs.map(
-      d => (d.data().content as string) ?? ''
+    if (typeof data.content !== 'string') {
+      throw new Error(
+        `Isi catatan ${noteId} tidak valid: ` +
+        `konten chunk indeks ${posisi} bukan string.`
+      );
+    }
+
+    potongan.push(data.content);
+  });
+
+  const konten = gabungPotongan(potongan);
+  const ukuranHasilByte = ukuranByte(konten);
+
+  // Jika tersedia, contentSize harus cocok dengan hasil penggabungan.
+  if (
+    typeof metadata.contentSize === 'number' &&
+    ukuranHasilByte !== metadata.contentSize
+  ) {
+    throw new Error(
+      `Ukuran isi catatan ${noteId} tidak cocok: ` +
+      `metadata ${metadata.contentSize} byte, ` +
+      `hasil penggabungan ${ukuranHasilByte} byte.`
     );
-
-    const konten = gabungPotongan(potongan);
-    const ukuranHasilByte = ukuranByte(konten);
-
-    console.info('[CHUNK-DIAG] GABUNG_SELESAI', {
-      noteId,
-      jumlahChunks: potongan.length,
-      ukuranKarakter: konten.length,
-      ukuranByte: ukuranHasilByte,
-      kontenKosong: konten.length === 0,
-    });
-
-    cacheKonten.set(noteId, konten);
-
-    return konten;
-  } catch (err) {
-    console.error('[CHUNK-DIAG] BACA_CHUNK_ERROR', {
-      noteId,
-      userId,
-      error:
-        err instanceof Error ? err.message : String(err),
-      code:
-        typeof err === 'object' && err !== null && 'code' in err
-          ? (err as { code?: string }).code
-          : undefined,
-    });
-
-    throw err;
   }
+
+  // Cache hanya diisi setelah seluruh validasi berhasil.
+  cacheKonten.set(noteId, konten);
+
+  return konten;
 };
 
 /** Hapus catatan beserta semua potongannya dari Firestore. */
