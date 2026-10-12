@@ -11,6 +11,7 @@ import { TractView } from './components/TractView';
 import { MindmapEditor } from './components/MindmapEditor';
 import { SyncDebugPanel } from './components/SyncDebugPanel';
 import { syncDebug } from './utils/syncDebug';
+import { ukuranByte } from './utils/noteChunks';
 import { db, auth } from './services/firebase'; 
 import { simpanCatatanKeServer, muatKontenPenuh, hapusCatatanDariServer } from './services/noteRepo';
 import { clearHistory as clearHistoryFromIndexedDB } from './utils/historyStore'; 
@@ -394,20 +395,107 @@ export default function App() {
 
         // Muat konten penuh bila catatan disimpan terpecah di subcollection chunks.
         // User tetap melihat satu catatan utuh — pemecahan hanya di lapisan penyimpanan.
+        // LOG DIAGNOSTIK SEMENTARA — pemicu pembacaan chunk
         const noteTerbuka = notesRef.current.find(n => n.id === noteId);
-        if (noteTerbuka && noteTerbuka.chunkCount && !noteTerbuka.content) {
-           muatKontenPenuh(noteId)
-              .then(konten => {
-                 if (konten == null) return;
-                 setNotes(prev => prev.map(n => n.id === noteId ? { ...n, content: konten } : n));
-                 const terbaru = notesRef.current.find(n => n.id === noteId);
-                 if (terbaru) saveToLocalStorage({ ...terbaru, content: konten });
-              })
-              .catch((err: any) => {
-                 syncDebug.error('sistem', 'MUAT_CHUNK_GAGAL',
-                   `Gagal memuat isi catatan ${noteId} dari potongan Firestore: ${err.message}`,
-                   { id: noteId, code: err.code });
+
+        const perluMuatChunk =
+          !!noteTerbuka &&
+          !!noteTerbuka.chunkCount &&
+          !noteTerbuka.content;
+
+        console.info('[CHUNK-DIAG] NAVIGATE_EDITOR', {
+          noteId,
+          catatanDitemukan: !!noteTerbuka,
+          chunkCount: noteTerbuka?.chunkCount ?? null,
+          contentTersedia:
+            typeof noteTerbuka?.content === 'string',
+          ukuranKontenSaatIni:
+            typeof noteTerbuka?.content === 'string'
+              ? noteTerbuka.content.length
+              : null,
+          perluMuatChunk,
+        });
+
+        if (perluMuatChunk) {
+          console.info('[CHUNK-DIAG] PEMUATAN_DIPICU', {
+            noteId,
+            chunkCount: noteTerbuka?.chunkCount,
+          });
+
+          muatKontenPenuh(noteId)
+            .then(konten => {
+              console.info('[CHUNK-DIAG] HASIL_DITERIMA', {
+                noteId,
+                hasilNull: konten === null,
+                ukuranKarakter: konten?.length ?? null,
+                ukuranByte:
+                  konten !== null ? ukuranByte(konten) : null,
               });
+
+              if (konten == null) {
+                console.warn('[CHUNK-DIAG] PEMUATAN_TIDAK_MENGHASILKAN_KONTEN', {
+                  noteId,
+                });
+
+                return;
+              }
+
+              setNotes(prev =>
+                prev.map(n =>
+                  n.id === noteId
+                    ? { ...n, content: konten }
+                    : n
+                )
+              );
+
+              console.info('[CHUNK-DIAG] STATE_UPDATE_DIKIRIM', {
+                noteId,
+                ukuranKarakter: konten.length,
+              });
+
+              const terbaru = notesRef.current.find(
+                n => n.id === noteId
+              );
+
+              if (terbaru) {
+                saveToLocalStorage({
+                  ...terbaru,
+                  content: konten,
+                });
+
+                console.info('[CHUNK-DIAG] LOCAL_STORAGE_DIPERBARUI', {
+                  noteId,
+                  ukuranKarakter: konten.length,
+                });
+              } else {
+                console.warn('[CHUNK-DIAG] CATATAN_TIDAK_ADA_DI_NOTES_REF', {
+                  noteId,
+                });
+              }
+            })
+            .catch((err: any) => {
+              console.error('[CHUNK-DIAG] PEMUATAN_GAGAL', {
+                noteId,
+                error: err?.message ?? String(err),
+                code: err?.code,
+              });
+
+              syncDebug.error(
+                'sistem',
+                'MUAT_CHUNK_GAGAL',
+                `Gagal memuat isi catatan ${noteId} dari potongan Firestore: ${err.message}`,
+                { id: noteId, code: err.code }
+              );
+            });
+        } else {
+          console.warn('[CHUNK-DIAG] PEMUATAN_DILEWATI', {
+            noteId,
+            alasan: !noteTerbuka
+              ? 'Catatan tidak ditemukan di notesRef'
+              : !noteTerbuka.chunkCount
+                ? 'chunkCount kosong atau nol'
+                : 'Konten sudah tersedia',
+          });
         }
     }
     // --------------

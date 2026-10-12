@@ -148,39 +148,98 @@ export const simpanCatatanKeServer = async (note: Note, userId: string): Promise
 /**
  * Muat konten penuh catatan yang tersimpan terpecah (chunks).
  * Mengembalikan null bila catatan tidak punya potongan.
+ *
+ * LOG DIAGNOSTIK SEMENTARA:
+ * Hapus log setelah penyebab masalah ditemukan.
  */
 export const muatKontenPenuh = async (
   noteId: string
 ): Promise<string | null> => {
   const userId = auth.currentUser?.uid;
 
+  console.info('[CHUNK-DIAG] MULAI_BACA', {
+    noteId,
+    userId: userId ?? null,
+    waktu: new Date().toISOString(),
+  });
+
   if (!userId) {
+    console.error('[CHUNK-DIAG] AUTH_TIDAK_AKTIF', { noteId });
+
     throw new Error(
       'Tidak dapat memuat isi catatan: sesi Firebase belum aktif.'
     );
   }
 
   if (cacheKonten.has(noteId)) {
-    return cacheKonten.get(noteId) as string;
+    const kontenCache = cacheKonten.get(noteId) as string;
+
+    console.info('[CHUNK-DIAG] CACHE_DIGUNAKAN', {
+      noteId,
+      ukuranKarakter: kontenCache.length,
+      ukuranByte: ukuranByte(kontenCache),
+    });
+
+    return kontenCache;
   }
 
-  const snap = await getDocs(
-    query(
-      collection(db, 'notes', noteId, 'chunks'),
-      where('userId', '==', userId),
-      orderBy('index', 'asc')
-    )
-  );
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, 'notes', noteId, 'chunks'),
+        where('userId', '==', userId),
+        orderBy('index', 'asc')
+      )
+    );
 
-  if (snap.empty) return null;
+    console.info('[CHUNK-DIAG] QUERY_SELESAI', {
+      noteId,
+      jumlahChunksDitemukan: snap.size,
+      idDokumen: snap.docs.map(d => d.id),
+      indexChunks: snap.docs.map(d => d.data().index),
+    });
 
-  const konten = gabungPotongan(
-    snap.docs.map(d => (d.data().content as string) ?? '')
-  );
+    if (snap.empty) {
+      console.warn('[CHUNK-DIAG] CHUNK_KOSONG', {
+        noteId,
+        userId,
+      });
 
-  cacheKonten.set(noteId, konten);
+      return null;
+    }
 
-  return konten;
+    const potongan = snap.docs.map(
+      d => (d.data().content as string) ?? ''
+    );
+
+    const konten = gabungPotongan(potongan);
+    const ukuranHasilByte = ukuranByte(konten);
+
+    console.info('[CHUNK-DIAG] GABUNG_SELESAI', {
+      noteId,
+      jumlahChunks: potongan.length,
+      ukuranKarakter: konten.length,
+      ukuranByte: ukuranHasilByte,
+      kontenKosong: konten.length === 0,
+    });
+
+    cacheKonten.set(noteId, konten);
+
+    return konten;
+  } catch (err) {
+    console.error('[CHUNK-DIAG] BACA_CHUNK_ERROR', {
+      noteId,
+      userId,
+      error:
+        err instanceof Error ? err.message : String(err),
+      code:
+        typeof err === 'object' && err !== null && 'code' in err
+          ? (err as { code?: string }).code
+          : undefined,
+    });
+
+    throw err;
+  }
 };
 
 /** Hapus catatan beserta semua potongannya dari Firestore. */
