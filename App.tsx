@@ -304,6 +304,13 @@ export default function App() {
 
   const [isReady, setIsReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error' | 'unsaved'>('idle');
+  // Status pemuatan isi chunk PER CATATAN — kunci = noteId, tanpa entri = tidak ada
+  // pemuatan/galat aktif untuk catatan itu. Setiap transisi hanya menyentuh kunci
+  // catatan sendiri, sehingga hasil telat catatan A tidak bisa menghapus status catatan B.
+  const [statusMuatChunk, setStatusMuatChunk] = useState<Record<string, {
+    status: 'memuat' | 'gagal';
+    pesan: string;
+  }>>({});
 
   const editorRef = useRef<EditorHandle>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -363,6 +370,143 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // --- PEMUATAN ISI CHUNK CATATAN BESAR ---
+  // Dipakai oleh navigateTo() saat membuka catatan, dan oleh tombol "Coba Lagi"
+  // pada tampilan editor. Menjalankan jalur muatKontenPenuh() yang sudah tervalidasi;
+  // perubahan state catatan TETAP memakai perilaku lama (setNotes lalu saveToLocalStorage).
+  const muatIsiCatatan = useCallback((noteId: string) => {
+    // Transisi jelas: pemuatan dimulai — hanya untuk catatan ini.
+    setStatusMuatChunk(prev => ({
+      ...prev,
+      [noteId]: { status: 'memuat', pesan: '' },
+    }));
+
+    // Mode offline-only tidak memiliki sesi Firebase — jangan mencoba membaca Firestore.
+    if (user?.uid === 'offline-local') {
+      const pesan =
+        'Isi catatan besar tidak dapat dimuat saat mode offline. ' +
+        'Sambungkan kembali ke internet lalu coba lagi.';
+      setStatusMuatChunk(prev => ({
+        ...prev,
+        [noteId]: { status: 'gagal', pesan },
+      }));
+      syncDebug.warn('sistem', 'MUAT_CHUNK_OFFLINE',
+        `Memuat isi catatan ${noteId} dilewati karena sesi offline.`, { id: noteId });
+      console.warn('[CHUNK-DIAG] PEMUATAN_OFFLINE_DILEWATI', { noteId });
+      return;
+    }
+
+    console.info('[CHUNK-DIAG] PEMUATAN_DIPICU', {
+      noteId,
+      chunkCount: notesRef.current.find(n => n.id === noteId)?.chunkCount ?? null,
+    });
+
+    muatKontenPenuh(noteId)
+      .then(konten => {
+        console.info('[CHUNK-DIAG] HASIL_DITERIMA', {
+          noteId,
+          hasilNull: konten === null,
+          ukuranKarakter: konten?.length ?? null,
+          ukuranByte:
+            konten !== null ? ukuranByte(konten) : null,
+        });
+
+        if (konten == null) {
+          console.warn('[CHUNK-DIAG] PEMUATAN_TIDAK_MENGHASILKAN_KONTEN', {
+            noteId,
+          });
+
+          // Null = muatKontenPenuh() tidak menemukan konten yang bisa dikembalikan.
+          // Jangan mengklaim penyebab spesifik yang tidak dibuktikan kode.
+          syncDebug.error('sistem', 'MUAT_CHUNK_GAGAL',
+            `Memuat isi catatan ${noteId} tidak menghasilkan konten.`, { id: noteId });
+
+          setStatusMuatChunk(prev => ({
+            ...prev,
+            [noteId]: {
+              status: 'gagal',
+              pesan: 'Isi catatan tidak dapat dimuat: server tidak mengembalikan isi catatan ini.',
+            },
+          }));
+          return;
+        }
+
+        // Perilaku sukses yang sudah ada — TIDAK diubah:
+        // 1) perbarui state per id, 2) simpan salinan lokal dari notesRef terkini.
+        setNotes(prev =>
+          prev.map(n =>
+            n.id === noteId
+              ? { ...n, content: konten }
+              : n
+          )
+        );
+
+        console.info('[CHUNK-DIAG] STATE_UPDATE_DIKIRIM', {
+          noteId,
+          ukuranKarakter: konten.length,
+        });
+
+        const terbaru = notesRef.current.find(
+          n => n.id === noteId
+        );
+
+        if (terbaru) {
+          saveToLocalStorage({
+            ...terbaru,
+            content: konten,
+          });
+
+          console.info('[CHUNK-DIAG] LOCAL_STORAGE_DIPERBARUI', {
+            noteId,
+            ukuranKarakter: konten.length,
+          });
+        } else {
+          console.warn('[CHUNK-DIAG] CATATAN_TIDAK_ADA_DI_NOTES_REF', {
+            noteId,
+          });
+        }
+
+        // Transisi jelas: pemuatan catatan ini selesai tanpa galat —
+        // hapus HANYA status catatan ini, status catatan lain tetap utuh.
+        setStatusMuatChunk(prev => {
+          if (!(noteId in prev)) return prev;
+          const salinan = { ...prev };
+          delete salinan[noteId];
+          return salinan;
+        });
+      })
+      .catch((err: any) => {
+        // E4: ekstraksi aman — nilai reject bisa null, primitif, atau bukan Error/FirebaseError.
+        const pesanError = err?.message ?? String(err);
+        const kodeError = err?.code ?? 'UNKNOWN_ERROR';
+
+        console.error('[CHUNK-DIAG] PEMUATAN_GAGAL', {
+          noteId,
+          error: pesanError,
+          code: err?.code,
+        });
+
+        syncDebug.error(
+          'sistem',
+          'MUAT_CHUNK_GAGAL',
+          `Gagal memuat isi catatan ${noteId} dari potongan Firestore: ${pesanError}`,
+          { id: noteId, code: kodeError }
+        );
+
+        // Pesan aman untuk pengguna: pesan dari objek Error bila ada, fallback netral.
+        // Status kegagalan selalu dicatat untuk catatan ini, apa pun nilai reject-nya.
+        setStatusMuatChunk(prev => ({
+          ...prev,
+          [noteId]: {
+            status: 'gagal',
+            pesan: err instanceof Error && err.message
+              ? err.message
+              : 'Gagal memuat isi catatan dari server.',
+          },
+        }));
+      });
+  }, [user]);
+
   const navigateTo = useCallback((mode: ViewMode, noteId: string = '') => {
     if (viewMode === mode && currentNoteId === noteId) return;
     // --- TAMBAHAN BARU: Update lastOpenedAt saat membuka editor ---
@@ -417,76 +561,7 @@ export default function App() {
         });
 
         if (perluMuatChunk) {
-          console.info('[CHUNK-DIAG] PEMUATAN_DIPICU', {
-            noteId,
-            chunkCount: noteTerbuka?.chunkCount,
-          });
-
-          muatKontenPenuh(noteId)
-            .then(konten => {
-              console.info('[CHUNK-DIAG] HASIL_DITERIMA', {
-                noteId,
-                hasilNull: konten === null,
-                ukuranKarakter: konten?.length ?? null,
-                ukuranByte:
-                  konten !== null ? ukuranByte(konten) : null,
-              });
-
-              if (konten == null) {
-                console.warn('[CHUNK-DIAG] PEMUATAN_TIDAK_MENGHASILKAN_KONTEN', {
-                  noteId,
-                });
-
-                return;
-              }
-
-              setNotes(prev =>
-                prev.map(n =>
-                  n.id === noteId
-                    ? { ...n, content: konten }
-                    : n
-                )
-              );
-
-              console.info('[CHUNK-DIAG] STATE_UPDATE_DIKIRIM', {
-                noteId,
-                ukuranKarakter: konten.length,
-              });
-
-              const terbaru = notesRef.current.find(
-                n => n.id === noteId
-              );
-
-              if (terbaru) {
-                saveToLocalStorage({
-                  ...terbaru,
-                  content: konten,
-                });
-
-                console.info('[CHUNK-DIAG] LOCAL_STORAGE_DIPERBARUI', {
-                  noteId,
-                  ukuranKarakter: konten.length,
-                });
-              } else {
-                console.warn('[CHUNK-DIAG] CATATAN_TIDAK_ADA_DI_NOTES_REF', {
-                  noteId,
-                });
-              }
-            })
-            .catch((err: any) => {
-              console.error('[CHUNK-DIAG] PEMUATAN_GAGAL', {
-                noteId,
-                error: err?.message ?? String(err),
-                code: err?.code,
-              });
-
-              syncDebug.error(
-                'sistem',
-                'MUAT_CHUNK_GAGAL',
-                `Gagal memuat isi catatan ${noteId} dari potongan Firestore: ${err.message}`,
-                { id: noteId, code: err.code }
-              );
-            });
+          muatIsiCatatan(noteId);
         } else {
           console.warn('[CHUNK-DIAG] PEMUATAN_DILEWATI', {
             noteId,
@@ -510,7 +585,7 @@ export default function App() {
     else if (mode === 'EDITOR') newPath = `/editor/${noteId}`;
 
     window.history.pushState({ mode, noteId }, '', newPath);
-  }, [viewMode, currentNoteId, user]);
+  }, [viewMode, currentNoteId, user, muatIsiCatatan]);
 
   /// Efek Otomatis untuk Mengubah Judul Tab Browser
   const activeTitleNote = useMemo(
@@ -1572,8 +1647,37 @@ export default function App() {
             const n = notes.find(x => x.id === currentNoteId);
             // Jika data belum siap (isReady = false), tampilkan loading. Jika sudah siap tapi data tetap tidak ada, baru tampilkan 404.
             if (!n) return !isReady ? <div className="p-6 text-gray-400">Membuka catatan...</div> : <div>Catatan tidak ditemukan (404)</div>;
-            // Konten catatan besar tersimpan terpecah — tampilkan loading sampai digabung
-            if (n.chunkCount && !n.content) return <div className="p-6 text-gray-400">Memuat isi catatan...</div>;
+            // Konten catatan besar tersimpan terpecah — tampilkan loading sampai digabung.
+            // Bila pemuatan gagal untuk catatan INI, tampilkan kegagalan + aksi (tanpa memuat Editor).
+            if (n.chunkCount && !n.content) {
+                const statusChunk = statusMuatChunk[n.id] ?? null;
+                if (statusChunk?.status === 'gagal') {
+                    return (
+                        <div className="flex flex-col h-full items-center justify-center p-6 text-center">
+                            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4 text-2xl font-bold">!</div>
+                            <h2 className="text-xl font-bold text-red-600 mb-2">Gagal Memuat Isi Catatan</h2>
+                            <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg text-xs font-mono text-left w-full mb-4 break-words overflow-auto max-h-40 border border-gray-200 dark:border-gray-700">
+                                {statusChunk.pesan}
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => muatIsiCatatan(n.id)}
+                                    className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold active:scale-95"
+                                >
+                                    Coba Lagi
+                                </button>
+                                <button
+                                    onClick={() => navigateTo('HOME')}
+                                    className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-5 py-2.5 rounded-xl text-sm font-bold active:scale-95"
+                                >
+                                    Kembali
+                                </button>
+                            </div>
+                        </div>
+                    );
+                }
+                return <div className="p-6 text-gray-400">Memuat isi catatan...</div>;
+            }
             if (n.type === 'mindmap') {
                 return (
                     <MindmapEditor
