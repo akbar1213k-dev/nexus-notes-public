@@ -388,6 +388,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Jejak rekam untuk membedakan perubahan lokal vs perubahan dari Firebase (Perangkat B)
   const lastLocalHTML = useRef('');
 
+  // RAF THROTTLE: penanda RAF yang sedang antre (maksimal satu per frame)
+  const rafRef = useRef<number | null>(null);
+
   // MEMBUKA KUNCI SINKRONISASI REAL-TIME (ANTI KEDIP & TAHAN SCROLL)
   useEffect(() => {
       if (isPreviewMode && note.content !== previewContent && note.content !== lastLocalHTML.current) {
@@ -1650,7 +1653,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   };
 
-      const handleInput = () => {
+  // --- RAF THROTTLE: pembungkus penjadwalan (maksimal satu eksekusi per frame) ---
+  // Seluruh pemanggilan yang ada tetap memanggil handleInput; eksekusi proses
+  // ditunda ke frame berikutnya dan hanya satu yang boleh antre per frame.
+  const handleInput = () => {
+    if (!editorRef.current) return;
+    if (rafRef.current !== null) return; // Sudah ada RAF yang tertunda — jangan dobel
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null; // Reset dulu sebelum memproses agar panggilan berikutnya sah
+      handleInputInternal();
+    });
+  };
+
+  // Tubuh pemrosesan input ASLI (dipertahankan identik dari handleInput lama)
+  const handleInputInternal = () => {
     if (!editorRef.current) return;
     checkSelectionContext();
 
@@ -1731,6 +1747,22 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     onUpdate({ ...note, content });
     recordHistory(content); // Rekam perubahan ke dalam Mesin Waktu
   };
+
+  // --- RAF THROTTLE: pembersihan & flush saat ganti catatan (note.id) / unmount ---
+  // Saat note.id BERUBAH, cleanup ini berjalan SEBELUM efek sinkron konten menukar
+  // isi DOM ke catatan baru (React menjalankan semua cleanup lebih dulu, lalu semua
+  // tubuh efek). Jadi DOM pada saat ini masih milik catatan LAMA -> flush aman dari
+  // tulis-silang antar catatan. Saat unmount, editorRef sudah dilepas React sehingga
+  // handleInputInternal langsung no-op (guard editorRef.current).
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+        handleInputInternal(); // Flush konten terakhir dengan closure catatan lama
+      }
+    };
+  }, [note.id]);
 
   // --- FUNGSI BARU: Perekam Mesin Waktu (Debounced, Diff-Based) ---
   const recordHistory = (newContent: string) => {
