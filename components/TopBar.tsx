@@ -50,7 +50,18 @@ export const TopBar: React.FC<TopBarProps> = ({
          </button>
        );
     }
-    return <Cloud size={20} className="text-gray-300 dark:text-gray-600" />;
+    return (
+      <button
+        onClick={onManualSync}
+        title="Sinkronisasi manual"
+        className="hover:opacity-70 transition-opacity"
+      >
+        <Cloud
+          size={20}
+          className="text-gray-300 dark:text-gray-600 hover:text-blue-500 transition-colors"
+        />
+      </button>
+    );
   };
 
   return (
