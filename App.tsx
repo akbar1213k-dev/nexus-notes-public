@@ -68,6 +68,15 @@ const removeFolderFromLocalStorage = (folderId: string) => {
 };
 const clearLocalFolders = () => localStorage.removeItem('nexus_backup_folders');
 
+// --- HELPER: SLUG UNTUK URL BROWSER (agar judul bisa dicari di history browser) ---
+const slugify = (text: string): string =>
+  text.toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'catatan';
+
 export default function App() {
   // [PERCEPAT 1] Inisialisasi User langsung dari LocalStorage!
   // Kita tidak mulai dari null, tapi kita cek apakah ada jejak login sebelumnya.
@@ -346,7 +355,7 @@ export default function App() {
         initialMode = 'GRAPH';
     } else if (path.startsWith('/editor/')) {
         initialMode = 'EDITOR';
-        initialNoteId = path.replace('/editor/', '');
+        initialNoteId = path.replace('/editor/', '').split('/')[0];
     } else {
         // Jika path kosong (/) atau tidak dikenali, paksa ke /home
         initialMode = 'HOME';
@@ -582,10 +591,14 @@ export default function App() {
     if (mode === 'TRACT') newPath = '/tractapp';
     else if (mode === 'SETTINGS') newPath = '/settings';
     else if (mode === 'GRAPH') newPath = '/graph';
-    else if (mode === 'EDITOR') newPath = `/editor/${noteId}`;
+    else if (mode === 'EDITOR') {
+      const note = notes.find(n => n.id === noteId);
+      const slug = slugify(note?.title || 'Catatan Tanpa Judul');
+      newPath = `/editor/${noteId}/${slug}`;
+    }
 
     window.history.pushState({ mode, noteId }, '', newPath);
-  }, [viewMode, currentNoteId, user, muatIsiCatatan]);
+  }, [viewMode, currentNoteId, user, muatIsiCatatan, notes]);
 
   /// Efek Otomatis untuk Mengubah Judul Tab Browser
   const activeTitleNote = useMemo(
@@ -617,7 +630,20 @@ export default function App() {
         break;
     }
   }, [viewMode, currentNoteId, activeTitleNote]);
-  
+
+  // Sync slug URL saat judul catatan berubah (agar history browser selalu up-to-date)
+  useEffect(() => {
+    if (viewMode !== 'EDITOR' || !currentNoteId) return;
+    const t = setTimeout(() => {
+      const slug = slugify(activeTitleNote?.title || 'Catatan Tanpa Judul');
+      const newPath = `/editor/${currentNoteId}/${slug}`;
+      if (window.location.pathname !== newPath) {
+        window.history.replaceState({ mode: viewMode, noteId: currentNoteId }, '', newPath);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [viewMode, currentNoteId, activeTitleNote?.title]);
+
   // --- AUTH LISTENER & PERCEPATAN ---
   useEffect(() => {
     // Mode offline: skip Firebase auth listener
