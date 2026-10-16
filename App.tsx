@@ -99,32 +99,116 @@ export default function App() {
   // --- LOGIKA SAMPAH (AUTO DELETE 24 JAM) ---
   const notesRef = useRef(notes);
   const foldersRef = useRef(folders);
+  // Ref user terbaru agar interval cleanup (effect mount sekali) tidak memakai closure lama.
+  const userRef = useRef(user);
+  const cleanupTrashSedangBerjalanRef = useRef(false);
   useEffect(() => { notesRef.current = notes; }, [notes]);
   useEffect(() => { foldersRef.current = folders; }, [folders]);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   useEffect(() => {
     const ONE_DAY_MS = 24 * 60 * 60 * 1000; 
 
     const cleanupTrash = async () => {
-      const now = Date.now();
-      const currentNotes = notesRef.current;
-      const currentFolders = foldersRef.current;
-      if (!currentNotes.length && !currentFolders.length) return;
+      // Guard reentrancy agar run interval tidak bertumpuk.
+      if (cleanupTrashSedangBerjalanRef.current) return;
+      cleanupTrashSedangBerjalanRef.current = true;
 
-      const expiredNotes = currentNotes.filter(n => n.deletedAt && (now - n.deletedAt > ONE_DAY_MS));
-      expiredNotes.forEach(async (n) => {
-        await hapusCatatanDariServer(n.id)
-          .then(() => { removeFromLocalStorage(n.id); })
-          .catch((err: any) => syncDebug.error('sistem', 'BERSIHKAN_SAMPAH',
-            `Gagal menghapus catatan kedaluwarsa ${n.id}: ${err.message}`, { id: n.id, code: err.code }));
-      });
+      try {
+        const now = Date.now();
+        const currentUser = userRef.current;
+        const currentNotes = notesRef.current;
+        const currentFolders = foldersRef.current;
 
-      const expiredFolders = currentFolders.filter(f => f.deletedAt && (now - f.deletedAt > ONE_DAY_MS));
-      expiredFolders.forEach(async (f) => {
-        await deleteDoc(doc(db, "folders", f.id))
-          .catch((err: any) => syncDebug.error('sistem', 'BERSIHKAN_SAMPAH',
-            `Gagal menghapus folder kedaluwarsa ${f.id}: ${err.message}`, { id: f.id, code: err.code }));
-      });
+        if (!currentUser || currentUser.uid === 'offline-local' || !auth.currentUser || auth.currentUser.uid !== currentUser.uid) {
+          syncDebug.warn('sistem', 'BERSIHKAN_SAMPAH', 'Cleanup otomatis dilewati: autentikasi belum siap atau sedang mode offline', {
+            modeOffline: currentUser?.uid === 'offline-local',
+            authSiap: !!auth.currentUser,
+          });
+          return;
+        }
+
+        if (!currentNotes.length && !currentFolders.length) return;
+
+        const expiredNotes = currentNotes.filter(n =>
+          !!n.deletedAt &&
+          Number.isFinite(n.deletedAt) &&
+          now - (n.deletedAt as number) > ONE_DAY_MS
+        );
+        const kandidatNotes = expiredNotes.filter(n => n.userId === currentUser.uid);
+        const dilewatiNotes = expiredNotes.filter(n => n.userId !== currentUser.uid);
+        dilewatiNotes.forEach((n) => {
+          syncDebug.warn('sistem', 'BERSIHKAN_SAMPAH', 'Catatan kedaluwarsa dilewati karena metadata owner tidak aman', {
+            id: n.id,
+            alasan: !n.userId ? 'USERID_HILANG' : 'KEPEMILIKAN_TIDAK_COCOK',
+          });
+        });
+
+        for (const n of kandidatNotes) {
+          // Jangan lanjutkan bila identitas berubah sejak run dimulai.
+          if (!userRef.current || userRef.current.uid !== currentUser.uid || !auth.currentUser || auth.currentUser.uid !== currentUser.uid) {
+            syncDebug.warn('sistem', 'BERSIHKAN_SAMPAH', 'Cleanup notes dihentikan: identitas akun berubah', {
+              id: n.id,
+              alasan: 'IDENTITAS_BERUBAH',
+            });
+            break;
+          }
+
+          try {
+            await hapusCatatanDariServer(n.id, currentUser.uid);
+            removeFromLocalStorage(n.id);
+            syncDebug.sukses('sistem', 'BERSIHKAN_SAMPAH', 'Catatan kedaluwarsa berhasil dihapus permanen', { id: n.id });
+          } catch (err: any) {
+            syncDebug.error('sistem', 'BERSIHKAN_SAMPAH', 'Gagal menghapus catatan kedaluwarsa', {
+              id: n.id,
+              code: err?.code,
+              alasan: err?.message ?? String(err),
+            });
+          }
+        }
+
+        const expiredFolders = currentFolders.filter(f =>
+          !!f.deletedAt &&
+          Number.isFinite(f.deletedAt) &&
+          now - (f.deletedAt as number) > ONE_DAY_MS
+        );
+        const kandidatFolders = expiredFolders.filter(f => f.userId === currentUser.uid);
+        const dilewatiFolders = expiredFolders.filter(f => f.userId !== currentUser.uid);
+        dilewatiFolders.forEach((f) => {
+          syncDebug.warn('sistem', 'BERSIHKAN_SAMPAH', 'Folder kedaluwarsa dilewati karena metadata owner tidak aman atau bukan milik akun aktif', {
+            id: f.id,
+            alasan: !f.userId ? 'USERID_HILANG' : 'KEPEMILIKAN_TIDAK_COCOK',
+          });
+        });
+
+        // Abort folder phase jika identitas berubah setelah phase notes.
+        if (!userRef.current || userRef.current.uid !== currentUser.uid || !auth.currentUser || auth.currentUser.uid !== currentUser.uid) {
+          syncDebug.warn('sistem', 'BERSIHKAN_SAMPAH', 'Cleanup folder dihentikan: identitas akun berubah', {
+            alasan: 'IDENTITAS_BERUBAH',
+          });
+          return;
+        }
+
+        for (const f of kandidatFolders) {
+          if (!userRef.current || userRef.current.uid !== currentUser.uid || !auth.currentUser || auth.currentUser.uid !== currentUser.uid) {
+            syncDebug.warn('sistem', 'BERSIHKAN_SAMPAH', 'Cleanup folder dihentikan: identitas akun berubah', {
+              id: f.id,
+              alasan: 'IDENTITAS_BERUBAH',
+            });
+            break;
+          }
+
+          await deleteDoc(doc(db, "folders", f.id))
+            .then(() => syncDebug.sukses('sistem', 'BERSIHKAN_SAMPAH', 'Folder kedaluwarsa berhasil dihapus permanen', { id: f.id }))
+            .catch((err: any) => syncDebug.error('sistem', 'BERSIHKAN_SAMPAH', 'Gagal menghapus permanen folder kedaluwarsa', {
+              id: f.id,
+              code: err?.code,
+              alasan: err?.message ?? String(err),
+            }));
+        }
+      } finally {
+        cleanupTrashSedangBerjalanRef.current = false;
+      }
     };
 
     cleanupTrash();
@@ -222,6 +306,7 @@ export default function App() {
 
   const handleHardDelete = async (noteIds: string[], folderIds: string[]) => {
     if(!confirm("Hapus permanen? Data tidak bisa dikembalikan.")) return;
+    if (!user) return;
     const isOffline = user?.uid === 'offline-local';
 
     if (isOffline) {
@@ -232,7 +317,7 @@ export default function App() {
     } else {
       // [DEBUG]
       noteIds.forEach(id => {
-        hapusCatatanDariServer(id)
+        hapusCatatanDariServer(id, user.uid)
           .then(() => { removeFromLocalStorage(id); syncDebug.sukses('hapus', 'HAPUS_PERMANEN_CATATAN', `Catatan ${id} dihapus permanen`, { id }); })
           .catch((err: any) => syncDebug.error('hapus', 'HAPUS_PERMANEN_CATATAN',
             `Gagal menghapus permanen catatan ${id}: ${err.message}`, { id, code: err.code }));

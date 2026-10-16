@@ -251,14 +251,107 @@ export const muatKontenPenuh = async (
   return konten;
 };
 
-/** Hapus catatan beserta semua potongannya dari Firestore. */
-export const hapusCatatanDariServer = async (noteId: string): Promise<void> => {
-  const operasi: Operasi[] = [];
+// Kode klasifikasi hasil penghapusan yang aman dan stabil untuk dipakai caller.
+const KODE_HAPUS = {
+  UID_KOSONG: 'HAPUS_CATATAN_UID_KOSONG',
+  PARENT_TIDAK_DITEMUKAN: 'HAPUS_CATATAN_PARENT_TIDAK_DITEMUKAN',
+  PARENT_USERID_HILANG: 'HAPUS_CATATAN_PARENT_USERID_HILANG',
+  PARENT_KEPEMILIKAN_TIDAK_COCOK: 'HAPUS_CATATAN_PARENT_KEPEMILIKAN_TIDAK_COCOK',
+  BACA_PARENT_GAGAL: 'HAPUS_CATATAN_BACA_PARENT_GAGAL',
+  BACA_CHUNK_GAGAL: 'HAPUS_CATATAN_BACA_CHUNK_GAGAL',
+  CHUNK_KEPEMILIKAN_TIDAK_COCOK: 'HAPUS_CATATAN_CHUNK_KEPEMILIKAN_TIDAK_COCOK',
+  BATCH_GAGAL: 'HAPUS_CATATAN_BATCH_GAGAL',
+} as const;
 
-  const chunks = await getDocs(collection(db, 'notes', noteId, 'chunks'));
-  chunks.forEach(d => operasi.push((batch) => batch.delete(d.ref)));
+function buatKesalahanHapus(kode: string, pesan: string, kodeAsli?: string): Error {
+  const kesalahan = new Error(pesan) as Error & { code?: string; codeAsli?: string };
+  kesalahan.code = kode;
+  if (kodeAsli) kesalahan.codeAsli = kodeAsli;
+  return kesalahan;
+}
+
+/** Hapus catatan beserta semua potongannya dari Firestore dengan verifikasi kepemilikan. */
+export const hapusCatatanDariServer = async (
+  noteId: string,
+  expectedUserId: string
+): Promise<void> => {
+  if (!expectedUserId) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.UID_KOSONG,
+      'UID terautentikasi tidak tersedia untuk penghapusan aman.'
+    );
+  }
+
+  let parentSnap;
+  try {
+    parentSnap = await getDoc(doc(db, 'notes', noteId));
+  } catch (err: any) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.BACA_PARENT_GAGAL,
+      `Gagal membaca dokumen utama catatan ${noteId}: ${err?.message ?? err}`,
+      err?.code
+    );
+  }
+
+  if (!parentSnap.exists()) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.PARENT_TIDAK_DITEMUKAN,
+      `Dokumen utama catatan ${noteId} tidak ditemukan.`
+    );
+  }
+
+  const parentData = parentSnap.data() as Partial<Note>;
+  if (!parentData.userId) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.PARENT_USERID_HILANG,
+      `Dokumen utama catatan ${noteId} tidak memiliki userId.`
+    );
+  }
+  if (parentData.userId !== expectedUserId) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.PARENT_KEPEMILIKAN_TIDAK_COCOK,
+      `Kepemilikan dokumen utama catatan ${noteId} tidak cocok.`
+    );
+  }
+
+  let chunksSnap;
+  try {
+    chunksSnap = await getDocs(collection(db, 'notes', noteId, 'chunks'));
+  } catch (err: any) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.BACA_CHUNK_GAGAL,
+      `Gagal membaca potongan catatan ${noteId}: ${err?.message ?? err}`,
+      err?.code
+    );
+  }
+
+  // Catatan inline/kecil yang tidak memiliki subcollection chunks tetap sah.
+  // Bila chunks ada, setiap chunk wajib dimiliki oleh expectedUserId.
+  chunksSnap.forEach((d) => {
+    const chunkData = d.data() as { userId?: string };
+    if (!chunkData.userId || chunkData.userId !== expectedUserId) {
+      throw buatKesalahanHapus(
+        KODE_HAPUS.CHUNK_KEPEMILIKAN_TIDAK_COCOK,
+        `Kepemilikan potongan catatan ${noteId} tidak dapat diverifikasi.`
+      );
+    }
+  });
+
+  const operasi: Operasi[] = [];
+  chunksSnap.forEach(d =>
+    operasi.push((batch) => batch.delete(d.ref))
+  );
   operasi.push((batch) => batch.delete(doc(db, 'notes', noteId)));
 
-  await commitBertahap(operasi);
+  try {
+    await commitBertahap(operasi);
+  } catch (err: any) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.BATCH_GAGAL,
+      `Batch penghapusan catatan ${noteId} gagal: ${err?.message ?? err}`,
+      err?.code
+    );
+  }
+
   bersihkanCacheKonten(noteId);
 };
