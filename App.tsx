@@ -408,6 +408,10 @@ export default function App() {
 
   const editorRef = useRef<EditorHandle>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Catatan yang pembacaan chunk-nya sedang berjalan. Mencegah permintaan ganda
+  // untuk catatan yang sama dari navigateTo(), efek pemuatan otomatis, atau efek
+  // ganda StrictMode tanpa menghalangi pemuatan catatan lain secara paralel.
+  const chunkLoadsRef = useRef<Set<string>>(new Set());
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     try {
@@ -469,6 +473,12 @@ export default function App() {
   // pada tampilan editor. Menjalankan jalur muatKontenPenuh() yang sudah tervalidasi;
   // perubahan state catatan TETAP memakai perilaku lama (setNotes lalu saveToLocalStorage).
   const muatIsiCatatan = useCallback((noteId: string) => {
+    // Satu pembacaan chunk per catatan pada satu waktu. Pemeriksaan ini harus
+    // terjadi sebelum status diubah agar pemanggil ganda tidak menimpa status
+    // atau memicu pembacaan Firestore kedua.
+    if (chunkLoadsRef.current.has(noteId)) return;
+    chunkLoadsRef.current.add(noteId);
+
     // Transisi jelas: pemuatan dimulai — hanya untuk catatan ini.
     setStatusMuatChunk(prev => ({
       ...prev,
@@ -487,6 +497,7 @@ export default function App() {
       syncDebug.warn('sistem', 'MUAT_CHUNK_OFFLINE',
         `Memuat isi catatan ${noteId} dilewati karena sesi offline.`, { id: noteId });
       console.warn('[CHUNK-DIAG] PEMUATAN_OFFLINE_DILEWATI', { noteId });
+      chunkLoadsRef.current.delete(noteId);
       return;
     }
 
@@ -598,6 +609,11 @@ export default function App() {
               : 'Gagal memuat isi catatan dari server.',
           },
         }));
+      })
+      .finally(() => {
+        // Lepas penjaga setelah pembacaan selesai, baik sukses maupun gagal,
+        // agar tombol "Coba Lagi" dan pemilihan ulang catatan tetap bisa memuat.
+        chunkLoadsRef.current.delete(noteId);
       });
   }, [user]);
 
@@ -684,6 +700,21 @@ export default function App() {
 
     window.history.pushState({ mode, noteId }, '', newPath);
   }, [viewMode, currentNoteId, user, muatIsiCatatan, notes]);
+
+  // --- PEMUATAN OTOMATIS ISI CHUNK UNTUK CATATAN YANG DIPILIH LANGSUNG ---
+  // Direct link dan popstate dapat memilih catatan chunk tanpa melewati
+  // navigateTo(). Begitu listener Firestore menyediakan catatan itu, mulai
+  // pemuatan sekali saja; status 'memuat'/'gagal' yang sudah ada mencegah
+  // permintaan ganda dan retry otomatis setelah kegagalan.
+  useEffect(() => {
+    if (!isReady || viewMode !== 'EDITOR' || !currentNoteId) return;
+
+    const catatanTerpilih = notes.find(n => n.id === currentNoteId);
+    if (!catatanTerpilih || !catatanTerpilih.chunkCount || catatanTerpilih.content) return;
+    if (statusMuatChunk[catatanTerpilih.id]) return;
+
+    muatIsiCatatan(catatanTerpilih.id);
+  }, [isReady, viewMode, currentNoteId, notes, statusMuatChunk, muatIsiCatatan]);
 
   /// Efek Otomatis untuk Mengubah Judul Tab Browser
   const activeTitleNote = useMemo(
