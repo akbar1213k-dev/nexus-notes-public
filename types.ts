@@ -42,6 +42,7 @@ export interface Note {
   preview?: string; // Cuplikan teks untuk daftar (dipakai saat content = null)
   contentSize?: number; // Ukuran byte content asli (dipakai saat content = null)
   chunkCount?: number; // Jumlah potongan di subcollection chunks; kosong/0 = content utuh di dokumen utama
+  archiveTargetId?: string | null; // ID catatan tujuan arsip aktif (maksimal satu tujuan per sumber)
   mindmapData?: MindmapData;
 }
 
@@ -71,6 +72,7 @@ export interface EditorHandle {
   undo: () => void;
   redo: () => void;
   getContent: () => string; 
+  captureArchiveSelection: () => { selectedHtml: string; sourceContent: string } | null;
 }
 
 // --- MESIN WAKTU: Model Data History (Diff-Based, IndexedDB) ---

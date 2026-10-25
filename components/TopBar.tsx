@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ChevronLeft, Moon, Sun, Cloud, Check, WifiOff, Settings, Save, Network,
-  MoreVertical, Trash2, FolderInput, Home, CornerLeftUp
+  MoreVertical, Trash2, FolderInput, Home, CornerLeftUp, Archive, Unlink
 } from 'lucide-react';
 import { ViewMode } from '../types';
 
@@ -22,6 +22,12 @@ interface TopBarProps {
   onToggleMode: () => void;
   onDeleteNote?: () => void;
   onMoveNote?: () => void;
+  archiveTargetId?: string | null;
+  archiveBusy?: boolean;
+  archiveSelectionReady?: boolean;
+  onArchiveRequest?: () => void;
+  onUnarchiveRequest?: () => void;
+  onArchiveSelectionRequest?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ 
@@ -30,7 +36,13 @@ export const TopBar: React.FC<TopBarProps> = ({
   syncStatus, isAutoSync, onManualSync, onOpenSettings,
   onToggleMode,
   onDeleteNote,
-  onMoveNote
+  onMoveNote,
+  archiveTargetId,
+  archiveBusy,
+  archiveSelectionReady,
+  onArchiveRequest,
+  onUnarchiveRequest,
+  onArchiveSelectionRequest
 }) => {
   const [showMenu, setShowMenu] = useState(false);
 
@@ -109,16 +121,23 @@ export const TopBar: React.FC<TopBarProps> = ({
                     </button>
                 )}
 
-                <button 
-                    onClick={onForceHome} 
-                    className="flex items-center gap-2 pr-3 py-2 text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-none bg-transparent"
+                <a
+                    href="/home"
+                    onClick={(e) => {
+                        // Biarkan Ctrl/Cmd/Shift/Alt+klik dan klik non-primer
+                        // memakai perilaku native browser (termasuk buka tab baru).
+                        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                        e.preventDefault();
+                        onForceHome();
+                    }}
+                    className="flex items-center gap-2 pr-3 py-2 text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-none bg-transparent no-underline"
                     title="Ke Halaman Utama"
                 >
                     <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
                         <Home size={18} className="text-gray-600 dark:text-gray-300" />
                     </div>
                     <span className="font-semibold text-sm">Home</span>
-                </button>
+                </a>
             </div>
         )}
       </div>
@@ -186,6 +205,36 @@ export const TopBar: React.FC<TopBarProps> = ({
                         <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
                         <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                           <div className="p-1">
+                            {archiveTargetId ? (
+                              <>
+                                <button
+                                  disabled={archiveBusy}
+                                  onClick={() => { setShowMenu(false); onUnarchiveRequest && onUnarchiveRequest(); }}
+                                  className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50"
+                                >
+                                  <Unlink size={16} />
+                                  <span>Putuskan Arsip</span>
+                                </button>
+                                <button
+                                  disabled={!archiveSelectionReady || archiveBusy}
+                                  onClick={() => { setShowMenu(false); onArchiveSelectionRequest && onArchiveSelectionRequest(); }}
+                                  className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-40"
+                                  title={archiveSelectionReady ? 'Arsipkan konten yang dipilih' : 'Pilih konten di editor terlebih dahulu'}
+                                >
+                                  <Archive size={16} />
+                                  <span>Arsip Pilihan</span>
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                disabled={archiveBusy}
+                                onClick={() => { setShowMenu(false); onArchiveRequest && onArchiveRequest(); }}
+                                className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-50"
+                              >
+                                <Archive size={16} />
+                                <span>Arsipkan Hapus</span>
+                              </button>
+                            )}
                             <button 
                               onClick={() => { setShowMenu(false); onMoveNote && onMoveNote(); }}
                               className="w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400"

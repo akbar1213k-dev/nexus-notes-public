@@ -260,6 +260,7 @@ const KODE_HAPUS = {
   BACA_PARENT_GAGAL: 'HAPUS_CATATAN_BACA_PARENT_GAGAL',
   BACA_CHUNK_GAGAL: 'HAPUS_CATATAN_BACA_CHUNK_GAGAL',
   CHUNK_KEPEMILIKAN_TIDAK_COCOK: 'HAPUS_CATATAN_CHUNK_KEPEMILIKAN_TIDAK_COCOK',
+  CHUNK_JUMLAH_TIDAK_COCOK: 'HAPUS_CATATAN_CHUNK_JUMLAH_TIDAK_COCOK',
   BATCH_GAGAL: 'HAPUS_CATATAN_BATCH_GAGAL',
 } as const;
 
@@ -316,7 +317,15 @@ export const hapusCatatanDariServer = async (
 
   let chunksSnap;
   try {
-    chunksSnap = await getDocs(collection(db, 'notes', noteId, 'chunks'));
+    // Filter userId wajib agar query dapat dibuktikan sesuai Firestore Rules
+    // (allow read: request.auth.uid == resource.data.userId). Pola ini sama
+    // dengan jalur baca chunk yang sudah bekerja di muatKontenPenuh().
+    chunksSnap = await getDocs(
+      query(
+        collection(db, 'notes', noteId, 'chunks'),
+        where('userId', '==', expectedUserId)
+      )
+    );
   } catch (err: any) {
     throw buatKesalahanHapus(
       KODE_HAPUS.BACA_CHUNK_GAGAL,
@@ -336,6 +345,19 @@ export const hapusCatatanDariServer = async (
       );
     }
   });
+
+  // Validasi kelengkapan: metadata parent harus cocok dengan potongan milik
+  // user yang benar-benar terbaca. Jika tidak cocok, jangan hapus apa pun.
+  if (
+    typeof parentData.chunkCount === 'number' &&
+    chunksSnap.size !== parentData.chunkCount
+  ) {
+    throw buatKesalahanHapus(
+      KODE_HAPUS.CHUNK_JUMLAH_TIDAK_COCOK,
+      `Jumlah potongan catatan ${noteId} tidak cocok: ` +
+      `metadata ${parentData.chunkCount}, ditemukan ${chunksSnap.size}.`
+    );
+  }
 
   const operasi: Operasi[] = [];
   chunksSnap.forEach(d =>

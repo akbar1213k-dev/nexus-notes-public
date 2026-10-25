@@ -11,7 +11,7 @@ import { TractView } from './components/TractView';
 import { MindmapEditor } from './components/MindmapEditor';
 import { SyncDebugPanel } from './components/SyncDebugPanel';
 import { syncDebug } from './utils/syncDebug';
-import { ukuranByte } from './utils/noteChunks';
+import { ukuranByte, pecahContent } from './utils/noteChunks';
 import { db, auth } from './services/firebase'; 
 import { simpanCatatanKeServer, muatKontenPenuh, hapusCatatanDariServer } from './services/noteRepo';
 import { clearHistory as clearHistoryFromIndexedDB } from './utils/historyStore'; 
@@ -76,6 +76,35 @@ const slugify = (text: string): string =>
     .replace(/[\s_]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '') || 'catatan';
+
+// --- HELPER: ARSIP ---
+const PEMISAH_ARSIP = '='.repeat(33);
+
+const escapeHtmlArsip = (teks: string): string =>
+  teks.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const formatWaktuArsip = (d: Date): string => {
+  const dua = (n: number) => String(n).padStart(2, '0');
+  return `${dua(d.getDate())}/${dua(d.getMonth() + 1)}/${dua(d.getFullYear() % 100)}, ${dua(d.getHours())}:${dua(d.getMinutes())}`;
+};
+
+// Entri baru selalu ditempatkan di paling atas konten tujuan.
+// Tidak ada pemisah sebelum entri teratas; setiap entri diakhiri 33 '='.
+const buatEntriArsip = (judulSumber: string, selectedHtml: string, waktu: Date): string =>
+  `<div>Dari       : ${escapeHtmlArsip(judulSumber || 'Tanpa Judul')}</div>` +
+  `<div>Tanggal : ${formatWaktuArsip(waktu)}</div>` +
+  `<div><br></div>` +
+  selectedHtml +
+  `<div><br></div>` +
+  `<div>${PEMISAH_ARSIP}</div>`;
+
+// Hubungan hanya valid bila tujuan masih ada, bukan sampah, dan catatan biasa.
+const cariTujuanArsipValid = (sumber: Note | undefined, semua: Note[]): Note | null => {
+  const id = sumber?.archiveTargetId;
+  if (!id) return null;
+  const tujuan = semua.find(n => n.id === id);
+  return tujuan && !tujuan.deletedAt && tujuan.type === 'note' ? tujuan : null;
+};
 
 export default function App() {
   // [PERCEPAT 1] Inisialisasi User langsung dari LocalStorage!
@@ -234,14 +263,26 @@ export default function App() {
     const time = Date.now();
     const isOffline = user?.uid === 'offline-local';
 
+    // Sumber lain yang menunjuk ke catatan yang akan dihapus sebagai tujuan arsip.
+    const sumberTertaut = notes.filter(n =>
+      !!n.archiveTargetId &&
+      noteIds.includes(n.archiveTargetId) &&
+      !noteIds.includes(n.id)
+    );
+
     if (isOffline) {
       noteIds.forEach(id => {
         const note = notes.find(n => n.id === id);
         if (note) {
-          const updated = { ...note, deletedAt: time, updatedAt: time };
+          const updated = { ...note, deletedAt: time, updatedAt: time, archiveTargetId: null };
           saveToLocalStorage(updated);
           setNotes(prev => prev.map(n => n.id === id ? updated : n));
         }
+      });
+      sumberTertaut.forEach(n => {
+        const updated = { ...n, archiveTargetId: null };
+        saveToLocalStorage(updated);
+        setNotes(prev => prev.map(item => item.id === n.id ? updated : item));
       });
       folderIds.forEach(id => {
         const folder = folders.find(f => f.id === id);
@@ -254,10 +295,18 @@ export default function App() {
     } else {
       // [DEBUG] per dokumen supaya terlihat id mana yang ditolak rules, tetap ditunggu
       const tugas = [
-        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time })
+        ...noteIds.map(id => updateDoc(doc(db, "notes", id), { deletedAt: time, updatedAt: time, archiveTargetId: null })
           .then(() => syncDebug.sukses('hapus', 'BUANG_CATATAN', `Catatan ${id} dipindah ke Sampah`))
           .catch((err: any) => syncDebug.error('hapus', 'BUANG_CATATAN',
             `Gagal memindahkan catatan ${id} ke Sampah: ${err.message}`, { id, code: err.code }))),
+        ...sumberTertaut.map(n => updateDoc(doc(db, "notes", n.id), { archiveTargetId: null })
+          .then(() => {
+            setNotes(prev => prev.map(item => item.id === n.id ? { ...item, archiveTargetId: null } : item));
+            syncDebug.sukses('hapus', 'PUTUSKAN_ARSIP_OTOMATIS',
+              `Hubungan arsip catatan ${n.id} diputuskan karena tujuan ${n.archiveTargetId} dihapus`, { id: n.id });
+          })
+          .catch((err: any) => syncDebug.error('hapus', 'PUTUSKAN_ARSIP_OTOMATIS_GAGAL',
+            `Gagal memutuskan hubungan arsip catatan ${n.id}: ${err.message}`, { id: n.id, code: err.code }))),
         ...folderIds.map(id => updateDoc(doc(db, "folders", id), { deletedAt: time })
           .then(() => syncDebug.sukses('hapus', 'BUANG_FOLDER', `Folder ${id} dipindah ke Sampah`))
           .catch((err: any) => syncDebug.error('hapus', 'BUANG_FOLDER',
@@ -370,6 +419,10 @@ export default function App() {
   const [currentNoteId, setCurrentNoteId] = useState<string>(''); 
   const [activeFolderId, setActiveFolderId] = useState<string | undefined>(undefined);
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
+  const [archivePickerOpen, setArchivePickerOpen] = useState(false);
+  const [archiveQuery, setArchiveQuery] = useState('');
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [hasArchiveSelection, setHasArchiveSelection] = useState(false);
 
   // State baru untuk menyembunyikan TopBar saat mode Browser Layar Penuh aktif
   const [isImmersive, setIsImmersive] = useState(false);
@@ -412,6 +465,14 @@ export default function App() {
   // untuk catatan yang sama dari navigateTo(), efek pemuatan otomatis, atau efek
   // ganda StrictMode tanpa menghalangi pemuatan catatan lain secara paralel.
   const chunkLoadsRef = useRef<Set<string>>(new Set());
+  // Penjaga operasi arsip agar tidak ada pengiriman ganda.
+  const archiveBusyRef = useRef(false);
+  const pendingArchiveRef = useRef<{
+    sourceId: string;
+    sourceUpdatedAt: number;
+    selectedHtml: string;
+    sourceContent: string;
+  } | null>(null);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     try {
@@ -721,6 +782,37 @@ export default function App() {
     () => notes.find(n => n.id === currentNoteId),
     [notes, currentNoteId]
   );
+
+  // Tujuan arsip hanya dianggap aktif bila lolos validasi (ada, bukan sampah, catatan biasa).
+  const archiveMenuTarget = useMemo(
+    () => cariTujuanArsipValid(activeTitleNote, notes),
+    [activeTitleNote, notes]
+  );
+
+  const archiveCandidates = useMemo(() => {
+    const q = archiveQuery.trim().toLowerCase();
+    return notes.filter(n =>
+      n.id !== currentNoteId &&
+      !n.deletedAt &&
+      n.type === 'note' &&
+      (!q || (n.title || '').toLowerCase().includes(q))
+    );
+  }, [notes, currentNoteId, archiveQuery]);
+
+  // Tutup picker bila pengguna berpindah catatan/mode saat picker terbuka.
+  useEffect(() => {
+    if (!archivePickerOpen) return;
+    if (viewMode !== 'EDITOR' || currentNoteId !== pendingArchiveRef.current?.sourceId) {
+      setArchivePickerOpen(false);
+      pendingArchiveRef.current = null;
+    }
+  }, [viewMode, currentNoteId, archivePickerOpen]);
+
+  // Status seleksi tidak lagi valid saat berpindah catatan/mode.
+  useEffect(() => {
+    setHasArchiveSelection(false);
+  }, [currentNoteId, viewMode]);
+
   useEffect(() => {
     switch (viewMode) {
       case 'TRACT':
@@ -750,6 +842,10 @@ export default function App() {
   // Sync slug URL saat judul catatan berubah (agar history browser selalu up-to-date)
   useEffect(() => {
     if (viewMode !== 'EDITOR' || !currentNoteId) return;
+    // Jangan menulis slug sebelum catatan terpilih benar-benar tersedia.
+    // Tanpa guard ini, direct-link ke catatan yang belum termuat akan
+    // sementara diganti menjadi "catatan-tanpa-judul" lalu diperbaiki lagi.
+    if (!activeTitleNote) return;
     const t = setTimeout(() => {
       const slug = slugify(activeTitleNote?.title || 'Catatan Tanpa Judul');
       const newPath = `/editor/${currentNoteId}/${slug}`;
@@ -1218,6 +1314,286 @@ export default function App() {
     }
   };
 
+  // --- ARSIPKAN HAPUS ---
+  // Inti penyimpanan arsip: tujuan lebih dulu, sumber hanya setelah tujuan terkonfirmasi.
+  // Tidak mengubah state/cache sebelum tulisan terkait berhasil.
+  const arsipkanKeTujuan = async (opsi: {
+    sourceId: string;
+    targetId: string;
+    html: string;
+    sourceContent: string;
+    removeSource: boolean;
+    setLink: boolean;
+    expectedSourceUpdatedAt?: number;
+  }): Promise<boolean> => {
+    if (!user || user.uid === 'offline-local') return false;
+
+    const sumber = notesRef.current.find(n => n.id === opsi.sourceId);
+    const tujuan = notesRef.current.find(n => n.id === opsi.targetId);
+
+    if (!sumber || !tujuan || sumber.type !== 'note' || tujuan.id === sumber.id
+        || tujuan.deletedAt || tujuan.type !== 'note') {
+      alert('Tujuan arsip tidak valid atau sudah tidak tersedia. Arsip dibatalkan.');
+      return false;
+    }
+    if (opsi.expectedSourceUpdatedAt !== undefined
+        && sumber.updatedAt !== opsi.expectedSourceUpdatedAt) {
+      alert('Catatan sumber berubah sejak konten dipilih. Pilih ulang konten lalu coba lagi.');
+      return false;
+    }
+
+    let isiTujuan = tujuan.content;
+    if (tujuan.chunkCount && isiTujuan == null) {
+      try {
+        isiTujuan = await muatKontenPenuh(tujuan.id);
+      } catch (err: any) {
+        alert('Gagal memuat isi catatan tujuan: ' + (err?.message ?? String(err)) + '. Sumber tidak diubah.');
+        return false;
+      }
+    }
+    if (typeof isiTujuan !== 'string') {
+      alert('Isi catatan tujuan tidak dapat dimuat. Arsip dibatalkan; sumber tidak diubah.');
+      return false;
+    }
+
+    const sumberCek = notesRef.current.find(n => n.id === opsi.sourceId);
+    const tujuanCek = notesRef.current.find(n => n.id === opsi.targetId);
+    if (!sumberCek || !tujuanCek || tujuanCek.id === sumberCek.id
+        || tujuanCek.deletedAt || tujuanCek.type !== 'note'
+        || (opsi.expectedSourceUpdatedAt !== undefined
+            && sumberCek.updatedAt !== opsi.expectedSourceUpdatedAt)) {
+      alert('Catatan sumber atau tujuan berubah selama persiapan. Pilih ulang konten lalu coba lagi.');
+      return false;
+    }
+
+    const isiTujuanBaru = buatEntriArsip(sumber.title, opsi.html, new Date()) + isiTujuan;
+    const chunkTujuan = pecahContent(isiTujuanBaru).length;
+    const chunkSumber = pecahContent(opsi.sourceContent).length;
+    if (chunkTujuan > 400 || (opsi.removeSource && chunkSumber > 400)) {
+      alert('Ukuran arsip melebihi batas penyimpanan catatan. Pilih konten yang lebih kecil.');
+      return false;
+    }
+
+    const tujuanBaru: Note = {
+      ...tujuan,
+      content: isiTujuanBaru,
+      chunkCount: chunkTujuan > 1 ? chunkTujuan : 0,
+      updatedAt: Date.now(),
+    };
+
+    try {
+      await simpanCatatanKeServer(tujuanBaru, user.uid);
+    } catch (err: any) {
+      syncDebug.error('tulis', 'ARSIP_GAGAL_TUJUAN',
+        `Gagal menyimpan arsip ke catatan ${tujuan.id}: ${err?.message ?? String(err)}`,
+        { id: tujuan.id, code: err?.code });
+      alert('Gagal menyimpan arsip ke catatan tujuan. Sumber tidak diubah. '
+        + 'Untuk catatan besar, kegagalan dapat terjadi setelah sebagian data tujuan tertulis — '
+        + 'periksa tujuan sebelum mencoba lagi.');
+      return false;
+    }
+
+    removeFromLocalStorage(tujuan.id);
+    setNotes(prev => prev.map(n => n.id === tujuan.id ? tujuanBaru : n));
+
+    if (!opsi.removeSource) return true;
+
+    const sumberBaru: Note = {
+      ...sumber,
+      content: opsi.sourceContent,
+      chunkCount: chunkSumber > 1 ? chunkSumber : 0,
+      archiveTargetId: opsi.setLink ? tujuan.id : (sumber.archiveTargetId || null),
+      updatedAt: Date.now(),
+    };
+
+    try {
+      await simpanCatatanKeServer(sumberBaru, user.uid);
+    } catch (err: any) {
+      syncDebug.error('tulis', 'ARSIP_GAGAL_SUMBER',
+        `Arsip tersimpan di ${tujuan.id}, tetapi sumber ${sumber.id} gagal diperbarui: ${err?.message ?? String(err)}`,
+        { id: sumber.id, code: err?.code, targetId: tujuan.id });
+      alert('Arsip BERHASIL disimpan ke catatan tujuan, tetapi konten sumber GAGAL diperbarui. '
+        + 'Konten sumber tetap seperti semula di aplikasi. JANGAN mengulangi operasi ini, '
+        + 'karena dapat membuat entri arsip ganda. Periksa tujuan terlebih dahulu.');
+      return false;
+    }
+
+    removeFromLocalStorage(sumber.id);
+    setNotes(prev => prev.map(n => n.id === sumber.id ? sumberBaru : n));
+    syncDebug.sukses('tulis', 'ARSIP_SELESAI',
+      `Konten ${sumber.id} diarsipkan ke ${tujuan.id}`,
+      { id: sumber.id, targetId: tujuan.id });
+    return true;
+  };
+
+  const jalankanDenganBusy = async (tugas: () => Promise<boolean>): Promise<boolean> => {
+    if (archiveBusyRef.current) return false;
+    archiveBusyRef.current = true;
+    setArchiveBusy(true);
+    try {
+      return await tugas();
+    } finally {
+      archiveBusyRef.current = false;
+      setArchiveBusy(false);
+    }
+  };
+
+  const handleArchiveRequest = () => {
+    if (archiveBusyRef.current) return;
+    if (!user) return;
+    if (user.uid === 'offline-local') {
+      alert('Arsipkan Hapus tidak tersedia dalam mode offline karena penyimpanan ke server tidak dapat dipastikan.');
+      return;
+    }
+
+    const sumber = notesRef.current.find(n => n.id === currentNoteId);
+    if (!sumber || sumber.type !== 'note') {
+      alert('Arsipkan Hapus hanya tersedia untuk catatan biasa.');
+      return;
+    }
+    if (cariTujuanArsipValid(sumber, notesRef.current)) return;
+
+    const seleksi = editorRef.current?.captureArchiveSelection();
+    if (!seleksi) {
+      alert('Pilih konten di editor terlebih dahulu, lalu buka menu Arsipkan Hapus.');
+      return;
+    }
+
+    pendingArchiveRef.current = {
+      sourceId: sumber.id,
+      sourceUpdatedAt: sumber.updatedAt,
+      selectedHtml: seleksi.selectedHtml,
+      sourceContent: seleksi.sourceContent,
+    };
+    setArchiveQuery('');
+    setArchivePickerOpen(true);
+  };
+
+  const handleArchiveToTarget = async (targetId: string) => {
+    const pending = pendingArchiveRef.current;
+    if (!pending || archiveBusyRef.current || !user) return;
+    if (user.uid === 'offline-local') return;
+
+    try {
+      await jalankanDenganBusy(async () => {
+        const ok = await arsipkanKeTujuan({
+          sourceId: pending.sourceId,
+          targetId,
+          html: pending.selectedHtml,
+          sourceContent: pending.sourceContent,
+          removeSource: true,
+          setLink: true,
+          expectedSourceUpdatedAt: pending.sourceUpdatedAt,
+        });
+        if (ok) {
+          const tujuan = notesRef.current.find(n => n.id === targetId);
+          alert(`Konten berhasil diarsipkan ke "${tujuan?.title || 'Tanpa Judul'}".`);
+        }
+        return ok;
+      });
+    } finally {
+      pendingArchiveRef.current = null;
+      setArchivePickerOpen(false);
+    }
+  };
+
+  const handleArchiveSelectionRequest = async () => {
+    if (archiveBusyRef.current || !user) return;
+    if (user.uid === 'offline-local') {
+      alert('Arsip Pilihan tidak tersedia dalam mode offline karena penyimpanan ke server tidak dapat dipastikan.');
+      return;
+    }
+
+    const sumber = notesRef.current.find(n => n.id === currentNoteId);
+    const tujuan = cariTujuanArsipValid(sumber, notesRef.current);
+    if (!sumber || !tujuan) return;
+
+    const seleksi = editorRef.current?.captureArchiveSelection();
+    if (!seleksi) {
+      alert('Pilih konten di editor terlebih dahulu.');
+      return;
+    }
+
+    const ok = await jalankanDenganBusy(() => arsipkanKeTujuan({
+      sourceId: sumber.id,
+      targetId: tujuan.id,
+      html: seleksi.selectedHtml,
+      sourceContent: seleksi.sourceContent,
+      removeSource: false,
+      setLink: false,
+    }));
+    if (ok) alert(`Pilihan berhasil diarsipkan ke "${tujuan.title || 'Tanpa Judul'}".`);
+  };
+
+  // Dipakai Editor untuk Cut/Delete seluruh catatan yang memiliki tujuan arsip.
+  const handleArchiveWholeContent = async (html: string, _mode: 'cut' | 'delete'): Promise<boolean> => {
+    if (!user || user.uid === 'offline-local' || archiveBusyRef.current) return false;
+    const sumber = notesRef.current.find(n => n.id === currentNoteId);
+    const tujuan = cariTujuanArsipValid(sumber, notesRef.current);
+    if (!sumber || !tujuan) return false;
+
+    const ok = await jalankanDenganBusy(() => arsipkanKeTujuan({
+      sourceId: sumber.id,
+      targetId: tujuan.id,
+      html,
+      sourceContent: '<p><br></p>',
+      removeSource: true,
+      setLink: false,
+    }));
+    if (!ok) return false;
+    return true;
+  };
+
+  // Dipakai Editor untuk Ctrl+X / Delete / menu konteks pada seleksi.
+  const handleArchiveSelectionContent = async (
+    html: string,
+    sourceContent: string,
+    removeSource: boolean
+  ): Promise<boolean> => {
+    if (!user || user.uid === 'offline-local' || archiveBusyRef.current) return false;
+    const sumber = notesRef.current.find(n => n.id === currentNoteId);
+    const tujuan = cariTujuanArsipValid(sumber, notesRef.current);
+    if (!sumber || !tujuan) return false;
+
+    return jalankanDenganBusy(() => arsipkanKeTujuan({
+      sourceId: sumber.id,
+      targetId: tujuan.id,
+      html,
+      sourceContent,
+      removeSource,
+      setLink: false,
+    }));
+  };
+
+  const handleUnarchiveRequest = async () => {
+    if (archiveBusyRef.current || !user) return;
+    if (user.uid === 'offline-local') {
+      alert('Putuskan Arsip tidak tersedia dalam mode offline karena penyimpanan ke server tidak dapat dipastikan.');
+      return;
+    }
+
+    const sumber = notesRef.current.find(n => n.id === currentNoteId);
+    if (!sumber || !sumber.archiveTargetId) return;
+
+    archiveBusyRef.current = true;
+    setArchiveBusy(true);
+    try {
+      await updateDoc(doc(db, 'notes', sumber.id), { archiveTargetId: null });
+      setNotes(prev => prev.map(n => n.id === sumber.id ? { ...n, archiveTargetId: null } : n));
+      syncDebug.sukses('tulis', 'PUTUSKAN_ARSIP',
+        `Hubungan arsip catatan ${sumber.id} diputuskan`, { id: sumber.id });
+      alert('Hubungan arsip diputuskan. Konten arsip yang sudah tersimpan tidak dihapus.');
+    } catch (err: any) {
+      syncDebug.error('tulis', 'PUTUSKAN_ARSIP_GAGAL',
+        `Gagal memutuskan hubungan arsip catatan ${sumber.id}: ${err?.message ?? String(err)}`,
+        { id: sumber.id, code: err?.code });
+      alert('Gagal memutuskan hubungan arsip: ' + (err?.message ?? String(err)));
+    } finally {
+      archiveBusyRef.current = false;
+      setArchiveBusy(false);
+    }
+  };
+
   const handleCreateNote = async (
     title: string, 
     type: 'note' | 'mindmap' = 'note', 
@@ -1362,6 +1738,8 @@ export default function App() {
           title: `(Copy) ${currentTitle}`,
           updatedAt: now + index,
           userId: user.uid,
+          // Hubungan arsip tidak boleh diwarisi oleh duplikat.
+          archiveTargetId: null,
         };
       }
     );
@@ -1455,7 +1833,8 @@ export default function App() {
     }
 
     try {
-        const notesToImport = data.notes || [];
+        // Metadata hubungan arsip dari file impor tidak boleh dipercaya.
+        const notesToImport = (data.notes || []).map(n => ({ ...n, archiveTargetId: null }));
         const foldersToImport = data.folders || [];
 
         if (notesToImport.length === 0 && foldersToImport.length === 0) {
@@ -1862,6 +2241,9 @@ export default function App() {
                     onLinkClick={(id) => navigateTo('EDITOR', id)} 
                     onLinkLongPress={setPreviewNoteId} 
                     onGoHome={() => window.history.length > 1 ? window.history.back() : navigateTo('HOME')}
+                    onArchiveWholeContent={handleArchiveWholeContent}
+                    onArchiveSelectionContent={handleArchiveSelectionContent}
+                    onSelectionAvailabilityChange={setHasArchiveSelection}
                 />
             );
 
@@ -1985,6 +2367,12 @@ export default function App() {
             }}
             onDeleteNote={handleDeleteCurrentNote}
             onMoveNote={() => setShowEditorMoveDialog(true)}
+            archiveTargetId={archiveMenuTarget ? archiveMenuTarget.id : null}
+            archiveBusy={archiveBusy}
+            archiveSelectionReady={hasArchiveSelection}
+            onArchiveRequest={handleArchiveRequest}
+            onUnarchiveRequest={handleUnarchiveRequest}
+            onArchiveSelectionRequest={handleArchiveSelectionRequest}
           />
       )}
       
@@ -2027,6 +2415,77 @@ export default function App() {
         </div>
       )}
       
+      {archivePickerOpen && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700">
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-lg dark:text-white">Pilih Tujuan Arsip</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Konten terpilih disalin ke catatan ini, lalu dihapus dari sumber.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (archiveBusy) return;
+                  setArchivePickerOpen(false);
+                  pendingArchiveRef.current = null;
+                }}
+                disabled={archiveBusy}
+                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40"
+                title="Tutup"
+              >
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-3 border-b border-gray-100 dark:border-gray-700">
+              <input
+                autoFocus
+                value={archiveQuery}
+                onChange={(e) => setArchiveQuery(e.target.value)}
+                placeholder="Cari judul catatan..."
+                disabled={archiveBusy}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="max-h-72 overflow-y-auto p-2">
+              {archiveCandidates.length === 0 ? (
+                <div className="p-4 text-center text-sm text-gray-400">Tidak ada catatan yang cocok.</div>
+              ) : (
+                archiveCandidates.map(n => (
+                  <button
+                    key={n.id}
+                    onClick={() => handleArchiveToTarget(n.id)}
+                    disabled={archiveBusy}
+                    className="w-full text-left p-3 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-50 flex items-center gap-3 transition-colors"
+                  >
+                    <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-full shrink-0">
+                      <span className="block w-4 h-4 rounded-sm bg-indigo-500/70" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm truncate text-gray-800 dark:text-gray-100">
+                        {n.title || 'Tanpa Judul'}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {n.chunkCount && !n.content ? 'Catatan besar' : 'Catatan'}
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {archiveBusy && (
+              <div className="p-3 text-center text-xs text-blue-600 dark:text-blue-400 border-t border-gray-100 dark:border-gray-700">
+                Menyimpan arsip... jangan tutup halaman.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <PreviewSheet 
         note={notes.find(n => n.id === previewNoteId) || null} 
         onClose={() => setPreviewNoteId(null)} 

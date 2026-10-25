@@ -23,6 +23,9 @@ interface EditorProps {
   onLinkLongPress: (noteId: string) => void;
   onGoHome: () => void;
   onToggleImmersive: (isImmersive: boolean) => void; // Kabel dari App.tsx
+  onArchiveWholeContent?: (html: string, mode: 'cut' | 'delete') => Promise<boolean>;
+  onArchiveSelectionContent?: (html: string, sourceContent: string, removeSource: boolean) => Promise<boolean>;
+  onSelectionAvailabilityChange?: (hasSelection: boolean) => void;
 }
 type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
 
@@ -124,6 +127,75 @@ const cleanText = (htmlStr: string): string => {
   return (temp.textContent || temp.innerText || "").replace(/\s+/g, ' ').trim();
 };
 
+// --- ARSIP: pemetaan node untuk menghitung konten sumber tanpa menyentuh DOM live ---
+const jalurNodeDalam = (node: Node, root: Node): number[] | null => {
+  const jalur: number[] = [];
+  let cur: Node | null = node;
+  while (cur && cur !== root) {
+    const induk = cur.parentNode;
+    if (!induk) return null;
+    jalur.unshift(Array.prototype.indexOf.call(induk.childNodes, cur));
+    cur = induk;
+  }
+  return cur === root ? jalur : null;
+};
+
+const nodeDariJalur = (root: Node, jalur: number[]): Node | null => {
+  let cur: Node | null = root;
+  for (const indeks of jalur) {
+    if (!cur || !cur.childNodes[indeks]) return null;
+    cur = cur.childNodes[indeks];
+  }
+  return cur;
+};
+
+// Serialisasi teks polos yang menghasilkan SATU newline per batas blok.
+// innerText browser dapat memberi dua newline untuk <p>, sehingga hasil tempel
+// terlihat berjarak ganda. Fungsi ini menjaga baris kosong yang memang ada
+// (blok kosong menghasilkan satu newline tambahan) tanpa menggandakan baris.
+const TAG_BLOK_TEKS = new Set([
+  'P', 'DIV', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'BLOCKQUOTE', 'PRE', 'TABLE', 'TR', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER'
+]);
+
+const htmlKeTeksPolos = (html: string): string => {
+  const root = document.createElement('div');
+  root.innerHTML = html;
+  let hasil = '';
+
+  const akhirBaris = () => {
+    if (hasil && !hasil.endsWith('\n')) hasil += '\n';
+  };
+
+  const jalan = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      hasil += (node.nodeValue || '').replace(/\u00a0/g, ' ');
+      return;
+    }
+    if (!(node instanceof HTMLElement)) {
+      node.childNodes.forEach(jalan);
+      return;
+    }
+    const tag = node.tagName;
+    if (tag === 'BR') {
+      hasil += '\n';
+      return;
+    }
+    if (tag === 'IMG') {
+      const alt = node.getAttribute('alt');
+      if (alt) hasil += alt;
+      return;
+    }
+    const blok = TAG_BLOK_TEKS.has(tag);
+    if (blok) akhirBaris();
+    node.childNodes.forEach(jalan);
+    if (blok) akhirBaris();
+  };
+
+  root.childNodes.forEach(jalan);
+  return hasil.replace(/^\n+/, '').replace(/\n+$/, '');
+};
+
 const wordsFrom = (text: string): string[] => text.split(/\s+/).filter(Boolean);
 
 // Bandingkan dua teks bersih -> kata yang ditambah / dihapus
@@ -157,7 +229,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   onLinkClick,
   onLinkLongPress,
   onGoHome,
-  onToggleImmersive // <--- TAMBAHKAN KABEL INI DI SINI
+  onToggleImmersive, // <--- TAMBAHKAN KABEL INI DI SINI
+  onArchiveWholeContent,
+  onArchiveSelectionContent,
+  onSelectionAvailabilityChange
 }, ref) => {
   // PENGAMAN ANTI CRASH (Mencegah Layar Blank Putih)
   // Jika data 'note' dari luar ternyata kosong/belum dimuat, 
@@ -165,6 +240,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const note = rawNote ? 
     { ...rawNote, content: rawNote.content || '<p><br></p>' } : 
     { id: 'safe-temp', title: 'Memuat...', content: '<p><br></p>', type: 'text' } as any;
+
+  // Tujuan arsip aktif, hanya jika lolos validasi yang sama dengan App.
+  const tujuanArsipAktif = allNotes.find(n =>
+    n.id === note.archiveTargetId && !n.deletedAt && n.type === 'note'
+  ) || null;
+  const punyaTujuanArsip = !!tujuanArsipAktif;
 
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -189,6 +270,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [checkboxInterval, setCheckboxInterval] = useState<string>('1');
   // --- STATE BARU UNTUK TOOLS ---
   const [showOptionMenu, setShowOptionMenu] = useState(false);
+  const arsipSeleksiRef = useRef(false);
   // --- STATE: Transparansi Tombol Utama (Solid sementara saat diklik) ---
   const [mainBtnSolid, setMainBtnSolid] = useState(false);
   const mainBtnOpacityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -506,10 +588,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     };
   }, [note.id]); // Berjalan tiap kali kamu ganti/buka catatan
 
-  // --- FUNGSI CUT (PERBAIKAN: Salin isi sebelum dihapus, mendukung mode kode & visual) ---
+  // --- FUNGSI CUT SELURUH CATATAN ---
+  // Salin dulu; jika ada tujuan arsip, arsipkan seluruh isi melalui App dan
+  // biarkan App mengosongkan sumber hanya setelah penyimpanan tujuan berhasil.
   const handleCutContent = async () => {
     if (isCodeView) {
-        // MODE KODE: Salin isi textarea, lalu kosongkan
         if (!codeEditorRef.current) return;
         const textContent = codeEditorRef.current.value;
         const copied = await writeToClipboard(textContent);
@@ -518,34 +601,43 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
             setTimeout(() => setShowClipboardFailToast(false), 3000);
             return;
         }
-        // Hanya kosongkan textarea SETELAH penyalinan berhasil (cegah kehilangan data)
-        const nativeSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLTextAreaElement.prototype, 'value'
-        )?.set;
-        if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
-        else codeEditorRef.current.value = '';
-        codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-        pushUndoState(note.content, '');
-        onUpdate({ ...note, content: '' });
+        if (punyaTujuanArsip && onArchiveWholeContent) {
+            const ok = await onArchiveWholeContent(note.content, 'cut');
+            if (!ok) return;
+        } else {
+            const nativeSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLTextAreaElement.prototype, 'value'
+            )?.set;
+            if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
+            else codeEditorRef.current.value = '';
+            codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+            pushUndoState(note.content, '');
+            onUpdate({ ...note, content: '' });
+        }
         setShowCutToast(true);
         setTimeout(() => setShowCutToast(false), 2000);
         return;
     }
 
-    // MODE VISUAL
+    // MODE VISUAL: selalu seluruh catatan, bukan hanya seleksi.
     if (editorRef.current) {
         const htmlContent = editorRef.current.innerHTML;
-        const textContent = editorRef.current.innerText;
+        const textContent = htmlKeTeksPolos(htmlContent);
         const copied = await writeToClipboard(textContent, htmlContent);
         if (!copied) {
             setShowClipboardFailToast(true);
             setTimeout(() => setShowClipboardFailToast(false), 3000);
             return;
         }
-        // Hanya kosongkan editor SETELAH penyalinan berhasil (cegah kehilangan data)
-        editorRef.current.innerHTML = '<p><br/></p>';
-        pushUndoState(note.content, '<p><br/></p>');
-        onUpdate({ ...note, content: '<p><br/></p>' });
+
+        if (punyaTujuanArsip && onArchiveWholeContent) {
+            const ok = await onArchiveWholeContent(htmlContent, 'cut');
+            if (!ok) return; // sumber tidak disentuh bila arsip gagal
+        } else {
+            editorRef.current.innerHTML = '<p><br/></p>';
+            pushUndoState(note.content, '<p><br/></p>');
+            onUpdate({ ...note, content: '<p><br/></p>' });
+        }
         setShowCutToast(true);
         setTimeout(() => setShowCutToast(false), 2000);
     }
@@ -574,9 +666,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- FUNGSI HAPUS SEMUA ISI (KECUALI JUDUL) ---
   // Berjalan seketika tanpa konfirmasi, dan langsung terhubung dengan fitur Undo (Mesin Waktu).
   // Mendukung mode kode (codeEditorRef) DAN mode visual (editorRef).
-  const handleDeleteAllContent = () => {
+  const handleDeleteAllContent = async () => {
     if (isCodeView) {
         if (!codeEditorRef.current) return;
+        if (punyaTujuanArsip && onArchiveWholeContent) {
+            await onArchiveWholeContent(note.content, 'delete');
+            return;
+        }
         const nativeSetter = Object.getOwnPropertyDescriptor(
             window.HTMLTextAreaElement.prototype, 'value'
         )?.set;
@@ -588,6 +684,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         return;
     }
     if (editorRef.current) {
+        if (punyaTujuanArsip && onArchiveWholeContent) {
+            await onArchiveWholeContent(editorRef.current.innerHTML, 'delete');
+            return;
+        }
         const emptyContent = '<p><br/></p>';
         pushUndoState(editorRef.current.innerHTML, emptyContent);
         editorRef.current.innerHTML = emptyContent;
@@ -1200,11 +1300,160 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (changed) applyHistory(next, historyIndexRef.current);
   }, [showHistoryModal]);
 
+  // --- ARSIP: tangkap seleksi + hitung konten sumber tanpa memutasi DOM live ---
+  // DOM tidak diubah sama sekali: konten sumber dihitung dari clone editor,
+  // sehingga seleksi, kursor, dan format asli tetap utuh. Jika gagal, caller
+  // wajib membatalkan operasi arsip.
+  const captureArchiveSelection = (): { selectedHtml: string; sourceContent: string } | null => {
+    const el = editorRef.current;
+    if (!el || note.id === 'safe-temp') return null;
+
+    const selection = window.getSelection();
+    let range: Range | null = null;
+
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+      const live = selection.getRangeAt(0);
+      if (el.contains(live.startContainer) && el.contains(live.endContainer)) {
+        range = live.cloneRange();
+      }
+    }
+
+    // Fallback: seleksi terakhir yang masih valid saat fokus berpindah ke menu.
+    const tersimpan = lastSelectionRef.current;
+    if (!range && tersimpan && !tersimpan.collapsed
+        && tersimpan.startContainer.isConnected
+        && el.contains(tersimpan.startContainer)
+        && el.contains(tersimpan.endContainer)) {
+      range = tersimpan.cloneRange();
+    }
+
+    if (!range || range.collapsed) return null;
+
+    const startPath = jalurNodeDalam(range.startContainer, el);
+    const endPath = jalurNodeDalam(range.endContainer, el);
+    if (!startPath || !endPath) return null;
+
+    const holder = document.createElement('div');
+    holder.appendChild(range.cloneContents());
+    const selectedHtml = holder.innerHTML
+      .replace(/<mark class="search-(?:hit|current)">([\s\S]*?)<\/mark>/gi, '$1');
+    if (!selectedHtml.trim()) return null;
+
+    const salinan = el.cloneNode(true) as HTMLElement;
+    const startNode = nodeDariJalur(salinan, startPath);
+    const endNode = nodeDariJalur(salinan, endPath);
+    if (!startNode || !endNode) return null;
+
+    const cloneRange = document.createRange();
+    try {
+      cloneRange.setStart(startNode, range.startOffset);
+      cloneRange.setEnd(endNode, range.endOffset);
+    } catch {
+      return null;
+    }
+    cloneRange.deleteContents();
+
+    const sourceContent = salinan.innerHTML
+      .replace(/<mark class="search-(?:hit|current)">([\s\S]*?)<\/mark>/gi, '$1');
+
+    return { selectedHtml, sourceContent };
+  };
+
+  // --- CLIPBOARD: Ctrl+C / menu konteks Copy (seleksi saja) ---
+  // Menulis HTML seleksi + teks polos hasil serialisasi sendiri agar tidak
+  // muncul baris kosong ganda dari innerText browser.
+  const handleCopyEvent = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    if (isCodeView) return;
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
+
+    const holder = document.createElement('div');
+    holder.appendChild(range.cloneContents());
+    const html = holder.innerHTML;
+    if (!html.trim()) return;
+
+    e.clipboardData.setData('text/html', html);
+    e.clipboardData.setData('text/plain', htmlKeTeksPolos(html));
+    e.preventDefault();
+  };
+
+  // --- CLIPBOARD: Ctrl+X / menu konteks Cut (seleksi saja) ---
+  // Selalu memakai serialisasi sendiri agar teks polos tidak berganda baris.
+  // Dengan tujuan arsip: arsipkan dulu. Tanpa tujuan: hapus seleksi setelah copy.
+  const handleCutEvent = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    if (arsipSeleksiRef.current) {
+      e.preventDefault();
+      return;
+    }
+
+    // Cut hanya berlaku bila ada seleksi live (bukan fallback seleksi lama).
+    const liveSel = window.getSelection();
+    if (!liveSel || liveSel.rangeCount === 0 || liveSel.isCollapsed) return;
+
+    const cap = captureArchiveSelection();
+    if (!cap) return; // tidak ada seleksi valid -> cut native
+
+    e.clipboardData.setData('text/html', cap.selectedHtml);
+    e.clipboardData.setData('text/plain', htmlKeTeksPolos(cap.selectedHtml));
+    e.preventDefault();
+
+    if (punyaTujuanArsip && onArchiveSelectionContent) {
+      arsipSeleksiRef.current = true;
+      void onArchiveSelectionContent(cap.selectedHtml, cap.sourceContent, true)
+        .catch(() => {})
+        .finally(() => { arsipSeleksiRef.current = false; });
+      return;
+    }
+
+    // Cut normal: hapus seleksi setelah clipboard terisi.
+    const sel = window.getSelection();
+    const el = editorRef.current;
+    if (sel && el && sel.rangeCount > 0 && !sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      if (el.contains(range.startContainer) && el.contains(range.endContainer)) {
+        range.deleteContents();
+        handleInput();
+      }
+    }
+  };
+
+  // --- DELETE KEY / menu konteks Delete: hanya seleksi, bukan Backspace ---
+  const handleBeforeInput = async (e: React.FormEvent<HTMLDivElement>) => {
+    const ev = e.nativeEvent as InputEvent;
+    if (ev.inputType !== 'deleteContentForward' && ev.inputType !== 'deleteByCut') return;
+    if (!punyaTujuanArsip || !onArchiveSelectionContent) return;
+
+    // Hanya seleksi live; kursor tanpa seleksi harus tetap menghapus normal.
+    const liveSel = window.getSelection();
+    if (!liveSel || liveSel.rangeCount === 0 || liveSel.isCollapsed) return;
+
+    if (arsipSeleksiRef.current) {
+      e.preventDefault();
+      return;
+    }
+
+    const cap = captureArchiveSelection();
+    if (!cap) return; // kursor tanpa seleksi -> hapus karakter normal
+
+    e.preventDefault();
+    arsipSeleksiRef.current = true;
+    try {
+      await onArchiveSelectionContent(cap.selectedHtml, cap.sourceContent, true);
+    } finally {
+      arsipSeleksiRef.current = false;
+    }
+  };
+
   // Expose undo/redo to parent via Ref
   useImperativeHandle(ref, () => ({
     undo: performUndo,
     redo: performRedo,
-    getContent: () => historyContentRef.current[historyIndexRef.current]?.content ?? note.content
+    getContent: () => historyContentRef.current[historyIndexRef.current]?.content ?? note.content,
+    captureArchiveSelection
   }));
 
   // --- TOMBOL UTAMA: Atur Opacity Solid (100%) sementara selama 3 detik ---
@@ -1226,24 +1475,38 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       if (mainBtnOpacityTimerRef.current) clearTimeout(mainBtnOpacityTimerRef.current);
   };
 
-  // --- KLIK DI LUAR CATATAN: Tutup mode opsi secara instan ---
+  // --- KLIK DI CATATAN ATAU LUAR MENU: tutup mode opsi ---
   useEffect(() => {
       if (!showOptionMenu) return;
       const handleOutsideClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
-          // Abaikan klik pada tombol Titik Tiga (ditangani oleh penutupan manualnya)
-          if (target.closest('[data-option-toggle]')) return;
           // Abaikan klik pada tombol-tombol opsi
           if (target.closest('[data-option-btn]')) return;
           // Abaikan klik pada tombol utama (mis. klik yang baru saja membuka menu)
           if (target.closest('[data-main-btn]')) return;
-          // Abaikan klik di dalam area catatan (editor), agar mode opsi tetap terbuka
-          if (editorRef.current && editorRef.current.contains(target)) return;
+          // Klik pada area catatan juga menutup mode lanjutan.
           closeOptionMenu();
       };
       document.addEventListener('click', handleOutsideClick);
       return () => document.removeEventListener('click', handleOutsideClick);
   }, [showOptionMenu]);
+
+  // Mode lanjutan kembali ke mode awal setelah 3 detik tanpa interaksi.
+  useEffect(() => {
+      if (!showOptionMenu) return;
+      const timer = setTimeout(() => setShowOptionMenu(false), 3000);
+      return () => clearTimeout(timer);
+  }, [showOptionMenu]);
+
+  // Tutup mode lanjutan saat catatan/mode tampilan berubah.
+  useEffect(() => {
+      setShowOptionMenu(false);
+  }, [note.id, isCodeView, isPreviewMode]);
+
+  // Mode kode/preview tidak memiliki seleksi editor visual.
+  useEffect(() => {
+      if (isCodeView || isPreviewMode) onSelectionAvailabilityChange?.(false);
+  }, [isCodeView, isPreviewMode, onSelectionAvailabilityChange]);
 
   // Tangkap seleksi teks terakhir (non-kosong) di dalam editor.
   // Pada perangkat sentuh, mengetuk tombol toolbar meng-collapse pilihan teks,
@@ -1252,14 +1515,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   useEffect(() => {
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !editorRef.current) return;
-      const range = sel.getRangeAt(0);
-      if (!editorRef.current.contains(range.startContainer)) return;
-      lastSelectionRef.current = range.cloneRange();
+      const el = editorRef.current;
+      const valid = !!(
+        sel && sel.rangeCount > 0 && !sel.isCollapsed && el &&
+        el.contains(sel.getRangeAt(0).startContainer) &&
+        el.contains(sel.getRangeAt(0).endContainer)
+      );
+
+      if (valid && sel) {
+        lastSelectionRef.current = sel.getRangeAt(0).cloneRange();
+      }
+      onSelectionAvailabilityChange?.(valid);
     };
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
-  }, []);
+  }, [onSelectionAvailabilityChange]);
 
   // Sync content awal perubahan
   useEffect(() => {
@@ -2489,9 +2759,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
             }
         });
 
-        // 2. Ambil HTML lengkap
+        // 2. Ambil HTML lengkap dan teks polos dengan serialisasi baris yang konsisten
         const htmlContent = editorRef.current.innerHTML;
-        const textContent = editorRef.current.innerText;
+        const textContent = htmlKeTeksPolos(htmlContent);
 
         const copied = await writeToClipboard(textContent, htmlContent);
         if (copied) {
@@ -2772,6 +3042,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     contentEditable
                     onInput={handleInput}
                     onPaste={handlePaste} 
+                    onCopy={handleCopyEvent}
+                    onCut={handleCutEvent}
+                    onBeforeInput={handleBeforeInput}
                     onKeyDown={handleKeyDown}
                     onClick={handleEditorClick}
                     onTouchStart={handleTouchStart}
@@ -2883,14 +3156,13 @@ const handleEditorClick = (e: React.MouseEvent) => {
       {/* --- WRAPPER SEMUA MENU BAWAH (HANYA TAMPIL JIKA TIDAK IMMERSIVE) --- */}
       {!isImmersive && (
           <>
-      {/* --- Tumpukan Tombol Opsi (Muncul saat Tombol Titik Tiga diklik) --- */}
-        {/* SELALU 100% solid, tanpa timer. Tumpukan tetap terbuka sampai ditutup manual. */}
+      {/* --- Tumpukan Tombol Opsi (Mode Lanjutan) --- */}
         {showOptionMenu && (
             <>
               {/* Posisi 5 (Paling Atas): Pilih Semua */}
               <button
                   data-option-btn
-                  onClick={handleSelectAll}
+                  onClick={() => { closeOptionMenu(); handleSelectAll(); }}
                   className="fixed right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   style={{ bottom: '336px' }}
                   title="Pilih Semua"
@@ -2898,10 +3170,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <Scan size={20} />
               </button>
 
-              {/* Posisi 4 (Tepat di atas Potong): Tempel (Paste) */}
+              {/* Posisi 4: Tempel (Paste) */}
               <button
                   data-option-btn
-                  onClick={handlePasteFromClipboard}
+                  onClick={() => { closeOptionMenu(); void handlePasteFromClipboard(); }}
                   className="fixed right-4 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   style={{ bottom: '272px' }}
                   title="Tempel (Paste)"
@@ -2909,50 +3181,47 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <Clipboard size={20} />
               </button>
 
-              {/* Posisi 3 (Slot awal Tombol Titik Tiga): Potong */}
+              {/* Posisi 3: Potong seluruh catatan */}
               <button
                   data-option-btn
-                  onClick={handleCutContent}
+                  onClick={() => { closeOptionMenu(); void handleCutContent(); }}
                   className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  title="Potong (Cut)"
+                  title="Potong Seluruh Catatan"
               >
                   <Scissors size={20} />
               </button>
 
-              {/* Posisi 2 (Slot Tombol Salin): Hapus Semua */}
+              {/* Posisi 2: Hapus seluruh catatan */}
               <button
                   data-option-btn
-                  onClick={handleDeleteAllContent}
+                  onClick={() => { closeOptionMenu(); void handleDeleteAllContent(); }}
                   className="fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-700 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  title="Hapus Semua Isi"
+                  title="Hapus Seluruh Isi"
               >
                   <Trash2 size={20} />
               </button>
 
-              {/* Posisi 1 (Slot Tombol Kembali): Titik Tiga (penutup manual) */}
-              <button
-                  data-option-toggle
-                  onClick={closeOptionMenu}
-                  className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  title="Tutup Opsi"
-              >
-                  <MoreVertical size={20} />
-              </button>
+              {/* Posisi 1: Salin seluruh catatan (hanya bila ada tujuan arsip) */}
+              {punyaTujuanArsip && (
+                <button
+                    data-option-btn
+                    onClick={() => { closeOptionMenu(); void handleCopyContent(); }}
+                    className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                    title="Salin Seluruh Catatan"
+                >
+                    <Copy size={20} />
+                </button>
+              )}
             </>
         )}
 
-        {/* --- TIGA TOMBOL UTAMA (VERTIKAL) --- */}
-        {/* Opacity default 25%; menjadi solid (100%) selama 3 detik saat tombol utama diklik. */}
-        {/* Saat mode opsi aktif, tombol utama Salin & Kembali ditimpa & dinonaktifkan. */}
+        {/* --- TOMBOL UTAMA MODE AWAL --- */}
         {!showOptionMenu && (
             <> 
-              {/* Posisi Atas: Tombol Titik Tiga */}
+              {/* Posisi Atas: Titik Tiga (buka mode lanjutan) */}
               <button
                   data-main-btn
                   onClick={(e) => {
-                      // Penting: hentikan propagasi agar klik yang sama TIDAK sampai ke
-                      // listener document (handleOutsideClick) yang baru dipasang saat
-                      // React mem-flush state secara sinkron, sehingga menu tidak langsung tertutup.
                       e.stopPropagation();
                       e.preventDefault();
                       activateMainBtnSolid();
@@ -2964,20 +3233,34 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <MoreVertical size={20} />
               </button>
 
-              {/* Posisi Tengah: Tombol Salin */}
-              <button
-                  data-main-btn
-                  onClick={() => {
-                      activateMainBtnSolid();
-                      handleCopyContent();
-                  }}
-                  className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
-                  title="Salin (Copy)"
-              >
-                  <Copy size={20} />
-              </button>
+              {/* Posisi Tengah: Copy (tanpa tujuan arsip) atau Cut (dengan tujuan arsip) */}
+              {punyaTujuanArsip ? (
+                <button
+                    data-main-btn
+                    onClick={() => {
+                        activateMainBtnSolid();
+                        void handleCutContent();
+                    }}
+                    className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                    title="Potong Seluruh Catatan (arsipkan lalu kosongkan)"
+                >
+                    <Scissors size={20} />
+                </button>
+              ) : (
+                <button
+                    data-main-btn
+                    onClick={() => {
+                        activateMainBtnSolid();
+                        void handleCopyContent();
+                    }}
+                    className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                    title="Salin Seluruh Catatan"
+                >
+                    <Copy size={20} />
+                </button>
+              )}
 
-              {/* Posisi Bawah: Tombol Kembali */}
+              {/* Posisi Bawah: Kembali */}
               <button
                   data-main-btn
                   onClick={() => {
