@@ -441,9 +441,22 @@ export default function App() {
      } catch { return 1500; }
   });
 
+  const [isDebugEnabled, setIsDebugEnabled] = useState(() => {
+    try {
+      return localStorage.getItem('nexus_debug_enabled') === 'true';
+    } catch { return false; }
+  });
+
   useEffect(() => {
     localStorage.setItem('nexus_auto_sync', JSON.stringify(isAutoSync));
   }, [isAutoSync]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nexus_debug_enabled', String(isDebugEnabled));
+    } catch { /* localStorage tidak tersedia */ }
+    syncDebug.setAktif(isDebugEnabled);
+  }, [isDebugEnabled]);
 
   useEffect(() => {
     localStorage.setItem('nexus_sync_interval', syncInterval.toString());
@@ -2038,7 +2051,7 @@ export default function App() {
       </div>
 
       {/* [DEBUG] Panel juga tampil di layar login agar error auth terekam */}
-      <SyncDebugPanel />
+      {isDebugEnabled && <SyncDebugPanel />}
       </>
     );
   }
@@ -2147,6 +2160,8 @@ export default function App() {
                   onImportData={handleImportData}
                   onClearHistory={handleClearHistoryCache}
                   onUpdateEmail={handleUpdateEmail}
+                  isDebugEnabled={isDebugEnabled}
+                  onToggleDebug={setIsDebugEnabled}
                 />
             );
             
@@ -2493,7 +2508,7 @@ export default function App() {
       />
 
       {/* [DEBUG] Panel melayang: mencatat seluruh proses sinkronisasi & tombol salin laporan */}
-      <SyncDebugPanel />
+      {isDebugEnabled && <SyncDebugPanel />}
     </div>
   );
 }
