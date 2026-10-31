@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Cloud, User, Clock, Edit2, Check, X, HardDrive, RefreshCw } from 'lucide-react';
+import { LogOut, Cloud, User, Clock, Edit2, Check, X, HardDrive, RefreshCw, Bug } from 'lucide-react';
 import BackupManager from './BackupManager'; // <--- Tambahkan ini
 import { Note, Folder } from '../types';     // <--- Tambahkan ini
 import { getStorageStats, formatBytes, StorageStats } from '../utils/storageStats';
@@ -20,6 +20,8 @@ interface SettingsViewProps {
   onClearHistory: (halfOnly: boolean) => void;
   // Fungsi baru untuk ganti email
   onUpdateEmail?: (newEmail: string) => Promise<void>; 
+  isDebugEnabled: boolean;
+  onToggleDebug: (val: boolean) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -35,7 +37,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   folders,      // Baru
   onImportData, // Baru
   onClearHistory,
-  onUpdateEmail
+  onUpdateEmail,
+  isDebugEnabled,
+  onToggleDebug
 }) => {
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [newEmail, setNewEmail] = useState(userEmail || '');
@@ -185,6 +189,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <span className="font-mono text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">ms</span>
                 </div>
             </div>
+        </div>
+      </section>
+
+      {/* Diagnostics Section */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Diagnostics</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Bug size={20} className="text-gray-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Tampilkan Debug Sinkronisasi</p>
+                <p className="text-xs text-gray-500">Panel diagnostik dan pencatatan sinkronisasi</p>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isDebugEnabled}
+                onChange={(e) => onToggleDebug(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
         </div>
       </section>
 

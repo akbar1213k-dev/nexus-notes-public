@@ -449,6 +449,24 @@ export default function App() {
     localStorage.setItem('nexus_sync_interval', syncInterval.toString());
   }, [syncInterval]);
 
+  const [isDebugEnabled, setIsDebugEnabled] = useState(() => {
+    try {
+      return localStorage.getItem('nexus_debug_enabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    // Diagnostik hanya aktif saat diminta lewat Settings; default mati.
+    syncDebug.setAktif(isDebugEnabled);
+    try {
+      localStorage.setItem('nexus_debug_enabled', String(isDebugEnabled));
+    } catch {
+      /* localStorage tidak tersedia */
+    }
+  }, [isDebugEnabled]);
+
   const [isReady, setIsReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error' | 'unsaved'>('idle');
   // Status pemuatan isi chunk PER CATATAN — kunci = noteId, tanpa entri = tidak ada
@@ -2038,7 +2056,7 @@ export default function App() {
       </div>
 
       {/* [DEBUG] Panel juga tampil di layar login agar error auth terekam */}
-      <SyncDebugPanel />
+      {isDebugEnabled && <SyncDebugPanel />}
       </>
     );
   }
@@ -2147,6 +2165,8 @@ export default function App() {
                   onImportData={handleImportData}
                   onClearHistory={handleClearHistoryCache}
                   onUpdateEmail={handleUpdateEmail}
+                  isDebugEnabled={isDebugEnabled}
+                  onToggleDebug={setIsDebugEnabled}
                 />
             );
             
@@ -2492,8 +2512,8 @@ export default function App() {
         onOpenFull={() => previewNoteId && navigateTo('EDITOR', previewNoteId)} 
       />
 
-      {/* [DEBUG] Panel melayang: mencatat seluruh proses sinkronisasi & tombol salin laporan */}
-      <SyncDebugPanel />
+      {/* [DEBUG] Panel melayang: hanya aktif bila diaktifkan dari Settings */}
+      {isDebugEnabled && <SyncDebugPanel />}
     </div>
   );
 }

@@ -64,6 +64,23 @@ class PencatatSinkronisasi {
   private urutan = 0;
   private jumlahError = 0;
   private statistik: StatistikSinkron | null = null;
+  // Default mati: pengumpulan diagnostik diaktifkan lewat Settings.
+  private aktif = false;
+
+  setAktif(aktif: boolean): void {
+    this.aktif = aktif;
+    if (!aktif) {
+      // Buang data diagnostik saat dimatikan agar tidak menahan memori lama.
+      this.entri = [];
+      this.snapshot = [];
+      this.jumlahError = 0;
+      this.statistik = null;
+    }
+  }
+
+  apakahAktif(): boolean {
+    return this.aktif;
+  }
 
   catat(
     level: SyncLevel,
@@ -72,6 +89,8 @@ class PencatatSinkronisasi {
     pesan: string,
     detail?: unknown
   ): void {
+    if (!this.aktif) return;
+
     const baru: SyncLogEntry = {
       id: ++this.urutan,
       waktu: Date.now(),
@@ -118,6 +137,7 @@ class PencatatSinkronisasi {
   }
 
   error(kategori: SyncKategori, aksi: string, pesan: string, detail?: unknown): void {
+    if (!this.aktif) return;
     this.catat('error', kategori, aksi, pesan, detail);
     console.error(`[SYNC][${kategori.toUpperCase()}][${aksi}] ${pesan}`, detail ?? '');
   }
@@ -132,11 +152,13 @@ class PencatatSinkronisasi {
 
   // --- API statistik lokal vs Firestore (dipakai panel debug) ---
   catatStatistik(s: StatistikSinkron): void {
+    if (!this.aktif) return;
     this.statistik = s;
     this.pendengar.forEach((fn) => fn());
   }
 
   resetStatistik(): void {
+    if (!this.aktif) return;
     this.statistik = null;
     this.pendengar.forEach((fn) => fn());
   }

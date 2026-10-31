@@ -10,7 +10,7 @@ import {
   Indent, Outdent, MoreHorizontal,
   Plus, Trash2, Home, Network, Copy, Check,
   Scissors, Scan, MoreVertical,
-  Undo, Redo, Sliders, Code, ArrowLeft,
+  Undo, Redo, Sliders, Code,
   Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download,
   Upload, Replace, ReplaceAll, Clipboard, AlertTriangle
 } from 'lucide-react';
@@ -196,6 +196,86 @@ const htmlKeTeksPolos = (html: string): string => {
   return hasil.replace(/^\n+/, '').replace(/\n+$/, '');
 };
 
+// --- PEMETAAN SELEKSI VISUAL KE MODE KODE HTML ---
+const PRIORITAS_BLOK_KODE = [
+  '.todo-item', 'li', 'p', 'h1,h2,h3,h4,h5,h6',
+  'blockquote', 'pre', 'td,th', 'div'
+];
+
+const cariBlokKode = (node: Node, root: HTMLElement): HTMLElement | null => {
+  let cur: HTMLElement | null = node.nodeType === Node.ELEMENT_NODE
+    ? node as HTMLElement
+    : node.parentElement;
+  let terbaik: HTMLElement | null = null;
+  let prioritasTerbaik = PRIORITAS_BLOK_KODE.length;
+
+  while (cur && cur !== root) {
+    for (let i = 0; i < PRIORITAS_BLOK_KODE.length; i++) {
+      if (cur.matches(PRIORITAS_BLOK_KODE[i])) {
+        if (i < prioritasTerbaik) {
+          terbaik = cur;
+          prioritasTerbaik = i;
+        }
+        break;
+      }
+    }
+    if (prioritasTerbaik === 0) break;
+    cur = cur.parentElement;
+  }
+
+  return terbaik;
+};
+
+// Menggunakan sentinel komentar pada clone DOM agar offset tepat, termasuk
+// saat ada beberapa elemen dengan HTML identik.
+const petakanRangeKeKode = (
+  range: Range,
+  root: HTMLElement
+): { codeText: string; start: number; end: number } | null => {
+  let blokAwal = cariBlokKode(range.startContainer, root);
+  let blokAkhir = cariBlokKode(range.endContainer, root);
+  if (!blokAwal || !blokAkhir) return null;
+
+  // Jika salah satu blok membungkus yang lain, pilih blok terluar.
+  if (blokAwal.contains(blokAkhir)) {
+    blokAkhir = blokAwal;
+  } else if (blokAkhir.contains(blokAwal)) {
+    blokAwal = blokAkhir;
+  }
+
+  const jalurAwal = jalurNodeDalam(blokAwal, root);
+  const jalurAkhir = jalurNodeDalam(blokAkhir, root);
+  if (!jalurAwal || !jalurAkhir) return null;
+
+  const salinan = root.cloneNode(true) as HTMLElement;
+  const awalClone = nodeDariJalur(salinan, jalurAwal) as HTMLElement | null;
+  const akhirClone = nodeDariJalur(salinan, jalurAkhir) as HTMLElement | null;
+  if (!awalClone || !akhirClone || !awalClone.parentNode || !akhirClone.parentNode) {
+    return null;
+  }
+
+  const nonce = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const namaAwal = `NEXUS_S_${nonce}`;
+  const namaAkhir = `NEXUS_E_${nonce}`;
+  const htmlAwal = `<!--${namaAwal}-->`;
+  const htmlAkhir = `<!--${namaAkhir}-->`;
+
+  awalClone.parentNode.insertBefore(document.createComment(namaAwal), awalClone);
+  akhirClone.parentNode.insertBefore(document.createComment(namaAkhir), akhirClone.nextSibling);
+
+  const bertanda = salinan.innerHTML;
+  const posAwal = bertanda.indexOf(htmlAwal);
+  const posAkhir = bertanda.indexOf(htmlAkhir);
+  if (posAwal < 0 || posAkhir < 0) return null;
+
+  const codeText = bertanda.replace(htmlAwal, '').replace(htmlAkhir, '');
+  const start = posAwal;
+  const end = posAkhir - htmlAwal.length;
+  if (start < 0 || end < start || end > codeText.length) return null;
+
+  return { codeText, start, end };
+};
+
 const wordsFrom = (text: string): string[] => text.split(/\s+/).filter(Boolean);
 
 // Bandingkan dua teks bersih -> kata yang ditambah / dihapus
@@ -276,6 +356,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const mainBtnOpacityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // --- STATE BARU: Mode Kode (HTML) ---
   const [isCodeView, setIsCodeView] = useState(false);
+  // Draft lokal mode kode: beralih mode tidak boleh menulis ulang note.content.
+  const [codeDraft, setCodeDraft] = useState<string | null>(null);
+  const pendingCodeSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const codeRemoteBaseRef = useRef<string>('');
   
   // --- STATE BARU: Mode Live Preview (Browser Mini) ---
   const [isPreviewMode, setIsPreviewMode] = useState(() => {
@@ -1300,13 +1384,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (changed) applyHistory(next, historyIndexRef.current);
   }, [showHistoryModal]);
 
-  // --- ARSIP: tangkap seleksi + hitung konten sumber tanpa memutasi DOM live ---
-  // DOM tidak diubah sama sekali: konten sumber dihitung dari clone editor,
-  // sehingga seleksi, kursor, dan format asli tetap utuh. Jika gagal, caller
-  // wajib membatalkan operasi arsip.
-  const captureArchiveSelection = (): { selectedHtml: string; sourceContent: string } | null => {
+  // Ambil range seleksi editor: utamakan seleksi live, lalu seleksi terakhir
+  // yang masih valid saat fokus berpindah ke toolbar.
+  const ambilRangeEditor = (): Range | null => {
     const el = editorRef.current;
-    if (!el || note.id === 'safe-temp') return null;
+    if (!el) return null;
 
     const selection = window.getSelection();
     let range: Range | null = null;
@@ -1318,7 +1400,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       }
     }
 
-    // Fallback: seleksi terakhir yang masih valid saat fokus berpindah ke menu.
     const tersimpan = lastSelectionRef.current;
     if (!range && tersimpan && !tersimpan.collapsed
         && tersimpan.startContainer.isConnected
@@ -1327,7 +1408,19 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       range = tersimpan.cloneRange();
     }
 
-    if (!range || range.collapsed) return null;
+    return range && !range.collapsed ? range : null;
+  };
+
+  // --- ARSIP: tangkap seleksi + hitung konten sumber tanpa memutasi DOM live ---
+  // DOM tidak diubah sama sekali: konten sumber dihitung dari clone editor,
+  // sehingga seleksi, kursor, dan format asli tetap utuh. Jika gagal, caller
+  // wajib membatalkan operasi arsip.
+  const captureArchiveSelection = (): { selectedHtml: string; sourceContent: string } | null => {
+    const el = editorRef.current;
+    if (!el || note.id === 'safe-temp') return null;
+
+    const range = ambilRangeEditor();
+    if (!range) return null;
 
     const startPath = jalurNodeDalam(range.startContainer, el);
     const endPath = jalurNodeDalam(range.endContainer, el);
@@ -1358,6 +1451,67 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
     return { selectedHtml, sourceContent };
   };
+
+  // --- MODE KODE: draft lokal + seleksi hasil pemetaan ---
+  const toggleModeKode = () => {
+    if (isCodeView) {
+      setCodeDraft(null);
+      pendingCodeSelectionRef.current = null;
+      codeRemoteBaseRef.current = '';
+      setIsCodeView(false);
+    } else {
+      const el = editorRef.current;
+      const html = el ? el.innerHTML : (note.content || '');
+      const range = el ? ambilRangeEditor() : null;
+      let draft = html;
+      let seleksiKode: { start: number; end: number } | null = null;
+
+      if (el && range) {
+        const peta = petakanRangeKeKode(range, el);
+        if (peta) {
+          draft = peta.codeText;
+          seleksiKode = { start: peta.start, end: peta.end };
+        }
+      }
+
+      codeRemoteBaseRef.current = note.content || '';
+      setCodeDraft(draft);
+      pendingCodeSelectionRef.current = seleksiKode;
+      setIsCodeView(true);
+      setIsPreviewMode(false);
+    }
+
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowReplace(false);
+    setReplaceQuery('');
+  };
+
+  // Ikuti perubahan note (termasuk update dari perangkat lain) saat mode kode.
+  // Draft hanya diganti bila note.content benar-benar berubah dari baseline.
+  useEffect(() => {
+    if (!isCodeView) return;
+    if ((note.content || '') === codeRemoteBaseRef.current) return;
+    codeRemoteBaseRef.current = note.content || '';
+    setCodeDraft(note.content || '');
+    pendingCodeSelectionRef.current = null;
+  }, [note.content, isCodeView]);
+
+  // Terapkan seleksi setelah textarea mode kode benar-benar ter-render.
+  useLayoutEffect(() => {
+    if (!isCodeView) return;
+    const target = pendingCodeSelectionRef.current;
+    const ta = codeEditorRef.current;
+    if (!target || !ta) return;
+
+    ta.focus();
+    ta.setSelectionRange(target.start, target.end);
+
+    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+    const baris = ta.value.slice(0, target.start).split('\n').length;
+    ta.scrollTop = Math.max(0, (baris - 1) * lineHeight - ta.clientHeight / 2);
+    pendingCodeSelectionRef.current = null;
+  }, [isCodeView, codeDraft]);
 
   // --- CLIPBOARD: Ctrl+C / menu konteks Copy (seleksi saja) ---
   // Menulis HTML seleksi + teks polos hasil serialisasi sendiri agar tidak
@@ -3027,9 +3181,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 <textarea
                     ref={codeEditorRef} 
                     className="w-full flex-1 min-h-[75vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y custom-scrollbar"
-                    value={note.content}
+                    value={codeDraft ?? note.content ?? ''}
                     onChange={(e) => {
                         const newCodeContent = e.target.value;
+                        setCodeDraft(newCodeContent);
                         onUpdate({ ...note, content: newCodeContent });
                         recordHistory(newCodeContent); 
                     }}
@@ -3159,39 +3314,17 @@ const handleEditorClick = (e: React.MouseEvent) => {
       {/* --- Tumpukan Tombol Opsi (Mode Lanjutan) --- */}
         {showOptionMenu && (
             <>
-              {/* Posisi 5 (Paling Atas): Pilih Semua */}
-              <button
-                  data-option-btn
-                  onClick={() => { closeOptionMenu(); handleSelectAll(); }}
-                  className="fixed right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  style={{ bottom: '336px' }}
-                  title="Pilih Semua"
-              >
-                  <Scan size={20} />
-              </button>
-
-              {/* Posisi 4: Tempel (Paste) */}
+              {/* Atas: Tempel (Paste) */}
               <button
                   data-option-btn
                   onClick={() => { closeOptionMenu(); void handlePasteFromClipboard(); }}
-                  className="fixed right-4 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  style={{ bottom: '272px' }}
+                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
                   title="Tempel (Paste)"
               >
                   <Clipboard size={20} />
               </button>
 
-              {/* Posisi 3: Potong seluruh catatan */}
-              <button
-                  data-option-btn
-                  onClick={() => { closeOptionMenu(); void handleCutContent(); }}
-                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  title="Potong Seluruh Catatan"
-              >
-                  <Scissors size={20} />
-              </button>
-
-              {/* Posisi 2: Hapus seluruh catatan */}
+              {/* Tengah: Hapus seluruh catatan */}
               <button
                   data-option-btn
                   onClick={() => { closeOptionMenu(); void handleDeleteAllContent(); }}
@@ -3201,24 +3334,48 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <Trash2 size={20} />
               </button>
 
-              {/* Posisi 1: Salin seluruh catatan (hanya bila ada tujuan arsip) */}
-              {punyaTujuanArsip && (
-                <button
-                    data-option-btn
-                    onClick={() => { closeOptionMenu(); void handleCopyContent(); }}
-                    className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                    title="Salin Seluruh Catatan"
-                >
-                    <Copy size={20} />
-                </button>
-              )}
+              {/* Bawah: Pilih Semua */}
+              <button
+                  data-option-btn
+                  onClick={() => { closeOptionMenu(); handleSelectAll(); }}
+                  className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  title="Pilih Semua"
+              >
+                  <Scan size={20} />
+              </button>
             </>
         )}
 
-        {/* --- TOMBOL UTAMA MODE AWAL --- */}
+        {/* --- TOMBOL UTAMA MODE AWAL (SAMA UNTUK SEMUA CATATAN) --- */}
         {!showOptionMenu && (
             <> 
-              {/* Posisi Atas: Titik Tiga (buka mode lanjutan) */}
+              {/* Atas: Salin seluruh catatan */}
+              <button
+                  data-main-btn
+                  onClick={() => {
+                      activateMainBtnSolid();
+                      void handleCopyContent();
+                  }}
+                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  title="Salin Seluruh Catatan"
+              >
+                  <Copy size={20} />
+              </button>
+
+              {/* Tengah: Potong seluruh catatan */}
+              <button
+                  data-main-btn
+                  onClick={() => {
+                      activateMainBtnSolid();
+                      void handleCutContent();
+                  }}
+                  className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  title="Potong Seluruh Catatan"
+              >
+                  <Scissors size={20} />
+              </button>
+
+              {/* Bawah: Titik Tiga (buka mode lanjutan) */}
               <button
                   data-main-btn
                   onClick={(e) => {
@@ -3227,50 +3384,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                       activateMainBtnSolid();
                       setShowOptionMenu(true);
                   }}
-                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
                   title="Alat Lainnya"
               >
                   <MoreVertical size={20} />
-              </button>
-
-              {/* Posisi Tengah: Copy (tanpa tujuan arsip) atau Cut (dengan tujuan arsip) */}
-              {punyaTujuanArsip ? (
-                <button
-                    data-main-btn
-                    onClick={() => {
-                        activateMainBtnSolid();
-                        void handleCutContent();
-                    }}
-                    className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
-                    title="Potong Seluruh Catatan (arsipkan lalu kosongkan)"
-                >
-                    <Scissors size={20} />
-                </button>
-              ) : (
-                <button
-                    data-main-btn
-                    onClick={() => {
-                        activateMainBtnSolid();
-                        void handleCopyContent();
-                    }}
-                    className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
-                    title="Salin Seluruh Catatan"
-                >
-                    <Copy size={20} />
-                </button>
-              )}
-
-              {/* Posisi Bawah: Kembali */}
-              <button
-                  data-main-btn
-                  onClick={() => {
-                      activateMainBtnSolid();
-                      onGoHome();
-                  }}
-                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
-                  title="Kembali ke Sebelumnya"
-              >
-                  <ArrowLeft size={20} />
               </button>
             </>
         )}
@@ -3377,21 +3494,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     onChange={handleFileSelected}
                 />
 
-                <button onMouseDown={preventFocusLoss} onClick={() => {
-                    if (!isCodeView && !isPreviewMode) {
-                        // Jalankan pembersih dan perapi sebelum masuk ke mode kode
-                        const cleanedHTML = formatAndCleanHTML(note.content);
-                        onUpdate({ ...note, content: cleanedHTML });
-                    }
-                    setIsCodeView(!isCodeView);
-                    setIsPreviewMode(false); // Pastikan preview mati saat beralih mode kode
-                    
-                    // --- RESET PENCARIAN SAAT GANTI MODE ---
-                    setSearchQuery('');
-                    setSearchResults([]);
-                    setShowReplace(false);
-                    setReplaceQuery('');
-                }} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView && !isPreviewMode ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
+                <button onMouseDown={preventFocusLoss} onClick={toggleModeKode} className={`p-2 rounded min-w-[40px] flex justify-center ${isCodeView && !isPreviewMode ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Tampilkan Kode HTML">
                     <Code size={20} />
                 </button>
 
