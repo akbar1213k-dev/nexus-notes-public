@@ -1456,14 +1456,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- MODE KODE: draft lokal + seleksi hasil pemetaan ---
   const bolehKeluarModeKode = (): boolean => {
     if (!isCodeView) return true;
-    if (!codeDraftDirtyRef.current) return true;
-    if (codeDraft === null || (note.content || '') === codeDraft) return true;
+    if (!codeDraftDirtyRef.current || codeDraft === null) return true;
 
-    const simpan = window.confirm(
-      'Draf HTML lokal berbeda dari versi terbaru dari server. ' +
-      'OK = simpan draf lokal lalu keluar. Batal = tetap di mode kode.'
-    );
-    if (!simpan) return false;
+    const remoteBerubah =
+      (note.content || '') !== codeRemoteBaseRef.current;
+
+    if (remoteBerubah) {
+      const simpan = window.confirm(
+        'Versi catatan berubah dari server saat Anda mengedit HTML. ' +
+        'OK = simpan draf lokal. Batal = tetap di mode kode.'
+      );
+
+      if (!simpan) return false;
+    }
+
     onUpdate({ ...note, content: codeDraft });
     return true;
   };
@@ -1478,13 +1484,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       setIsCodeView(false);
     } else {
       const el = editorRef.current;
-      const html = el ? el.innerHTML : '';
       const range = el ? ambilRangeEditor() : null;
-      const domKosong = html.trim() === '';
-      let draft = domKosong ? (note.content || '') : html;
+      let draft = note.content || '';
       let seleksiKode: { start: number; end: number } | null = null;
 
-      if (el && range && !domKosong) {
+      if (el && range) {
         const peta = petakanRangeKeKode(range, el);
         if (peta) {
           draft = peta.codeText;
@@ -1510,11 +1514,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // Draft yang sudah diubah pengguna tidak boleh ditimpa diam-diam.
   useEffect(() => {
     if (!isCodeView) return;
-    const remote = note.content || '';
-    if (remote === codeRemoteBaseRef.current) return;
-    codeRemoteBaseRef.current = remote;
 
-    if (codeDraftDirtyRef.current) return; // lindungi draf lokal
+    const remote = note.content || '';
+
+    if (remote === codeRemoteBaseRef.current) return;
+
+    // Jika draft lokal sudah berubah, pertahankan baseline lama
+    // agar konflik remote tetap bisa dideteksi saat keluar mode.
+    if (codeDraftDirtyRef.current) return;
+
+    codeRemoteBaseRef.current = remote;
     setCodeDraft(remote);
     pendingCodeSelectionRef.current = null;
   }, [note.content, isCodeView]);
@@ -3222,7 +3231,6 @@ const handleEditorClick = (e: React.MouseEvent) => {
                         const newCodeContent = e.target.value;
                         codeDraftDirtyRef.current = true;
                         setCodeDraft(newCodeContent);
-                        onUpdate({ ...note, content: newCodeContent });
                         recordHistory(newCodeContent);
                     }}
                     placeholder="Tulis kode HTML lengkap (termasuk <script> dan <style>) di sini..."
