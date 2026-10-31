@@ -149,26 +149,6 @@ const nodeDariJalur = (root: Node, jalur: number[]): Node | null => {
   return cur;
 };
 
-// Blok HTML yang dianggap "elemen lengkap" saat memetakan seleksi visual ke kode.
-const PILIHAN_BLOK_KODE = '.todo-item, li, p, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, div';
-
-const cariBlokTerdekat = (node: Node, root: HTMLElement): HTMLElement | null => {
-  if (node === root) return null;
-  let el: HTMLElement | null = node.nodeType === Node.ELEMENT_NODE
-    ? (node as HTMLElement)
-    : node.parentElement;
-
-  while (el && el !== root) {
-    if (el.matches(PILIHAN_BLOK_KODE)) return el;
-    el = el.parentElement;
-  }
-
-  // Fallback: child teratas dari editor yang memuat node.
-  let child: Node | null = node;
-  while (child && child.parentNode !== root) child = child.parentNode;
-  return child instanceof HTMLElement ? child : null;
-};
-
 // Serialisasi teks polos yang menghasilkan SATU newline per batas blok.
 // innerText browser dapat memberi dua newline untuk <p>, sehingga hasil tempel
 // terlihat berjarak ganda. Fungsi ini menjaga baris kosong yang memang ada
@@ -335,9 +315,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const codeEditorRef = useRef<HTMLTextAreaElement>(null); // Referensi untuk textarea mode HTML
   const iframeRef = useRef<HTMLIFrameElement>(null); // Referensi pengendali untuk browser mini (Iframe)
   const fileInputRef = useRef<HTMLInputElement>(null); // Referensi input file untuk impor
-  // Draft kode lokal: beralih ke mode HTML tidak boleh langsung menyimpan note.
-  const [codeDraft, setCodeDraft] = useState<string | null>(null);
-  const pendingCodeSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   // --- STATE BARU: MESIN WAKTU (HISTORY MANAGER 24 JAM, DIFF-BASED + INDEXEDDB) ---
   const [history, setHistory] = useState<HistEntry[]>([]);
@@ -1382,101 +1359,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     return { selectedHtml, sourceContent };
   };
 
-  // --- MODE KODE: draft HTML dari DOM live + seleksi elemen lengkap ---
-  // Tidak menulis ke note; hanya menghasilkan teks untuk textarea dan offset
-  // seleksi. Marker komentar sementara dipasang pada clone, bukan DOM asli.
-  const bangunDraftKode = (): { codeText: string; selection: { start: number; end: number } | null } => {
-    const el = editorRef.current;
-    if (!el) return { codeText: note.content, selection: null };
-
-    const salinan = el.cloneNode(true) as HTMLElement;
-    const fallback: { codeText: string; selection: { start: number; end: number } | null } = {
-      codeText: salinan.innerHTML,
-      selection: null
-    };
-
-    let range: Range | null = null;
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-      const live = sel.getRangeAt(0);
-      if (el.contains(live.startContainer) && el.contains(live.endContainer)) {
-        range = live.cloneRange();
-      }
-    }
-    const tersimpan = lastSelectionRef.current;
-    if (!range && tersimpan && !tersimpan.collapsed && tersimpan.startContainer.isConnected
-        && el.contains(tersimpan.startContainer) && el.contains(tersimpan.endContainer)) {
-      range = tersimpan.cloneRange();
-    }
-    if (!range) return fallback;
-
-    let awal = cariBlokTerdekat(range.startContainer, el);
-    let akhir = cariBlokTerdekat(range.endContainer, el);
-    if (!awal || !akhir) return fallback;
-
-    // Jika salah satu blok memuat blok lain, pilih blok terluar.
-    if (awal.contains(akhir)) akhir = awal;
-    else if (akhir.contains(awal)) awal = akhir;
-
-    if (awal.compareDocumentPosition(akhir) & Node.DOCUMENT_POSITION_PRECEDING) {
-      const tukar = awal;
-      awal = akhir;
-      akhir = tukar;
-    }
-
-    const pathAwal = jalurNodeDalam(awal, el);
-    const pathAkhir = jalurNodeDalam(akhir, el);
-    if (!pathAwal || !pathAkhir) return fallback;
-
-    const awalClone = nodeDariJalur(salinan, pathAwal);
-    const akhirClone = nodeDariJalur(salinan, pathAkhir);
-    if (!(awalClone instanceof HTMLElement) || !(akhirClone instanceof HTMLElement)) return fallback;
-    if (!awalClone.parentNode || !akhirClone.parentNode) return fallback;
-
-    const idAwal = `nexus-sel-awal-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const idAkhir = `nexus-sel-akhir-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const tagAwal = `<!--${idAwal}-->`;
-    const tagAkhir = `<!--${idAkhir}-->`;
-
-    awalClone.parentNode.insertBefore(document.createComment(idAwal), awalClone);
-    akhirClone.parentNode.insertBefore(document.createComment(idAkhir), akhirClone.nextSibling);
-
-    const ditandai = salinan.innerHTML;
-    const idxAwal = ditandai.indexOf(tagAwal);
-    const idxAkhir = ditandai.indexOf(tagAkhir);
-    if (idxAwal < 0 || idxAkhir < 0 || idxAkhir < idxAwal) return fallback;
-
-    const codeText = ditandai.split(tagAwal).join('').split(tagAkhir).join('');
-    return {
-      codeText,
-      selection: {
-        start: idxAwal,
-        end: idxAkhir - tagAwal.length
-      }
-    };
-  };
-
-  // Terapkan seleksi kode setelah textarea benar-benar dirender.
-  useLayoutEffect(() => {
-    if (!isCodeView) return;
-    const ta = codeEditorRef.current;
-    const pending = pendingCodeSelectionRef.current;
-    if (!ta) return;
-    pendingCodeSelectionRef.current = null;
-    if (!pending) return;
-
-    const max = ta.value.length;
-    const start = Math.max(0, Math.min(pending.start, max));
-    const end = Math.max(start, Math.min(pending.end, max));
-
-    ta.focus();
-    ta.setSelectionRange(start, end);
-
-    const lineHeight = parseFloat(window.getComputedStyle(ta).lineHeight || '20') || 20;
-    const line = ta.value.slice(0, start).split('\n').length - 1;
-    ta.scrollTop = Math.max(0, line * lineHeight - ta.clientHeight / 2);
-  }, [isCodeView, codeDraft]);
-
   // --- CLIPBOARD: Ctrl+C / menu konteks Copy (seleksi saja) ---
   // Menulis HTML seleksi + teks polos hasil serialisasi sendiri agar tidak
   // muncul baris kosong ganda dari innerText browser.
@@ -1621,17 +1503,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       setShowOptionMenu(false);
   }, [note.id, isCodeView, isPreviewMode]);
 
-  // Ganti catatan: buang draft kode agar tidak menampilkan isi catatan lama.
-  useEffect(() => {
-      setCodeDraft(null);
-      pendingCodeSelectionRef.current = null;
-      setIsCodeView(false);
-      // Pastikan note baru tidak mewarisi penanda sinkronisasi/seleksi note lama.
-      lastLocalHTML.current = '';
-      lastSelectionRef.current = null;
-      savedSelection.current = null;
-  }, [note.id]);
-
   // Mode kode/preview tidak memiliki seleksi editor visual.
   useEffect(() => {
       if (isCodeView || isPreviewMode) onSelectionAvailabilityChange?.(false);
@@ -1662,24 +1533,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   // Sync content awal perubahan
   useEffect(() => {
-    const el = editorRef.current;
-    if (!el) return;
-
-    const domHtml = el.innerHTML;
-
-    // Fast path HANYA jika DOM yang benar-benar terpasang sudah berisi konten
-    // yang sama. Tanpa cek DOM, DOM baru yang kosong (mis. setelah keluar dari
-    // mode kode) bisa dilewati karena lastLocalHTML masih sama dengan note.content.
-    if (lastLocalHTML.current === note.content && domHtml === note.content) {
+    // Jika konten sama dengan yang terakhir dikirim oleh editor lokal (saat typing),
+    // JANGAN rewrite DOM agar tidak mengganggu kursor / menyebabkan flicker.
+    if (editorRef.current && lastLocalHTML.current === note.content) {
       addCheckboxListeners();
       return;
     }
-
-    // Jangan rewrite DOM bila isinya sudah sesuai; ini menjaga kursor saat mengetik.
-    if (domHtml !== note.content) {
-      const isFocused = document.activeElement === el;
-
-      el.innerHTML = note.content;
+    // Cek apakah konten berbeda
+    if (editorRef.current && editorRef.current.innerHTML !== note.content) {
+      
+      // --- PERUBAHAN DI SINI ---
+      // Kita HAPUS pengecekan 'document.activeElement'
+      // Agar perubahan dari HP langsung muncul di Laptop walau sedang dibuka
+      const isFocused = document.activeElement === editorRef.current;
+      
+      editorRef.current.innerHTML = note.content;
 
       // Opsional: Jika sedang fokus, kembalikan kursor ke akhir teks
       // agar tidak hilang total saat update masuk
@@ -1687,7 +1555,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           try {
             const range = document.createRange();
             const sel = window.getSelection();
-            range.selectNodeContents(el);
+            range.selectNodeContents(editorRef.current);
             range.collapse(false); // Pindahkan kursor ke paling akhir
             sel?.removeAllRanges();
             sel?.addRange(range);
@@ -3155,15 +3023,15 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     />
                 </div>
             ) : isCodeView ? (
+                // PERBAIKAN: Tambahkan 'flex-1' dan 'min-h-[75vh]' pada textarea mode kode juga
                 <textarea
-                    ref={codeEditorRef}
+                    ref={codeEditorRef} 
                     className="w-full flex-1 min-h-[75vh] p-4 mt-2 font-mono text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg outline-none resize-y custom-scrollbar"
-                    value={codeDraft ?? note.content}
+                    value={note.content}
                     onChange={(e) => {
                         const newCodeContent = e.target.value;
-                        setCodeDraft(newCodeContent);
                         onUpdate({ ...note, content: newCodeContent });
-                        recordHistory(newCodeContent);
+                        recordHistory(newCodeContent); 
                     }}
                     placeholder="Tulis kode HTML lengkap (termasuk <script> dan <style>) di sini..."
                 />
@@ -3291,17 +3159,39 @@ const handleEditorClick = (e: React.MouseEvent) => {
       {/* --- Tumpukan Tombol Opsi (Mode Lanjutan) --- */}
         {showOptionMenu && (
             <>
-              {/* Posisi Atas: Tempel (Paste) */}
+              {/* Posisi 5 (Paling Atas): Pilih Semua */}
+              <button
+                  data-option-btn
+                  onClick={() => { closeOptionMenu(); handleSelectAll(); }}
+                  className="fixed right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  style={{ bottom: '336px' }}
+                  title="Pilih Semua"
+              >
+                  <Scan size={20} />
+              </button>
+
+              {/* Posisi 4: Tempel (Paste) */}
               <button
                   data-option-btn
                   onClick={() => { closeOptionMenu(); void handlePasteFromClipboard(); }}
-                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  className="fixed right-4 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  style={{ bottom: '272px' }}
                   title="Tempel (Paste)"
               >
                   <Clipboard size={20} />
               </button>
 
-              {/* Posisi Tengah: Hapus seluruh catatan */}
+              {/* Posisi 3: Potong seluruh catatan */}
+              <button
+                  data-option-btn
+                  onClick={() => { closeOptionMenu(); void handleCutContent(); }}
+                  className="fixed bottom-52 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                  title="Potong Seluruh Catatan"
+              >
+                  <Scissors size={20} />
+              </button>
+
+              {/* Posisi 2: Hapus seluruh catatan */}
               <button
                   data-option-btn
                   onClick={() => { closeOptionMenu(); void handleDeleteAllContent(); }}
@@ -3311,48 +3201,24 @@ const handleEditorClick = (e: React.MouseEvent) => {
                   <Trash2 size={20} />
               </button>
 
-              {/* Posisi Bawah: Pilih Semua */}
-              <button
-                  data-option-btn
-                  onClick={() => { closeOptionMenu(); handleSelectAll(); }}
-                  className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
-                  title="Pilih Semua"
-              >
-                  <Scan size={20} />
-              </button>
+              {/* Posisi 1: Salin seluruh catatan (hanya bila ada tujuan arsip) */}
+              {punyaTujuanArsip && (
+                <button
+                    data-option-btn
+                    onClick={() => { closeOptionMenu(); void handleCopyContent(); }}
+                    className="fixed bottom-20 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] opacity-100"
+                    title="Salin Seluruh Catatan"
+                >
+                    <Copy size={20} />
+                </button>
+              )}
             </>
         )}
 
         {/* --- TOMBOL UTAMA MODE AWAL --- */}
         {!showOptionMenu && (
             <> 
-              {/* Posisi Atas: Salin seluruh catatan */}
-              <button
-                  data-main-btn
-                  onClick={() => {
-                      activateMainBtnSolid();
-                      void handleCopyContent();
-                  }}
-                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
-                  title="Salin Seluruh Catatan"
-              >
-                  <Copy size={20} />
-              </button>
-
-              {/* Posisi Tengah: Potong seluruh catatan */}
-              <button
-                  data-main-btn
-                  onClick={() => {
-                      activateMainBtnSolid();
-                      void handleCutContent();
-                  }}
-                  className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
-                  title="Potong Seluruh Catatan"
-              >
-                  <Scissors size={20} />
-              </button>
-
-              {/* Posisi Bawah: Titik Tiga (buka mode lanjutan) */}
+              {/* Posisi Atas: Titik Tiga (buka mode lanjutan) */}
               <button
                   data-main-btn
                   onClick={(e) => {
@@ -3361,10 +3227,50 @@ const handleEditorClick = (e: React.MouseEvent) => {
                       activateMainBtnSolid();
                       setShowOptionMenu(true);
                   }}
-                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  className={`fixed bottom-52 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
                   title="Alat Lainnya"
               >
                   <MoreVertical size={20} />
+              </button>
+
+              {/* Posisi Tengah: Copy (tanpa tujuan arsip) atau Cut (dengan tujuan arsip) */}
+              {punyaTujuanArsip ? (
+                <button
+                    data-main-btn
+                    onClick={() => {
+                        activateMainBtnSolid();
+                        void handleCutContent();
+                    }}
+                    className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                    title="Potong Seluruh Catatan (arsipkan lalu kosongkan)"
+                >
+                    <Scissors size={20} />
+                </button>
+              ) : (
+                <button
+                    data-main-btn
+                    onClick={() => {
+                        activateMainBtnSolid();
+                        void handleCopyContent();
+                    }}
+                    className={`fixed bottom-36 right-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                    title="Salin Seluruh Catatan"
+                >
+                    <Copy size={20} />
+                </button>
+              )}
+
+              {/* Posisi Bawah: Kembali */}
+              <button
+                  data-main-btn
+                  onClick={() => {
+                      activateMainBtnSolid();
+                      onGoHome();
+                  }}
+                  className={`fixed bottom-20 right-4 w-12 h-12 rounded-full bg-gray-800 dark:bg-gray-700 text-white shadow-lg flex items-center justify-center z-[60] transition-opacity duration-300 ${mainBtnSolid ? 'opacity-100' : 'opacity-25'}`}
+                  title="Kembali ke Sebelumnya"
+              >
+                  <ArrowLeft size={20} />
               </button>
             </>
         )}
@@ -3472,14 +3378,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 />
 
                 <button onMouseDown={preventFocusLoss} onClick={() => {
-                    if (!isCodeView) {
-                        // Bangun draft dari DOM live; JANGAN menulis note saat beralih mode.
-                        const { codeText, selection } = bangunDraftKode();
-                        setCodeDraft(codeText);
-                        pendingCodeSelectionRef.current = selection;
-                    } else {
-                        setCodeDraft(null);
-                        pendingCodeSelectionRef.current = null;
+                    if (!isCodeView && !isPreviewMode) {
+                        // Jalankan pembersih dan perapi sebelum masuk ke mode kode
+                        const cleanedHTML = formatAndCleanHTML(note.content);
+                        onUpdate({ ...note, content: cleanedHTML });
                     }
                     setIsCodeView(!isCodeView);
                     setIsPreviewMode(false); // Pastikan preview mati saat beralih mode kode

@@ -64,26 +64,6 @@ class PencatatSinkronisasi {
   private urutan = 0;
   private jumlahError = 0;
   private statistik: StatistikSinkron | null = null;
-  // Diagnostik hanya aktif bila pengguna mengaktifkannya di Pengaturan.
-  private aktif: boolean = (() => {
-    try {
-      return typeof localStorage !== 'undefined'
-        && localStorage.getItem('nexus_debug_enabled') === 'true';
-    } catch {
-      return false;
-    }
-  })();
-
-  setAktif(nilai: boolean): void {
-    if (this.aktif === nilai) return;
-    this.aktif = nilai;
-    // Bersihkan buffer tanpa memberi notifikasi ke subscriber; saat dinonaktifkan
-    // panel akan di-unmount oleh App, dan saat diaktifkan belum ada subscriber.
-    this.entri = [];
-    this.snapshot = [];
-    this.jumlahError = 0;
-    this.statistik = null;
-  }
 
   catat(
     level: SyncLevel,
@@ -92,8 +72,6 @@ class PencatatSinkronisasi {
     pesan: string,
     detail?: unknown
   ): void {
-    if (!this.aktif) return;
-
     const baru: SyncLogEntry = {
       id: ++this.urutan,
       waktu: Date.now(),
@@ -140,7 +118,6 @@ class PencatatSinkronisasi {
   }
 
   error(kategori: SyncKategori, aksi: string, pesan: string, detail?: unknown): void {
-    if (!this.aktif) return;
     this.catat('error', kategori, aksi, pesan, detail);
     console.error(`[SYNC][${kategori.toUpperCase()}][${aksi}] ${pesan}`, detail ?? '');
   }
@@ -155,13 +132,11 @@ class PencatatSinkronisasi {
 
   // --- API statistik lokal vs Firestore (dipakai panel debug) ---
   catatStatistik(s: StatistikSinkron): void {
-    if (!this.aktif) return;
     this.statistik = s;
     this.pendengar.forEach((fn) => fn());
   }
 
   resetStatistik(): void {
-    if (!this.aktif) return;
     this.statistik = null;
     this.pendengar.forEach((fn) => fn());
   }
