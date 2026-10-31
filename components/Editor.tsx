@@ -360,6 +360,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [codeDraft, setCodeDraft] = useState<string | null>(null);
   const pendingCodeSelectionRef = useRef<{ start: number; end: number } | null>(null);
   const codeRemoteBaseRef = useRef<string>('');
+  const codeDraftDirtyRef = useRef(false);
   
   // --- STATE BARU: Mode Live Preview (Browser Mini) ---
   const [isPreviewMode, setIsPreviewMode] = useState(() => {
@@ -1453,20 +1454,37 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   };
 
   // --- MODE KODE: draft lokal + seleksi hasil pemetaan ---
+  const bolehKeluarModeKode = (): boolean => {
+    if (!isCodeView) return true;
+    if (!codeDraftDirtyRef.current) return true;
+    if (codeDraft === null || (note.content || '') === codeDraft) return true;
+
+    const simpan = window.confirm(
+      'Draf HTML lokal berbeda dari versi terbaru dari server. ' +
+      'OK = simpan draf lokal lalu keluar. Batal = tetap di mode kode.'
+    );
+    if (!simpan) return false;
+    onUpdate({ ...note, content: codeDraft });
+    return true;
+  };
+
   const toggleModeKode = () => {
     if (isCodeView) {
+      if (!bolehKeluarModeKode()) return;
       setCodeDraft(null);
       pendingCodeSelectionRef.current = null;
       codeRemoteBaseRef.current = '';
+      codeDraftDirtyRef.current = false;
       setIsCodeView(false);
     } else {
       const el = editorRef.current;
-      const html = el ? el.innerHTML : (note.content || '');
+      const html = el ? el.innerHTML : '';
       const range = el ? ambilRangeEditor() : null;
-      let draft = html;
+      const domKosong = html.trim() === '';
+      let draft = domKosong ? (note.content || '') : html;
       let seleksiKode: { start: number; end: number } | null = null;
 
-      if (el && range) {
+      if (el && range && !domKosong) {
         const peta = petakanRangeKeKode(range, el);
         if (peta) {
           draft = peta.codeText;
@@ -1475,6 +1493,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       }
 
       codeRemoteBaseRef.current = note.content || '';
+      codeDraftDirtyRef.current = false;
       setCodeDraft(draft);
       pendingCodeSelectionRef.current = seleksiKode;
       setIsCodeView(true);
@@ -1488,12 +1507,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   };
 
   // Ikuti perubahan note (termasuk update dari perangkat lain) saat mode kode.
-  // Draft hanya diganti bila note.content benar-benar berubah dari baseline.
+  // Draft yang sudah diubah pengguna tidak boleh ditimpa diam-diam.
   useEffect(() => {
     if (!isCodeView) return;
-    if ((note.content || '') === codeRemoteBaseRef.current) return;
-    codeRemoteBaseRef.current = note.content || '';
-    setCodeDraft(note.content || '');
+    const remote = note.content || '';
+    if (remote === codeRemoteBaseRef.current) return;
+    codeRemoteBaseRef.current = remote;
+
+    if (codeDraftDirtyRef.current) return; // lindungi draf lokal
+    setCodeDraft(remote);
     pendingCodeSelectionRef.current = null;
   }, [note.content, isCodeView]);
 
@@ -1657,6 +1679,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       setShowOptionMenu(false);
   }, [note.id, isCodeView, isPreviewMode]);
 
+  // Ganti catatan: buang draft/penanda lama agar tidak bocor ke catatan baru.
+  useEffect(() => {
+      setCodeDraft(null);
+      pendingCodeSelectionRef.current = null;
+      codeRemoteBaseRef.current = '';
+      codeDraftDirtyRef.current = false;
+      setIsCodeView(false);
+      lastLocalHTML.current = '';
+      lastSelectionRef.current = null;
+      savedSelection.current = null;
+  }, [note.id]);
+
   // Mode kode/preview tidak memiliki seleksi editor visual.
   useEffect(() => {
       if (isCodeView || isPreviewMode) onSelectionAvailabilityChange?.(false);
@@ -1687,21 +1721,23 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   // Sync content awal perubahan
   useEffect(() => {
-    // Jika konten sama dengan yang terakhir dikirim oleh editor lokal (saat typing),
-    // JANGAN rewrite DOM agar tidak mengganggu kursor / menyebabkan flicker.
-    if (editorRef.current && lastLocalHTML.current === note.content) {
+    const el = editorRef.current;
+    if (!el) return;
+
+    const domHtml = el.innerHTML;
+
+    // Fast path HANYA jika DOM terpasang sudah berisi konten yang sama.
+    // DOM baru yang kosong (mis. setelah keluar dari mode kode) tidak boleh dilewati
+    // hanya karena lastLocalHTML masih sama dengan note.content.
+    if (lastLocalHTML.current === note.content && domHtml === note.content) {
       addCheckboxListeners();
       return;
     }
-    // Cek apakah konten berbeda
-    if (editorRef.current && editorRef.current.innerHTML !== note.content) {
-      
-      // --- PERUBAHAN DI SINI ---
-      // Kita HAPUS pengecekan 'document.activeElement'
-      // Agar perubahan dari HP langsung muncul di Laptop walau sedang dibuka
-      const isFocused = document.activeElement === editorRef.current;
-      
-      editorRef.current.innerHTML = note.content;
+
+    if (domHtml !== note.content) {
+      const isFocused = document.activeElement === el;
+
+      el.innerHTML = note.content;
 
       // Opsional: Jika sedang fokus, kembalikan kursor ke akhir teks
       // agar tidak hilang total saat update masuk
@@ -1709,7 +1745,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           try {
             const range = document.createRange();
             const sel = window.getSelection();
-            range.selectNodeContents(editorRef.current);
+            range.selectNodeContents(el);
             range.collapse(false); // Pindahkan kursor ke paling akhir
             sel?.removeAllRanges();
             sel?.addRange(range);
@@ -3184,9 +3220,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     value={codeDraft ?? note.content ?? ''}
                     onChange={(e) => {
                         const newCodeContent = e.target.value;
+                        codeDraftDirtyRef.current = true;
                         setCodeDraft(newCodeContent);
                         onUpdate({ ...note, content: newCodeContent });
-                        recordHistory(newCodeContent); 
+                        recordHistory(newCodeContent);
                     }}
                     placeholder="Tulis kode HTML lengkap (termasuk <script> dan <style>) di sini..."
                 />
@@ -3500,9 +3537,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
                 {/* --- TOMBOL LIVE PREVIEW BROWSER --- */}
                 <button onMouseDown={preventFocusLoss} onClick={() => {
+                    if (!isPreviewMode && isCodeView && !bolehKeluarModeKode()) return;
                     setIsPreviewMode(!isPreviewMode);
                     if (!isPreviewMode) {
                         setIsCodeView(false); // Matikan textarea jika masuk mode preview
+                        setCodeDraft(null);
+                        pendingCodeSelectionRef.current = null;
+                        codeRemoteBaseRef.current = '';
+                        codeDraftDirtyRef.current = false;
                     }
                 }} className={`p-2 rounded min-w-[40px] flex justify-center ${isPreviewMode ? 'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`} title="Jalankan sebagai Halaman Web (Live Preview)">
                     <Play size={20} />
