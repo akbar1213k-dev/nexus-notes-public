@@ -197,3 +197,23 @@
     outline: 2px solid #f59e0b;
     outline-offset: 1px;
 }
+
+/* --- 5. PARTIAL CONTENT LOCKING --- */
+.editor-content uneditable {
+  display: inline;
+  transition: background-color 0.2s;
+}
+
+.editor-content uneditable[data-lock~="delete"] {
+  background-color: rgba(254, 242, 242, 0.5);
+  border-bottom: 2px dashed #f87171;
+}
+
+.editor-content uneditable[data-lock~="copy"] {
+  border-bottom: 2px dashed #60a5fa;
+}
+
+.editor-content uneditable[data-lock="delete copy"] {
+  background-color: rgba(245, 243, 255, 0.7);
+  border-bottom: 2px dashed #a78bfa;
+}
