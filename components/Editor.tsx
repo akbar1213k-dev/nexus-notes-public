@@ -345,6 +345,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [showPasteEmptyToast, setShowPasteEmptyToast] = useState(false);
   // --- STATE: MENUNGGU TEMPEL NATIVE (FALLBACK SAAT IZIN DITOLAK) ---
   const [showPastePromptToast, setShowPastePromptToast] = useState(false);
+  // --- STATE: NOTIFIKASI KONTEN TERKUNCI (LOCK ENFORCEMENT) ---
+  const [lockToastMsg, setLockToastMsg] = useState<string | null>(null);
+  const lockToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const awaitingNativePaste = useRef(false);
   const nativePasteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // --- STATE BARU: Dialog Checkbox ---
@@ -1608,9 +1611,81 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   };
 
+  // --- LOCK ENFORCEMENT: cek DELETE LOCK untuk input yang menghapus/mengganti teks ---
+  // Dipanggil dari handleBeforeInput dan handleKeyDown.
+  const isDeleteLockedInput = (inputType: string): boolean => {
+    if (!editorRef.current) return false;
+    const root = editorRef.current;
+
+    // Hanya tipe input yang menghapus/mengganti konten yang diperiksa.
+    const isDeletion = inputType.startsWith('delete');
+    const isInsertion = inputType.startsWith('insert');
+    if (!isDeletion && !isInsertion) return false;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.startContainer)) return false;
+
+    if (!range.collapsed) {
+      // Seleksi: campuran teks biasa + terkunci = batalkan seluruh operasi.
+      return rangeHasDeleteLock(range, root);
+    }
+
+    // Caret: periksa wrapper di posisi kursor, lalu karakter yang akan terhapus.
+    if (getLockFlagAt(range.startContainer, 'delete')) return true;
+    if (inputType === 'insertText' || inputType === 'insertCompositionText' || inputType === 'insertFromPaste') {
+      return false; // pengetikan di caret kosong dalam teks biasa
+    }
+
+    const probe = document.createRange();
+    try {
+      if (inputType === 'deleteContentBackward' || inputType === 'deleteWordBackward'
+          || inputType === 'deleteSoftLineBackward' || inputType === 'deleteHardLineBackward') {
+        if (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
+          probe.setStart(range.startContainer, range.startOffset - 1);
+          probe.setEnd(range.startContainer, range.startOffset);
+        } else {
+          return false;
+        }
+      } else if (inputType === 'deleteContentForward' || inputType === 'deleteWordForward'
+          || inputType === 'deleteSoftLineForward' || inputType === 'deleteHardLineForward') {
+        if (range.startContainer.nodeType === Node.TEXT_NODE
+            && range.startOffset < (range.startContainer as Text).length) {
+          probe.setStart(range.startContainer, range.startOffset);
+          probe.setEnd(range.startContainer, range.startOffset + 1);
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    return rangeHasDeleteLock(probe, root);
+  };
+
+  // Petakan tombol keyboard ke inputType agar jalur fallback konsisten dengan beforeinput.
+  const keyToInputType = (e: React.KeyboardEvent): string | null => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === 'Backspace') return mod ? 'deleteWordBackward' : 'deleteContentBackward';
+    if (e.key === 'Delete') return mod ? 'deleteWordForward' : 'deleteContentForward';
+    return null;
+  };
+
   // --- DELETE KEY / menu konteks Delete: hanya seleksi, bukan Backspace ---
   const handleBeforeInput = async (e: React.FormEvent<HTMLDivElement>) => {
     const ev = e.nativeEvent as InputEvent;
+
+    // 0. LOCK ENFORCEMENT: delete lock menahan semua penghapusan/penggantian.
+    if (isDeleteLockedInput(ev.inputType)) {
+      e.preventDefault();
+      notifyLocked('delete');
+      return;
+    }
+
     if (ev.inputType !== 'deleteContentForward' && ev.inputType !== 'deleteByCut') return;
     if (!punyaTujuanArsip || !onArchiveSelectionContent) return;
 
@@ -1827,6 +1902,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   
     // --- KEYBOARD HANDLING (FULL FIX) ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 0. LOCK ENFORCEMENT: fallback bila browser tidak memicu beforeinput.
+    const lockInputType = keyToInputType(e);
+    if (lockInputType && isDeleteLockedInput(lockInputType)) {
+        e.preventDefault();
+        notifyLocked('delete');
+        return;
+    }
+
     // 1. Handle Mention List (Tetap sama)
     if (showMentionList) {
         if (e.key === 'Enter') {
@@ -2914,6 +2997,34 @@ const handleEditorClick = (e: React.MouseEvent) => {
       return parts.size === 2 && parts.has('delete') && parts.has('copy');
   };
 
+  // --- LOCK ENFORCEMENT: DETEKSI & NOTIFIKASI ---
+  // Token lock pada satu node/elemen, selalu berbasis set (bukan string mentah).
+  const getLockFlagAt = (node: Node | null, flag: 'delete' | 'copy'): boolean => {
+      if (!node) return false;
+      const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+      const u = el?.closest('uneditable');
+      if (!u) return false;
+      return (u.getAttribute('data-lock') || '').split(' ').filter(Boolean).includes(flag);
+  };
+
+  // Apakah ada DELETE LOCK pada wrapper yang beririsan dengan range.
+  // `extraText` dipakai untuk memeriksa karakter yang akan terhapus pada caret collapsed.
+  const rangeHasDeleteLock = (range: Range, root: HTMLElement, extraText?: Text | null): boolean => {
+      const flagged = getAffectedUneditables(range, root)
+          .some(u => (u.getAttribute('data-lock') || '').split(' ').filter(Boolean).includes('delete'));
+      if (flagged) return true;
+      return !!(extraText && getLockFlagAt(extraText, 'delete'));
+  };
+
+  const notifyLocked = (kind: 'delete' | 'copy' | 'both') => {
+      const msg = kind === 'copy' ? 'Teks terkunci tidak dapat disalin'
+          : kind === 'both' ? 'Teks terkunci tidak dapat dipotong atau dipindahkan'
+          : 'Teks terkunci tidak dapat dihapus atau diubah';
+      setLockToastMsg(msg);
+      if (lockToastTimer.current) clearTimeout(lockToastTimer.current);
+      lockToastTimer.current = setTimeout(() => setLockToastMsg(null), 2000);
+  };
+
   const handleApplyLock = (action: LockAction) => {
       const range = resolveEditorRange(true);
       const root = editorRef.current;
@@ -3387,6 +3498,14 @@ const handleEditorClick = (e: React.MouseEvent) => {
             <div className="fixed bottom-52 left-1/2 transform -translate-x-1/2 bg-black/80 dark:bg-white/90 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[60] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
                 <Clipboard size={16} className="text-amber-400 dark:text-amber-600" />
                 <span className="text-sm font-semibold">Clipboard kosong</span>
+            </div>
+        )}
+
+      {/* --- TOAST NOTIFICATION (KONTEN TERKUNCI) --- */}
+        {lockToastMsg && (
+            <div className="fixed bottom-56 left-1/2 transform -translate-x-1/2 bg-black/90 dark:bg-white/95 text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl z-[70] flex items-center gap-2 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                <Lock size={16} className="text-amber-400 dark:text-amber-600" />
+                <span className="text-sm font-semibold">{lockToastMsg}</span>
             </div>
         )}
 
