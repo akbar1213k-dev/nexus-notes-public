@@ -3,6 +3,8 @@ import { Note, EditorHandle, HistoryChain, HistoryWordDiff } from '../types';
 import { makePatch, applyPatch, replayChain } from '../utils/diff';
 import { getHistoryChain, saveHistoryChain, cleanupLegacyLocalStorage } from '../utils/historyStore';
 import { exportNetworkAsJSON } from '../utils/networkExport';
+import { applyLock, removeLock } from '../utils/lockManager';
+import type { LockAction } from '../utils/lockManager';
 import { 
   Image as ImageIcon, Table, AtSign, 
   Bold, Italic, Underline, Strikethrough,
@@ -12,7 +14,7 @@ import {
   Scissors, Scan, MoreVertical,
   Undo, Redo, Sliders, Code,
   Search, X, ChevronUp, ChevronDown, History, Play, Eye, Download,
-  Upload, Replace, ReplaceAll, Clipboard, AlertTriangle
+Upload, Replace, ReplaceAll, Clipboard, AlertTriangle, Lock, Unlock,
 } from 'lucide-react';
 interface EditorProps {
   note: Note;
@@ -27,7 +29,7 @@ interface EditorProps {
   onArchiveSelectionContent?: (html: string, sourceContent: string, removeSource: boolean) => Promise<boolean>;
   onSelectionAvailabilityChange?: (hasSelection: boolean) => void;
 }
-type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE';
+type ToolbarMenu = 'NONE' | 'FORMAT' | 'LIST' | 'TABLE' | 'IMAGE' | 'LOCK';
 
 // === FUNGSI BARU: Membersihkan dan merapikan (Pretty Print) HTML ===
 const formatAndCleanHTML = (html: string) => {
@@ -2890,6 +2892,78 @@ const handleEditorClick = (e: React.MouseEvent) => {
       handleInput();
       setActiveMenu('NONE');
   };
+  
+  // --- LOCK / UNLOCK ACTIONS ---
+  // Satu sumber kebenaran: daftar wrapper <uneditable> yang terdampak oleh range.
+  const getAffectedUneditables = (range: Range, root: HTMLElement): HTMLElement[] => {
+      if (range.collapsed) {
+          // Kursor collapsed: ambil wrapper terdekat dari posisi kursor.
+          const sc = range.startContainer;
+          const el: Element | null = sc.nodeType === Node.ELEMENT_NODE ? (sc as Element) : sc.parentElement;
+          const u = el?.closest('uneditable') as HTMLElement | null;
+          return u && root.contains(u) ? [u] : [];
+      }
+      // Seleksi: ambil seluruh wrapper yang beririsan dengan seleksi.
+      return Array.from(root.querySelectorAll<HTMLElement>('uneditable'))
+          .filter(u => range.intersectsNode(u));
+  };
+
+  // Cek lock gabungan "delete + copy" berbasis token (urutan token & spasi berlebih aman).
+  const isDeleteCopyLock = (u: HTMLElement): boolean => {
+      const parts = new Set((u.getAttribute('data-lock') || '').split(' ').filter(Boolean));
+      return parts.size === 2 && parts.has('delete') && parts.has('copy');
+  };
+
+  const handleApplyLock = (action: LockAction) => {
+      const range = resolveEditorRange(true);
+      const root = editorRef.current;
+      if (!range || !root || range.collapsed) return;
+      applyLock(range, root, action);
+      handleInput(); // Jalankan History & Autosave
+      setActiveMenu('NONE');
+  };
+
+  const handleRemoveLock = (action: LockAction) => {
+      const range = resolveEditorRange(true);
+      const root = editorRef.current;
+      if (!range || !root) return;
+
+      let target = range;
+
+      if (range.collapsed) {
+          // removeLock() mengabaikan range collapsed, jadi perluas ke isi wrapper.
+          const [wrapper] = getAffectedUneditables(range, root);
+          if (!wrapper) return;
+
+          target = document.createRange();
+          target.selectNodeContents(wrapper);
+          if (target.collapsed) return;
+      }
+
+      removeLock(target, root, action);
+      handleInput(); // Jalankan History & Autosave
+      setActiveMenu('NONE');
+      savedSelection.current = null;
+  };
+
+  // Mengevaluasi status tombol saat Popover LOCK dirender
+  const getLockMenuState = () => {
+      const range = resolveEditorRange(true);
+      const root = editorRef.current;
+      if (!range || !root) return { canLock: false, locks: new Set<string>(), singleDeleteCopy: false };
+
+      const affected = getAffectedUneditables(range, root);
+      const locks = new Set<string>();
+      affected.forEach(u => {
+          (u.getAttribute('data-lock') || '').split(' ').filter(Boolean).forEach(l => locks.add(l));
+      });
+
+      const canLock = !range.collapsed;
+      const singleDeleteCopy = affected.length === 1 && isDeleteCopyLock(affected[0]);
+
+      return { canLock, locks, singleDeleteCopy };
+  };
+  // -----------------------------
 
   const toggleMenu = (menu: ToolbarMenu) => {
     // Jika membuka menu baru, simpan seleksi teks saat ini
@@ -3508,6 +3582,56 @@ const handleEditorClick = (e: React.MouseEvent) => {
                 </div>
             </div>
         )}
+		
+		{/* --- LOCK MENU --- */}
+        {activeMenu === 'LOCK' && (() => {
+            const { canLock, locks, singleDeleteCopy } = getLockMenuState();
+            return (
+                <div className="absolute bottom-16 left-2 right-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-2 z-40 flex flex-col gap-2 animate-in slide-in-from-bottom-5 fade-in">
+                    
+                    {/* 1. LOCK ACTIONS (Hanya aktif jika ada seleksi) */}
+                    <div className="w-full flex gap-2">
+                         <button onMouseDown={preventFocusLoss} onClick={() => handleApplyLock('delete')} disabled={!canLock} className="flex-1 p-2 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50 disabled:opacity-40 rounded flex flex-col items-center text-xs gap-1">
+                             <Lock size={16} /> Lock Delete
+                         </button>
+                         <button onMouseDown={preventFocusLoss} onClick={() => handleApplyLock('copy')} disabled={!canLock} className="flex-1 p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-40 rounded flex flex-col items-center text-xs gap-1">
+                             <Lock size={16} /> Lock Copy
+                         </button>
+                         <button onMouseDown={preventFocusLoss} onClick={() => handleApplyLock('delete copy')} disabled={!canLock} className="flex-1 p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 disabled:opacity-40 rounded flex flex-col items-center text-xs gap-1">
+                             <Lock size={16} /> Lock Delete+Copy
+                         </button>
+                    </div>
+
+                    {/* 2. UNLOCK ACTIONS (Dinamis sesuai temuan LockManager) */}
+                    {(locks.size > 0) && (
+                        <div className="w-full flex gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                            {locks.has('delete') && !singleDeleteCopy && (
+                                <button onMouseDown={preventFocusLoss} onClick={() => handleRemoveLock('delete')} className="flex-1 p-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded flex justify-center items-center text-xs gap-1 transition-colors">
+                                    <Unlock size={14} /> Unlock Delete
+                                </button>
+                            )}
+                            {locks.has('copy') && !singleDeleteCopy && (
+                                <button onMouseDown={preventFocusLoss} onClick={() => handleRemoveLock('copy')} className="flex-1 p-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded flex justify-center items-center text-xs gap-1 transition-colors">
+                                    <Unlock size={14} /> Unlock Copy
+                                </button>
+                            )}
+                            {singleDeleteCopy && (
+                                <button onMouseDown={preventFocusLoss} onClick={() => handleRemoveLock('all')} className="flex-1 p-2 bg-gray-200 dark:bg-gray-600 font-bold text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500 rounded flex justify-center items-center text-xs gap-1 transition-colors">
+                                    <Unlock size={14} /> Unlock All
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 3. EMPTY STATE (Jika cuma klik tanpa kursor valid & tanpa menyorot lock) */}
+                    {!canLock && locks.size === 0 && !singleDeleteCopy && (
+                        <div className="w-full text-center text-xs text-gray-500 py-1">
+                            Seleksi teks terlebih dahulu untuk mengunci.
+                        </div>
+                    )}
+                </div>
+            );
+        })()}
 
         {/* --- Main Sticky Toolbar --- */}
         <div className="h-14 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-2 shadow-lg sticky bottom-0 w-full z-40">
@@ -3599,6 +3723,22 @@ const handleEditorClick = (e: React.MouseEvent) => {
                         editorRef.current?.focus();
                    }
                 }} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400"><AtSign size={18} /></button>
+
+				{/* --- TOMBOL LOCK (BARU) --- */}
+                <button 
+                    onMouseDown={(e) => {
+                        if (isPreviewMode || isCodeView) { e.preventDefault(); return; }
+                        preventFocusLoss(e);
+                    }} 
+                    onClick={() => {
+                        if (isPreviewMode || isCodeView) return;
+                        toggleMenu('LOCK');
+                    }}
+                    className={`p-2 rounded min-w-[40px] flex justify-center transition-colors ${isPreviewMode || isCodeView ? 'opacity-40 text-gray-400 dark:text-gray-500 cursor-not-allowed' : (activeMenu === 'LOCK' ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300')}`}
+                    title="Kunci Sebagian Teks"
+                >
+                    <Lock size={18} />
+                </button>	
 
                 <label 
                     className={`p-2 rounded min-w-[40px] flex justify-center cursor-pointer transition-colors ${isPreviewMode || isCodeView ? 'opacity-40 text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
