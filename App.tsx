@@ -1333,6 +1333,18 @@ export default function App() {
   };
 
   // --- ARSIPKAN HAPUS ---
+  // Konten yang membawa wrapper lock tidak boleh dipindahkan/dihapus lewat arsip.
+  // `token` menentukan jenis lock; tanpa token berarti salah satu jenis lock.
+  const htmlPunyaKunci = (html: string, token?: 'delete' | 'copy'): boolean => {
+    if (!html) return false;
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    return Array.from(holder.querySelectorAll('uneditable')).some(u => {
+      const tokens = (u.getAttribute('data-lock') || '').split(' ').filter(Boolean);
+      return token ? tokens.includes(token) : tokens.length > 0;
+    });
+  };
+
   // Inti penyimpanan arsip: tujuan lebih dulu, sumber hanya setelah tujuan terkonfirmasi.
   // Tidak mengubah state/cache sebelum tulisan terkait berhasil.
   const arsipkanKeTujuan = async (opsi: {
@@ -1476,6 +1488,10 @@ export default function App() {
       alert('Pilih konten di editor terlebih dahulu, lalu buka menu Arsipkan Hapus.');
       return;
     }
+    if (htmlPunyaKunci(seleksi.selectedHtml)) {
+      alert('Seleksi menyentuh konten terkunci. Buka kunci terlebih dahulu sebelum mengarsipkan.');
+      return;
+    }
 
     pendingArchiveRef.current = {
       sourceId: sumber.id,
@@ -1531,6 +1547,10 @@ export default function App() {
       alert('Pilih konten di editor terlebih dahulu.');
       return;
     }
+    if (htmlPunyaKunci(seleksi.selectedHtml)) {
+      alert('Seleksi menyentuh konten terkunci. Buka kunci terlebih dahulu sebelum mengarsipkan.');
+      return;
+    }
 
     const ok = await jalankanDenganBusy(() => arsipkanKeTujuan({
       sourceId: sumber.id,
@@ -1546,6 +1566,8 @@ export default function App() {
   // Dipakai Editor untuk Cut/Delete seluruh catatan yang memiliki tujuan arsip.
   const handleArchiveWholeContent = async (html: string, _mode: 'cut' | 'delete'): Promise<boolean> => {
     if (!user || user.uid === 'offline-local' || archiveBusyRef.current) return false;
+    // Konten terkunci tidak boleh dipindahkan/dihapus lewat arsip.
+    if (htmlPunyaKunci(html)) return false;
     const sumber = notesRef.current.find(n => n.id === currentNoteId);
     const tujuan = cariTujuanArsipValid(sumber, notesRef.current);
     if (!sumber || !tujuan) return false;
@@ -1569,6 +1591,8 @@ export default function App() {
     removeSource: boolean
   ): Promise<boolean> => {
     if (!user || user.uid === 'offline-local' || archiveBusyRef.current) return false;
+    // Konten terkunci tidak boleh dipindahkan/dihapus lewat arsip.
+    if (htmlPunyaKunci(html)) return false;
     const sumber = notesRef.current.find(n => n.id === currentNoteId);
     const tujuan = cariTujuanArsipValid(sumber, notesRef.current);
     if (!sumber || !tujuan) return false;

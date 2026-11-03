@@ -685,7 +685,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     if (isCodeView) {
         if (!codeEditorRef.current) return;
         // LOCK ENFORCEMENT: potong seluruh isi menyalin & menghapus sekaligus.
-        if (htmlHasLock(note.content || '', 'copy') || htmlHasLock(note.content || '', 'delete')) {
+        if (htmlHasLock(codeEditorRef.current.value, 'copy') || htmlHasLock(codeEditorRef.current.value, 'delete')) {
             notifyLocked('both');
             return;
         }
@@ -769,6 +769,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const handleDeleteAllContent = async () => {
     if (isCodeView) {
         if (!codeEditorRef.current) return;
+        // LOCK ENFORCEMENT: hapus semua tidak boleh menghapus area delete-locked.
+        if (htmlHasLock(codeEditorRef.current.value, 'delete')) {
+            notifyLocked('delete');
+            return;
+        }
         if (punyaTujuanArsip && onArchiveWholeContent) {
             await onArchiveWholeContent(note.content, 'delete');
             return;
@@ -784,6 +789,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
         return;
     }
     if (editorRef.current) {
+        // LOCK ENFORCEMENT: hapus semua tidak boleh menghapus area delete-locked.
+        if (htmlHasLock(editorRef.current.innerHTML, 'delete')) {
+            notifyLocked('delete');
+            return;
+        }
         if (punyaTujuanArsip && onArchiveWholeContent) {
             await onArchiveWholeContent(editorRef.current.innerHTML, 'delete');
             return;
@@ -1734,6 +1744,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
     const cap = captureArchiveSelection();
     if (!cap) return; // kursor tanpa seleksi -> hapus karakter normal
+
+    // LOCK ENFORCEMENT: jalur arsip memindahkan isi seleksi -> copy lock ikut menahan.
+    const elArsip = editorRef.current;
+    const rangeArsip = liveSel.getRangeAt(0);
+    if (elArsip && rangeHasCopyLock(rangeArsip, elArsip)) {
+      e.preventDefault();
+      notifyLocked('copy');
+      return;
+    }
 
     e.preventDefault();
     arsipSeleksiRef.current = true;
@@ -3028,6 +3047,27 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
       if (!row || !table) return;
 
+      // LOCK ENFORCEMENT: operasi hapus tabel tidak boleh menyentuh konten terkunci.
+      const adaLockDi = (nodes: Element[]): boolean =>
+          nodes.some(n => !!n.querySelector('uneditable') || !!n.closest('uneditable'));
+      if (action === 'delRow' && adaLockDi([row])) {
+          notifyLocked('delete');
+          return;
+      }
+      if (action === 'delCol') {
+          const cellsKolom = Array.from(table.rows)
+              .map(r => r.cells[cell.cellIndex])
+              .filter((c): c is HTMLTableCellElement => !!c);
+          if (adaLockDi(cellsKolom)) {
+              notifyLocked('delete');
+              return;
+          }
+      }
+      if (action === 'delTable' && adaLockDi([table])) {
+          notifyLocked('delete');
+          return;
+      }
+
       switch(action) {
           case 'addRow':
             const newRow = row.cloneNode(true) as HTMLTableRowElement;
@@ -3205,6 +3245,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
   const handleCopyContent = async () => {
     // --- TAMBAHAN BARU: Jika sedang di Mode Kode, bersihkan HTML sebelum disalin ---
     if (isCodeView) {
+        // LOCK ENFORCEMENT: salin seluruh isi tidak boleh membawa konten copy-locked.
+        if (htmlHasLock(codeEditorRef.current?.value ?? note.content ?? '', 'copy')) {
+            notifyLocked('copy');
+            return;
+        }
         let cleanHtml = note.content
             // 1. Hapus ratusan style bawaan (--tw-scale, shadow, dll)
             .replace(/ style="[^"]*"/gi, '') 
