@@ -861,6 +861,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       } else {
           // MODE VISUAL: Overwrite isi contentEditable
           if (!editorRef.current) return;
+          // LOCK ENFORCEMENT: menimpa seluruh isi berarti menghapus area delete-locked.
+          if (editorRef.current.querySelector('uneditable[data-lock~="delete"]')) {
+              notifyLocked('delete');
+              return;
+          }
           const pasteHtml = text.split(/\r?\n/).map(line => `<p>${line || '<br/>'}</p>`).join('');
           pushUndoState(editorRef.current.innerHTML, pasteHtml);
           editorRef.current.innerHTML = pasteHtml;
@@ -2930,7 +2935,58 @@ const handleEditorClick = (e: React.MouseEvent) => {
   };
 
   // --- PASTE HANDLER (Menangani Ctrl+V Gambar) ---
+  // --- LOCK ENFORCEMENT: DRAG & DROP ---
+  const wrapperLockTokens = (el: Element | null): Set<string> => {
+      const wrapper = el?.closest?.('uneditable');
+      if (!wrapper) return new Set<string>();
+      return new Set((wrapper.getAttribute('data-lock') || '').split(' ').filter(Boolean));
+  };
+
+  const handleEditorDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+      const root = editorRef.current;
+      if (!root) return;
+
+      // Menyeret elemen wrapper terkunci itu sendiri.
+      const tokens = wrapperLockTokens(e.target as Element | null);
+      if (tokens.size > 0) {
+          e.preventDefault();
+          notifyLocked('both');
+          return;
+      }
+
+      // Menyeret seleksi teks yang menyentuh area terkunci.
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!root.contains(range.startContainer)) return;
+      if (rangeHasCopyLock(range, root) || rangeHasDeleteLock(range, root)) {
+          e.preventDefault();
+          notifyLocked('both');
+      }
+  };
+
+  const handleEditorDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+      // Area delete-locked tidak boleh menjadi target drop.
+      if (wrapperLockTokens(e.target as Element | null).has('delete') && e.dataTransfer) {
+          e.dataTransfer.dropEffect = 'none';
+      }
+  };
+
+  const handleEditorDrop = (e: React.DragEvent<HTMLDivElement>) => {
+      if (wrapperLockTokens(e.target as Element | null).has('delete')) {
+          e.preventDefault();
+          notifyLocked('delete');
+      }
+  };
+
   const handlePaste = (e: React.ClipboardEvent) => {
+      // LOCK ENFORCEMENT: paste tidak boleh menimpa/menyisip ke area delete-locked.
+      if (isDeleteLockedInput('insertFromPaste')) {
+          e.preventDefault();
+          notifyLocked('delete');
+          return;
+      }
+
       const items = e.clipboardData.items;
       let hasImage = false;
 
@@ -3481,6 +3537,9 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     onCut={handleCutEvent}
                     onBeforeInput={handleBeforeInput}
                     onKeyDown={handleKeyDown}
+                    onDragStart={handleEditorDragStart}
+                    onDragOver={handleEditorDragOver}
+                    onDrop={handleEditorDrop}
                     onClick={handleEditorClick}
                     onTouchStart={handleTouchStart}
                     onTouchEnd={handleTouchEnd}
