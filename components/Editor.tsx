@@ -684,6 +684,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const handleCutContent = async () => {
     if (isCodeView) {
         if (!codeEditorRef.current) return;
+        // LOCK ENFORCEMENT: potong seluruh isi menyalin & menghapus sekaligus.
+        if (htmlHasLock(note.content || '', 'copy') || htmlHasLock(note.content || '', 'delete')) {
+            notifyLocked('both');
+            return;
+        }
         const textContent = codeEditorRef.current.value;
         const copied = await writeToClipboard(textContent);
         if (!copied) {
@@ -711,7 +716,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
     // MODE VISUAL: selalu seluruh catatan, bukan hanya seleksi.
     if (editorRef.current) {
+        // LOCK ENFORCEMENT: potong seluruh isi menyalin & menghapus sekaligus.
         const htmlContent = editorRef.current.innerHTML;
+        if (htmlHasLock(htmlContent, 'copy') || htmlHasLock(htmlContent, 'delete')) {
+            notifyLocked('both');
+            return;
+        }
         const textContent = htmlKeTeksPolos(htmlContent);
         const copied = await writeToClipboard(textContent, htmlContent);
         if (!copied) {
@@ -1561,6 +1571,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const range = sel.getRangeAt(0);
     if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
 
+    // LOCK ENFORCEMENT: copy lock menahan penyalinan (termasuk seleksi campuran).
+    if (rangeHasCopyLock(range, el)) {
+      e.preventDefault();
+      notifyLocked('copy');
+      return;
+    }
+
     const holder = document.createElement('div');
     holder.appendChild(range.cloneContents());
     const html = holder.innerHTML;
@@ -1583,6 +1600,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     // Cut hanya berlaku bila ada seleksi live (bukan fallback seleksi lama).
     const liveSel = window.getSelection();
     if (!liveSel || liveSel.rangeCount === 0 || liveSel.isCollapsed) return;
+
+    // LOCK ENFORCEMENT: cut menyentuh copy lock maupun delete lock.
+    const cutEl = editorRef.current;
+    if (cutEl) {
+      const cutRange = liveSel.getRangeAt(0);
+      if (cutEl.contains(cutRange.startContainer)
+          && (rangeHasCopyLock(cutRange, cutEl) || rangeHasDeleteLock(cutRange, cutEl))) {
+        e.preventDefault();
+        notifyLocked('both');
+        return;
+      }
+    }
 
     const cap = captureArchiveSelection();
     if (!cap) return; // tidak ada seleksi valid -> cut native
@@ -3016,6 +3045,22 @@ const handleEditorClick = (e: React.MouseEvent) => {
       return !!(extraText && getLockFlagAt(extraText, 'delete'));
   };
 
+  // Apakah ada COPY LOCK pada wrapper yang beririsan dengan range.
+  const rangeHasCopyLock = (range: Range, root: HTMLElement): boolean => {
+      return getAffectedUneditables(range, root)
+          .some(u => (u.getAttribute('data-lock') || '').split(' ').filter(Boolean).includes('copy'));
+  };
+
+  // Apakah HTML (string) mengandung wrapper lock tertentu — untuk jalur yang bekerja
+  // di luar DOM editor (mode kode / clipboard API).
+  const htmlHasLock = (html: string, flag: 'delete' | 'copy'): boolean => {
+      if (!html) return false;
+      const holder = document.createElement('div');
+      holder.innerHTML = html;
+      return Array.from(holder.querySelectorAll('uneditable')).some(u =>
+          (u.getAttribute('data-lock') || '').split(' ').filter(Boolean).includes(flag));
+  };
+
   const notifyLocked = (kind: 'delete' | 'copy' | 'both') => {
       const msg = kind === 'copy' ? 'Teks terkunci tidak dapat disalin'
           : kind === 'both' ? 'Teks terkunci tidak dapat dipotong atau dipindahkan'
@@ -3130,6 +3175,11 @@ const handleEditorClick = (e: React.MouseEvent) => {
 
     // --- LOGIKA NORMAL JIKA DI MODE VISUAL ---
     if (editorRef.current) {
+        // LOCK ENFORCEMENT: salin seluruh catatan tidak boleh membawa konten copy-locked.
+        if (htmlHasLock(editorRef.current.innerHTML, 'copy')) {
+            notifyLocked('copy');
+            return;
+        }
         // 1. SYNC CHECKBOX STATE KE ATTRIBUTE
         // Browser tidak otomatis menyalin status 'checked' input ke HTML string.
         // Kita harus memaksanya manual.
