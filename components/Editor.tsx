@@ -25,7 +25,7 @@ interface EditorProps {
   onLinkLongPress: (noteId: string) => void;
   onGoHome: () => void;
   onToggleImmersive: (isImmersive: boolean) => void; // Kabel dari App.tsx
-  onArchiveWholeContent?: (html: string, mode: 'cut' | 'delete') => Promise<boolean>;
+  onArchiveWholeContent?: (html: string, mode: 'cut' | 'delete', sourceContent?: string) => Promise<boolean>;
   onArchiveSelectionContent?: (html: string, sourceContent: string, removeSource: boolean) => Promise<boolean>;
   onSelectionAvailabilityChange?: (hasSelection: boolean) => void;
 }
@@ -196,6 +196,187 @@ const htmlKeTeksPolos = (html: string): string => {
 
   root.childNodes.forEach(jalan);
   return hasil.replace(/^\n+/, '').replace(/\n+$/, '');
+};
+
+// --- OPERASI SELEKTIF KONTEN TERKUNCI ---
+// Larangan menentukan bagian yang TIDAK boleh ikut dalam sebuah operasi:
+// - Copy  : token "copy" tidak boleh disalin.
+// - Delete: token "delete" tidak boleh dihapus.
+// - Cut   : penghapusan/arsip tidak boleh menyentuh "delete" maupun "copy".
+const LARANGAN_COPY: ReadonlySet<string> = new Set(['copy']);
+const LARANGAN_DELETE: ReadonlySet<string> = new Set(['delete']);
+const LARANGAN_CUT_HAPUS: ReadonlySet<string> = new Set(['delete', 'copy']);
+
+const tokenLockElemen = (el: Element): string[] =>
+  (el.getAttribute('data-lock') || '').split(' ').filter(Boolean);
+
+const punyaTokenTerlarang = (el: Element, larangan: ReadonlySet<string>): boolean =>
+  tokenLockElemen(el).some(t => larangan.has(t));
+
+const kedalamanNode = (node: Node, root: Node): number => {
+  let d = 0;
+  let cur: Node | null = node;
+  while (cur && cur !== root) {
+    d += 1;
+    cur = cur.parentNode;
+  }
+  return d;
+};
+
+const lepasElemen = (el: Element): void => {
+  const induk = el.parentNode;
+  if (!induk) return;
+  while (el.firstChild) induk.insertBefore(el.firstChild, el);
+  induk.removeChild(el);
+};
+
+// Lepas seluruh wrapper <uneditable> dari fragmen agar metadata lock tidak bocor
+// ke clipboard/arsip. Diproses dari yang terdalam supaya wrapper bersarang aman.
+const lepasSemuaWrapper = (frag: DocumentFragment): DocumentFragment => {
+  const wrappers = Array.from(frag.querySelectorAll('uneditable'))
+    .sort((a, b) => kedalamanNode(b, frag) - kedalamanNode(a, frag));
+  for (const w of wrappers) {
+    if (w.parentNode) lepasElemen(w);
+  }
+  return frag;
+};
+
+const fragmenKeHtml = (frag: DocumentFragment): string => {
+  const holder = document.createElement('div');
+  holder.appendChild(frag.cloneNode(true));
+  return holder.innerHTML;
+};
+
+// Fragmen dianggap kosong bila tidak ada teks maupun media yang bisa diproses.
+const fragmenKosong = (frag: DocumentFragment): boolean => {
+  const teks = (frag.textContent || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+  if (teks) return false;
+  return !frag.querySelector('img, input, table, hr, video, audio, iframe, svg, canvas');
+};
+
+const htmlTanpaMark = (html: string): string =>
+  html.replace(/<mark class="search-(?:hit|current)">([\s\S]*?)<\/mark>/gi, '$1');
+
+type TitikDom = { node: Node; offset: number };
+
+const bandingkanTitik = (a: TitikDom, b: TitikDom): number => {
+  if (a.node === b.node) return a.offset - b.offset;
+  const ra = document.createRange();
+  ra.setStart(a.node, a.offset);
+  const rb = document.createRange();
+  rb.setStart(b.node, b.offset);
+  return ra.compareBoundaryPoints(Range.START_TO_START, rb);
+};
+
+const buatRange = (mulai: TitikDom, akhir: TitikDom): Range | null => {
+  try {
+    const r = document.createRange();
+    r.setStart(mulai.node, mulai.offset);
+    r.setEnd(akhir.node, akhir.offset);
+    return r.collapsed ? null : r;
+  } catch {
+    return null;
+  }
+};
+
+const irisanRange = (a: Range, b: Range): Range | null => {
+  const aMulai = { node: a.startContainer, offset: a.startOffset };
+  const aAkhir = { node: a.endContainer, offset: a.endOffset };
+  const bMulai = { node: b.startContainer, offset: b.startOffset };
+  const bAkhir = { node: b.endContainer, offset: b.endOffset };
+  const mulai = bandingkanTitik(aMulai, bMulai) >= 0 ? aMulai : bMulai;
+  const akhir = bandingkanTitik(aAkhir, bAkhir) <= 0 ? aAkhir : bAkhir;
+  if (bandingkanTitik(mulai, akhir) >= 0) return null;
+  return buatRange(mulai, akhir);
+};
+
+// Bagian seleksi yang bebas dari wrapper terlarang, dalam urutan dokumen.
+// Bagian inilah yang boleh disalin/dihapus/diarsipkan.
+const bagianBebasLock = (range: Range, root: HTMLElement, larangan: ReadonlySet<string>): Range[] => {
+  if (range.collapsed) return [];
+
+  const lindung: Range[] = [];
+  root.querySelectorAll<HTMLElement>('uneditable').forEach(u => {
+    if (!punyaTokenTerlarang(u, larangan)) return;
+    if (!range.intersectsNode(u)) return;
+    const isi = document.createRange();
+    isi.selectNodeContents(u);
+    const potong = irisanRange(range, isi);
+    if (potong) lindung.push(potong);
+  });
+  lindung.sort((a, b) => bandingkanTitik(
+    { node: a.startContainer, offset: a.startOffset },
+    { node: b.startContainer, offset: b.startOffset }
+  ));
+
+  const hasil: Range[] = [];
+  let kursor: TitikDom = { node: range.startContainer, offset: range.startOffset };
+  const akhir: TitikDom = { node: range.endContainer, offset: range.endOffset };
+
+  for (const p of lindung) {
+    const pMulai = { node: p.startContainer, offset: p.startOffset };
+    const pAkhir = { node: p.endContainer, offset: p.endOffset };
+    if (bandingkanTitik(kursor, pMulai) < 0) {
+      const bebas = buatRange(kursor, pMulai);
+      if (bebas) hasil.push(bebas);
+    }
+    if (bandingkanTitik(pAkhir, kursor) > 0) kursor = pAkhir;
+  }
+  if (bandingkanTitik(kursor, akhir) < 0) {
+    const bebas = buatRange(kursor, akhir);
+    if (bebas) hasil.push(bebas);
+  }
+  return hasil;
+};
+
+// Fragmen HTML dari daftar range (wrapper lock dilepas agar tidak ikut keluar).
+const fragmenDariRange = (ranges: Range[]): DocumentFragment => {
+  const frag = document.createDocumentFragment();
+  ranges.forEach(r => frag.appendChild(r.cloneContents()));
+  return lepasSemuaWrapper(frag);
+};
+
+// Hapus dari belakang agar batas range di depan tetap valid; tidak ada hapus ganda.
+const terapkanHapus = (ranges: Range[]): void => {
+  const urut = [...ranges].sort((a, b) => bandingkanTitik(
+    { node: b.startContainer, offset: b.startOffset },
+    { node: a.startContainer, offset: a.startOffset }
+  ));
+  for (const r of urut) {
+    if (!r.collapsed) r.deleteContents();
+  }
+};
+
+// Isi root setelah range-range dihapus, dihitung pada clone (DOM live tidak disentuh).
+const htmlSetelahHapus = (root: HTMLElement, ranges: Range[]): string => {
+  const salinan = root.cloneNode(true) as HTMLElement;
+  const klon: Range[] = [];
+  for (const r of ranges) {
+    const jalurMulai = jalurNodeDalam(r.startContainer, root);
+    const jalurAkhir = jalurNodeDalam(r.endContainer, root);
+    if (!jalurMulai || !jalurAkhir) continue;
+    const simpulMulai = nodeDariJalur(salinan, jalurMulai);
+    const simpulAkhir = nodeDariJalur(salinan, jalurAkhir);
+    if (!simpulMulai || !simpulAkhir) continue;
+    const kr = buatRange(
+      { node: simpulMulai, offset: r.startOffset },
+      { node: simpulAkhir, offset: r.endOffset }
+    );
+    if (kr) klon.push(kr);
+  }
+  terapkanHapus(klon);
+  return salinan.innerHTML;
+};
+
+// Jagas agar sumber yang kosong tetap memiliki paragraf yang bisa diketik.
+const normalisasiKosong = (html: string): string => {
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+  const adaIsi = holder.querySelector('img, input, table, hr, video, audio, iframe, svg, canvas, uneditable');
+  if (adaIsi) return html;
+  return (holder.textContent || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+    ? html
+    : '<p><br/></p>';
 };
 
 // --- PEMETAAN SELEKSI VISUAL KE MODE KODE HTML ---
@@ -678,36 +859,77 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     };
   }, [note.id]); // Berjalan tiap kali kamu ganti/buka catatan
 
+  // --- OPERASI SELEKTIF SELURUH ISI ---
+  // Menghitung bagian yang boleh disalin / dihapus / sources setelah dihapus,
+  // tanpa memutasi root. `copy` hanya menyalin, `cut` menyalin + menghapus,
+  // `delete` hanya menghapus (mengikuti matriks lock).
+  const hitungOperasiSeluruhIsi = (
+    root: HTMLElement,
+    mode: 'copy' | 'cut' | 'delete'
+  ): {
+    salinHtml: string;
+    salinKosong: boolean;
+    hapusHtml: string;
+    hapusKosong: boolean;
+    sourceContent: string;
+    jumlahHapus: number;
+  } => {
+    const range = rangeSeluruhIsi(root);
+    const salinFrag = fragmenDariRange(bagianBebasLock(range, root, LARANGAN_COPY));
+    const laranganHapus = mode === 'cut' ? LARANGAN_CUT_HAPUS : LARANGAN_DELETE;
+    const bagianHapus = bagianBebasLock(range, root, laranganHapus);
+    const hapusFrag = fragmenDariRange(bagianHapus);
+    const sourceContent = bagianHapus.length > 0
+      ? htmlSetelahHapus(root, bagianHapus)
+      : root.innerHTML;
+    return {
+      salinHtml: fragmenKeHtml(salinFrag),
+      salinKosong: fragmenKosong(salinFrag),
+      hapusHtml: fragmenKeHtml(hapusFrag),
+      hapusKosong: fragmenKosong(hapusFrag),
+      sourceContent,
+      jumlahHapus: bagianHapus.length,
+    };
+  };
+
   // --- FUNGSI CUT SELURUH CATATAN ---
-  // Salin dulu; jika ada tujuan arsip, arsipkan seluruh isi melalui App dan
-  // biarkan App mengosongkan sumber hanya setelah penyimpanan tujuan berhasil.
+  // Salin dulu; jika ada tujuan arsip, arsipkan hanya bagian yang benar-benar
+  // dihapus melalui App. Bagian terkunci tetap berada di sumber.
   const handleCutContent = async () => {
     if (isCodeView) {
         if (!codeEditorRef.current) return;
-        // LOCK ENFORCEMENT: potong seluruh isi menyalin & menghapus sekaligus.
-        if (htmlHasLock(codeEditorRef.current.value, 'copy') || htmlHasLock(codeEditorRef.current.value, 'delete')) {
+        const root = document.createElement('div');
+        root.innerHTML = codeEditorRef.current.value;
+        const op = hitungOperasiSeluruhIsi(root, 'cut');
+        if (op.salinKosong && op.jumlahHapus === 0) {
             notifyLocked('both');
             return;
         }
-        const textContent = codeEditorRef.current.value;
-        const copied = await writeToClipboard(textContent);
-        if (!copied) {
-            setShowClipboardFailToast(true);
-            setTimeout(() => setShowClipboardFailToast(false), 3000);
-            return;
+        if (!op.salinKosong) {
+            const copied = await writeToClipboard(htmlKeTeksPolos(op.salinHtml), op.salinHtml);
+            if (!copied) {
+                setShowClipboardFailToast(true);
+                setTimeout(() => setShowClipboardFailToast(false), 3000);
+                return;
+            }
         }
-        if (punyaTujuanArsip && onArchiveWholeContent) {
-            const ok = await onArchiveWholeContent(note.content, 'cut');
-            if (!ok) return;
-        } else {
-            const nativeSetter = Object.getOwnPropertyDescriptor(
-                window.HTMLTextAreaElement.prototype, 'value'
-            )?.set;
-            if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
-            else codeEditorRef.current.value = '';
-            codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-            pushUndoState(note.content, '');
-            onUpdate({ ...note, content: '' });
+        if (op.jumlahHapus > 0) {
+            if (punyaTujuanArsip && onArchiveWholeContent && op.hapusHtml.trim()) {
+                const ok = await onArchiveWholeContent(
+                    op.hapusHtml, 'cut', normalisasiKosong(op.sourceContent));
+                if (!ok) return;
+            } else {
+                const sebelum = codeEditorRef.current.value;
+                const baru = normalisasiKosong(op.sourceContent);
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, 'value'
+                )?.set;
+                if (nativeSetter) nativeSetter.call(codeEditorRef.current, baru);
+                else codeEditorRef.current.value = baru;
+                codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                pushUndoState(sebelum, baru);
+                onUpdate({ ...note, content: baru });
+            }
         }
         setShowCutToast(true);
         setTimeout(() => setShowCutToast(false), 2000);
@@ -715,28 +937,33 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
 
     // MODE VISUAL: selalu seluruh catatan, bukan hanya seleksi.
-    if (editorRef.current) {
-        // LOCK ENFORCEMENT: potong seluruh isi menyalin & menghapus sekaligus.
-        const htmlContent = editorRef.current.innerHTML;
-        if (htmlHasLock(htmlContent, 'copy') || htmlHasLock(htmlContent, 'delete')) {
+    const root = editorRef.current;
+    if (root) {
+        const op = hitungOperasiSeluruhIsi(root, 'cut');
+        if (op.salinKosong && op.jumlahHapus === 0) {
             notifyLocked('both');
             return;
         }
-        const textContent = htmlKeTeksPolos(htmlContent);
-        const copied = await writeToClipboard(textContent, htmlContent);
-        if (!copied) {
-            setShowClipboardFailToast(true);
-            setTimeout(() => setShowClipboardFailToast(false), 3000);
-            return;
+        if (!op.salinKosong) {
+            const copied = await writeToClipboard(htmlKeTeksPolos(op.salinHtml), op.salinHtml);
+            if (!copied) {
+                setShowClipboardFailToast(true);
+                setTimeout(() => setShowClipboardFailToast(false), 3000);
+                return;
+            }
         }
-
-        if (punyaTujuanArsip && onArchiveWholeContent) {
-            const ok = await onArchiveWholeContent(htmlContent, 'cut');
-            if (!ok) return; // sumber tidak disentuh bila arsip gagal
-        } else {
-            editorRef.current.innerHTML = '<p><br/></p>';
-            pushUndoState(note.content, '<p><br/></p>');
-            onUpdate({ ...note, content: '<p><br/></p>' });
+        if (op.jumlahHapus > 0) {
+            if (punyaTujuanArsip && onArchiveWholeContent && op.hapusHtml.trim()) {
+                const ok = await onArchiveWholeContent(
+                    op.hapusHtml, 'cut', normalisasiKosong(op.sourceContent));
+                if (!ok) return; // sumber tidak disentuh bila arsip gagal
+            } else {
+                const sebelum = root.innerHTML;
+                const baru = normalisasiKosong(op.sourceContent);
+                root.innerHTML = baru;
+                pushUndoState(sebelum, baru);
+                onUpdate({ ...note, content: baru });
+            }
         }
         setShowCutToast(true);
         setTimeout(() => setShowCutToast(false), 2000);
@@ -769,39 +996,47 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const handleDeleteAllContent = async () => {
     if (isCodeView) {
         if (!codeEditorRef.current) return;
-        // LOCK ENFORCEMENT: hapus semua tidak boleh menghapus area delete-locked.
-        if (htmlHasLock(codeEditorRef.current.value, 'delete')) {
+        const root = document.createElement('div');
+        root.innerHTML = codeEditorRef.current.value;
+        const op = hitungOperasiSeluruhIsi(root, 'delete');
+        if (op.jumlahHapus === 0) {
             notifyLocked('delete');
             return;
         }
-        if (punyaTujuanArsip && onArchiveWholeContent) {
-            await onArchiveWholeContent(note.content, 'delete');
+        if (punyaTujuanArsip && onArchiveWholeContent && op.hapusHtml.trim()) {
+            await onArchiveWholeContent(
+                op.hapusHtml, 'delete', normalisasiKosong(op.sourceContent));
             return;
         }
+        const sebelum = codeEditorRef.current.value;
+        const baru = normalisasiKosong(op.sourceContent);
         const nativeSetter = Object.getOwnPropertyDescriptor(
             window.HTMLTextAreaElement.prototype, 'value'
         )?.set;
-        if (nativeSetter) nativeSetter.call(codeEditorRef.current, '');
-        else codeEditorRef.current.value = '';
+        if (nativeSetter) nativeSetter.call(codeEditorRef.current, baru);
+        else codeEditorRef.current.value = baru;
         codeEditorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-        pushUndoState(note.content, '');
-        onUpdate({ ...note, content: '' });
+        pushUndoState(sebelum, baru);
+        onUpdate({ ...note, content: baru });
         return;
     }
-    if (editorRef.current) {
-        // LOCK ENFORCEMENT: hapus semua tidak boleh menghapus area delete-locked.
-        if (htmlHasLock(editorRef.current.innerHTML, 'delete')) {
+    const root = editorRef.current;
+    if (root) {
+        const op = hitungOperasiSeluruhIsi(root, 'delete');
+        if (op.jumlahHapus === 0) {
             notifyLocked('delete');
             return;
         }
-        if (punyaTujuanArsip && onArchiveWholeContent) {
-            await onArchiveWholeContent(editorRef.current.innerHTML, 'delete');
+        if (punyaTujuanArsip && onArchiveWholeContent && op.hapusHtml.trim()) {
+            await onArchiveWholeContent(
+                op.hapusHtml, 'delete', normalisasiKosong(op.sourceContent));
             return;
         }
-        const emptyContent = '<p><br/></p>';
-        pushUndoState(editorRef.current.innerHTML, emptyContent);
-        editorRef.current.innerHTML = emptyContent;
-        onUpdate({ ...note, content: emptyContent });
+        const sebelum = root.innerHTML;
+        const baru = normalisasiKosong(op.sourceContent);
+        root.innerHTML = baru;
+        pushUndoState(sebelum, baru);
+        onUpdate({ ...note, content: baru });
     }
   };
 
@@ -865,6 +1100,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       if (isCodeView) {
           // MODE KODE: Overwrite isi textarea
           if (!codeEditorRef.current) return;
+          // LOCK ENFORCEMENT: menimpa seluruh isi berarti menghapus area delete-locked.
+          if (htmlHasLock(text, 'delete')) {
+              notifyLocked('delete');
+              return;
+          }
           pushUndoState(note.content, text);
           setTextareaValue(text);
           onUpdate({ ...note, content: text });
@@ -1442,10 +1682,49 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     return range && !range.collapsed ? range : null;
   };
 
+  // Range yang mencakup seluruh isi sebuah root (operasi "seluruh catatan").
+  const rangeSeluruhIsi = (root: HTMLElement): Range => {
+    const r = document.createRange();
+    r.selectNodeContents(root);
+    return r;
+  };
+
+  // Hapus seleksi secara selektif. `mode` menentukan token yang dilindungi
+  // (delete saja, atau delete+copy untuk cut). Bila `arsip` aktif, hanya bagian
+  // yang benar-benar dihapus yang dikirim ke arsip.
+  const hapusSeleksiSelektif = async (
+    range: Range,
+    el: HTMLElement,
+    mode: 'delete' | 'cut',
+    arsip: boolean
+  ): Promise<boolean> => {
+    const larangan = mode === 'cut' ? LARANGAN_CUT_HAPUS : LARANGAN_DELETE;
+    const bagian = bagianBebasLock(range, el, larangan);
+    if (bagian.length === 0) {
+      notifyLocked(mode === 'cut' ? 'both' : 'delete');
+      return false;
+    }
+
+    const arsipHtml = htmlTanpaMark(fragmenKeHtml(fragmenDariRange(bagian)));
+    if (arsip && punyaTujuanArsip && onArchiveSelectionContent && arsipHtml.trim()) {
+      const sourceContent = htmlTanpaMark(htmlSetelahHapus(el, bagian));
+      arsipSeleksiRef.current = true;
+      try {
+        await onArchiveSelectionContent(arsipHtml, sourceContent, true);
+      } finally {
+        arsipSeleksiRef.current = false;
+      }
+      return true;
+    }
+
+    terapkanHapus(bagian);
+    handleInput();
+    return true;
+  };
+
   // --- ARSIP: tangkap seleksi + hitung konten sumber tanpa memutasi DOM live ---
-  // DOM tidak diubah sama sekali: konten sumber dihitung dari clone editor,
-  // sehingga seleksi, kursor, dan format asli tetap utuh. Jika gagal, caller
-  // wajib membatalkan operasi arsip.
+  // Hanya bagian yang tidak delete-locked yang diarsipkan; bagian terkunci tetap
+  // di sumber. DOM live tidak diubah.
   const captureArchiveSelection = (): { selectedHtml: string; sourceContent: string } | null => {
     const el = editorRef.current;
     if (!el || note.id === 'safe-temp') return null;
@@ -1453,32 +1732,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const range = ambilRangeEditor();
     if (!range) return null;
 
-    const startPath = jalurNodeDalam(range.startContainer, el);
-    const endPath = jalurNodeDalam(range.endContainer, el);
-    if (!startPath || !endPath) return null;
-
-    const holder = document.createElement('div');
-    holder.appendChild(range.cloneContents());
-    const selectedHtml = holder.innerHTML
-      .replace(/<mark class="search-(?:hit|current)">([\s\S]*?)<\/mark>/gi, '$1');
-    if (!selectedHtml.trim()) return null;
-
-    const salinan = el.cloneNode(true) as HTMLElement;
-    const startNode = nodeDariJalur(salinan, startPath);
-    const endNode = nodeDariJalur(salinan, endPath);
-    if (!startNode || !endNode) return null;
-
-    const cloneRange = document.createRange();
-    try {
-      cloneRange.setStart(startNode, range.startOffset);
-      cloneRange.setEnd(endNode, range.endOffset);
-    } catch {
+    const bagian = bagianBebasLock(range, el, LARANGAN_DELETE);
+    if (bagian.length === 0) {
+      notifyLocked('delete');
       return null;
     }
-    cloneRange.deleteContents();
 
-    const sourceContent = salinan.innerHTML
-      .replace(/<mark class="search-(?:hit|current)">([\s\S]*?)<\/mark>/gi, '$1');
+    const selectedHtml = htmlTanpaMark(fragmenKeHtml(fragmenDariRange(bagian)));
+    if (!selectedHtml.trim()) return null;
+
+    const sourceContent = htmlTanpaMark(htmlSetelahHapus(el, bagian));
 
     return { selectedHtml, sourceContent };
   };
@@ -1586,17 +1849,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const range = sel.getRangeAt(0);
     if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
 
-    // LOCK ENFORCEMENT: copy lock menahan penyalinan (termasuk seleksi campuran).
-    if (rangeHasCopyLock(range, el)) {
+    // OPERASI SELEKTIF: hanya bagian tanpa copy lock yang masuk clipboard.
+    const fragmen = fragmenDariRange(bagianBebasLock(range, el, LARANGAN_COPY));
+    if (fragmenKosong(fragmen)) {
       e.preventDefault();
       notifyLocked('copy');
       return;
     }
-
-    const holder = document.createElement('div');
-    holder.appendChild(range.cloneContents());
-    const html = holder.innerHTML;
-    if (!html.trim()) return;
+    const html = fragmenKeHtml(fragmen);
 
     e.clipboardData.setData('text/html', html);
     e.clipboardData.setData('text/plain', htmlKeTeksPolos(html));
@@ -1604,8 +1864,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   };
 
   // --- CLIPBOARD: Ctrl+X / menu konteks Cut (seleksi saja) ---
-  // Selalu memakai serialisasi sendiri agar teks polos tidak berganda baris.
-  // Dengan tujuan arsip: arsipkan dulu. Tanpa tujuan: hapus seleksi setelah copy.
+  // Clipboard hanya memuat bagian tanpa copy lock; penghapusan hanya bagian
+  // tanpa delete/copy lock. Arsip memakai bagian yang benar-benar dihapus.
   const handleCutEvent = (e: React.ClipboardEvent<HTMLDivElement>) => {
     if (arsipSeleksiRef.current) {
       e.preventDefault();
@@ -1616,43 +1876,47 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const liveSel = window.getSelection();
     if (!liveSel || liveSel.rangeCount === 0 || liveSel.isCollapsed) return;
 
-    // LOCK ENFORCEMENT: cut menyentuh copy lock maupun delete lock.
     const cutEl = editorRef.current;
-    if (cutEl) {
-      const cutRange = liveSel.getRangeAt(0);
-      if (cutEl.contains(cutRange.startContainer)
-          && (rangeHasCopyLock(cutRange, cutEl) || rangeHasDeleteLock(cutRange, cutEl))) {
-        e.preventDefault();
-        notifyLocked('both');
-        return;
-      }
+    if (!cutEl) return;
+    const cutRange = liveSel.getRangeAt(0);
+    if (!cutEl.contains(cutRange.startContainer) || !cutEl.contains(cutRange.endContainer)) return;
+
+    // Bagian yang boleh masuk clipboard (tanpa copy lock).
+    const fragmenSalin = fragmenDariRange(bagianBebasLock(cutRange, cutEl, LARANGAN_COPY));
+    // Bagian yang benar-benar boleh dihapus (tanpa delete/copy lock).
+    const bagianHapus = bagianBebasLock(cutRange, cutEl, LARANGAN_CUT_HAPUS);
+
+    const kosongSalin = fragmenKosong(fragmenSalin);
+    if (kosongSalin && bagianHapus.length === 0) {
+      e.preventDefault();
+      notifyLocked('both');
+      return;
     }
 
-    const cap = captureArchiveSelection();
-    if (!cap) return; // tidak ada seleksi valid -> cut native
-
-    e.clipboardData.setData('text/html', cap.selectedHtml);
-    e.clipboardData.setData('text/plain', htmlKeTeksPolos(cap.selectedHtml));
     e.preventDefault();
 
-    if (punyaTujuanArsip && onArchiveSelectionContent) {
+    if (!kosongSalin) {
+      const htmlSalin = fragmenKeHtml(fragmenSalin);
+      e.clipboardData.setData('text/html', htmlSalin);
+      e.clipboardData.setData('text/plain', htmlKeTeksPolos(htmlSalin));
+    }
+
+    // Semua bagian terkunci: clipboard saja, tidak ada yang dihapus/diarsipkan.
+    if (bagianHapus.length === 0) return;
+
+    const arsipHtml = htmlTanpaMark(fragmenKeHtml(fragmenDariRange(bagianHapus)));
+    if (punyaTujuanArsip && onArchiveSelectionContent && arsipHtml.trim()) {
+      const sourceContent = htmlTanpaMark(htmlSetelahHapus(cutEl, bagianHapus));
       arsipSeleksiRef.current = true;
-      void onArchiveSelectionContent(cap.selectedHtml, cap.sourceContent, true)
+      void onArchiveSelectionContent(arsipHtml, sourceContent, true)
         .catch(() => {})
         .finally(() => { arsipSeleksiRef.current = false; });
       return;
     }
 
-    // Cut normal: hapus seleksi setelah clipboard terisi.
-    const sel = window.getSelection();
-    const el = editorRef.current;
-    if (sel && el && sel.rangeCount > 0 && !sel.isCollapsed) {
-      const range = sel.getRangeAt(0);
-      if (el.contains(range.startContainer) && el.contains(range.endContainer)) {
-        range.deleteContents();
-        handleInput();
-      }
-    }
+    // Cut normal: hapus hanya bagian yang bebas lock.
+    terapkanHapus(bagianHapus);
+    handleInput();
   };
 
   // --- LOCK ENFORCEMENT: cek DELETE LOCK untuk input yang menghapus/mengganti teks ---
@@ -1722,44 +1986,51 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- DELETE KEY / menu konteks Delete: hanya seleksi, bukan Backspace ---
   const handleBeforeInput = async (e: React.FormEvent<HTMLDivElement>) => {
     const ev = e.nativeEvent as InputEvent;
+    const inputType = ev.inputType;
+    const isDeletion = inputType.startsWith('delete');
+    const isInsertion = inputType.startsWith('insert');
+    const el = editorRef.current;
+    const sel = window.getSelection();
 
-    // 0. LOCK ENFORCEMENT: delete lock menahan semua penghapusan/penggantian.
-    if (isDeleteLockedInput(ev.inputType)) {
+    // Seleksi non-kosong: hapus secara selektif, sisip/replace tetap diblokir
+    // bila menyentuh delete lock.
+    if (el && sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      if (el.contains(range.startContainer) && el.contains(range.endContainer)) {
+        if (isInsertion) {
+          if (rangeHasDeleteLock(range, el)) {
+            e.preventDefault();
+            notifyLocked('delete');
+          }
+          return;
+        }
+
+        if (isDeletion) {
+          if (arsipSeleksiRef.current) {
+            e.preventDefault();
+            return;
+          }
+
+          const mode: 'delete' | 'cut' = inputType === 'deleteByCut' ? 'cut' : 'delete';
+          const perluArsip = inputType === 'deleteContentForward' || inputType === 'deleteByCut';
+          const adaLock = rangeHasDeleteLock(range, el)
+            || (mode === 'cut' && rangeHasCopyLock(range, el));
+
+          if (adaLock || (perluArsip && punyaTujuanArsip && onArchiveSelectionContent)) {
+            e.preventDefault();
+            await hapusSeleksiSelektif(range, el, mode, perluArsip);
+            return;
+          }
+
+          return; // tanpa lock & tanpa arsip: biarkan penghapusan native
+        }
+      }
+    }
+
+    // Kursor collapsed / input lain: delete lock tetap menahan.
+    if (isDeleteLockedInput(inputType)) {
       e.preventDefault();
       notifyLocked('delete');
-      return;
-    }
-
-    if (ev.inputType !== 'deleteContentForward' && ev.inputType !== 'deleteByCut') return;
-    if (!punyaTujuanArsip || !onArchiveSelectionContent) return;
-
-    // Hanya seleksi live; kursor tanpa seleksi harus tetap menghapus normal.
-    const liveSel = window.getSelection();
-    if (!liveSel || liveSel.rangeCount === 0 || liveSel.isCollapsed) return;
-
-    if (arsipSeleksiRef.current) {
-      e.preventDefault();
-      return;
-    }
-
-    const cap = captureArchiveSelection();
-    if (!cap) return; // kursor tanpa seleksi -> hapus karakter normal
-
-    // LOCK ENFORCEMENT: jalur arsip memindahkan isi seleksi -> copy lock ikut menahan.
-    const elArsip = editorRef.current;
-    const rangeArsip = liveSel.getRangeAt(0);
-    if (elArsip && rangeHasCopyLock(rangeArsip, elArsip)) {
-      e.preventDefault();
-      notifyLocked('copy');
-      return;
-    }
-
-    e.preventDefault();
-    arsipSeleksiRef.current = true;
-    try {
-      await onArchiveSelectionContent(cap.selectedHtml, cap.sourceContent, true);
-    } finally {
-      arsipSeleksiRef.current = false;
     }
   };
 
@@ -1958,6 +2229,17 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     // 0. LOCK ENFORCEMENT: fallback bila browser tidak memicu beforeinput.
     const lockInputType = keyToInputType(e);
     if (lockInputType && isDeleteLockedInput(lockInputType)) {
+        const sel = window.getSelection();
+        const el = editorRef.current;
+        if (sel && el && sel.rangeCount > 0 && !sel.isCollapsed) {
+            const range = sel.getRangeAt(0);
+            if (el.contains(range.startContainer) && el.contains(range.endContainer)) {
+                e.preventDefault();
+                const perluArsip = e.key === 'Delete' && !(e.ctrlKey || e.metaKey) && punyaTujuanArsip;
+                void hapusSeleksiSelektif(range, el, 'delete', perluArsip);
+                return;
+            }
+        }
         e.preventDefault();
         notifyLocked('delete');
         return;
@@ -3241,28 +3523,29 @@ const handleEditorClick = (e: React.MouseEvent) => {
   // Mind map visual helpers
   const isMindMap = note.type === 'mindmap';
 
-  // --- FUNGSI COPY CONTENT (PERBAIKAN: Sync status checkbox & Clean Code) ---
+  // --- FUNGSI COPY CONTENT (Sync status checkbox & Clean Code) ---
   const handleCopyContent = async () => {
-    // --- TAMBAHAN BARU: Jika sedang di Mode Kode, bersihkan HTML sebelum disalin ---
+    // --- MODE KODE: salin HTML tanpa bagian copy-locked ---
     if (isCodeView) {
-        // LOCK ENFORCEMENT: salin seluruh isi tidak boleh membawa konten copy-locked.
-        if (htmlHasLock(codeEditorRef.current?.value ?? note.content ?? '', 'copy')) {
+        const root = document.createElement('div');
+        root.innerHTML = codeEditorRef.current?.value ?? note.content ?? '';
+        const op = hitungOperasiSeluruhIsi(root, 'copy');
+        if (op.salinKosong) {
             notifyLocked('copy');
             return;
         }
-        let cleanHtml = note.content
+        const cleanHtml = op.salinHtml
             // 1. Hapus ratusan style bawaan (--tw-scale, shadow, dll)
-            .replace(/ style="[^"]*"/gi, '') 
+            .replace(/ style="[^"]*"/gi, '')
             // 2. Hapus status contenteditable bawaan editor
-            .replace(/ contenteditable="[^"]*"/gi, '') 
+            .replace(/ contenteditable="[^"]*"/gi, '')
             // 3. Hapus atribut data sementara (kecuali data-days, data-checked-time, data-id yang penting)
-            .replace(/ data-(?!days|checked-time|id)[a-zA-Z\-]+="[^"]*"/gi, '') 
+            .replace(/ data-(?!days|checked-time|id)[a-zA-Z\-]+="[^"]*"/gi, '')
             // 4. Hapus karakter gaib / kosong penyita spasi (seperti ‎)
-            .replace(/[\u200B-\u200D\uFEFF\u200E]/g, '') 
+            .replace(/[\u200B-\u200D\uFEFF\u200E]/g, '')
             // 5. Rapikan tag pembuka dan penutup agar menurun (Pretty Print dasar)
             .replace(/></g, '>\n<');
 
-        // Salin hanya sebagai teks murni (Teks Kode HTML Bersih)
         const copied = await writeToClipboard(cleanHtml);
         if (copied) {
             setShowCopyToast(true);
@@ -3271,31 +3554,27 @@ const handleEditorClick = (e: React.MouseEvent) => {
             setShowClipboardFailToast(true);
             setTimeout(() => setShowClipboardFailToast(false), 3000);
         }
-        return; // Hentikan fungsi di sini agar tidak menjalankan copy visual
+        return;
     }
 
-    // --- LOGIKA NORMAL JIKA DI MODE VISUAL ---
-    if (editorRef.current) {
-        // LOCK ENFORCEMENT: salin seluruh catatan tidak boleh membawa konten copy-locked.
-        if (htmlHasLock(editorRef.current.innerHTML, 'copy')) {
+    // --- MODE VISUAL: salin seluruh catatan kecuali bagian copy-locked ---
+    const root = editorRef.current;
+    if (root) {
+        // 1. SYNC CHECKBOX STATE KE ATTRIBUTE (lewati checkbox di area copy-locked)
+        root.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+            const input = cb as HTMLInputElement;
+            if (input.closest('uneditable[data-lock~="copy"]')) return;
+            if (input.checked) input.setAttribute('checked', 'true');
+            else input.removeAttribute('checked');
+        });
+
+        // 2. Ambil hanya bagian yang bebas copy lock
+        const op = hitungOperasiSeluruhIsi(root, 'copy');
+        if (op.salinKosong) {
             notifyLocked('copy');
             return;
         }
-        // 1. SYNC CHECKBOX STATE KE ATTRIBUTE
-        // Browser tidak otomatis menyalin status 'checked' input ke HTML string.
-        // Kita harus memaksanya manual.
-        const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
-        checkboxes.forEach((cb) => {
-            const input = cb as HTMLInputElement;
-            if (input.checked) {
-                input.setAttribute('checked', 'true');
-            } else {
-                input.removeAttribute('checked');
-            }
-        });
-
-        // 2. Ambil HTML lengkap dan teks polos dengan serialisasi baris yang konsisten
-        const htmlContent = editorRef.current.innerHTML;
+        const htmlContent = op.salinHtml;
         const textContent = htmlKeTeksPolos(htmlContent);
 
         const copied = await writeToClipboard(textContent, htmlContent);
@@ -3393,6 +3672,10 @@ const handleEditorClick = (e: React.MouseEvent) => {
   };
 
   const handleCopyImage = async () => {
+      if (selectedImage && getLockFlagAt(selectedImage, 'copy')) {
+          notifyLocked('copy');
+          return;
+      }
       if (selectedImage) {
           try {
              const src = selectedImage.src;
@@ -3416,19 +3699,34 @@ const handleEditorClick = (e: React.MouseEvent) => {
   };
 
   const handleCutImage = async () => {
-      await handleCopyImage(); // Copy dulu
-      if (selectedImage) {
-          selectedImage.remove(); // Lalu hapus
-          setSelectedImage(null);
-          setActiveMenu('NONE');
-          handleInput();
-          
-          setShowCutToast(true);
-          setTimeout(() => setShowCutToast(false), 2000);
+      if (!selectedImage) return;
+      const copyLocked = getLockFlagAt(selectedImage, 'copy');
+      const deleteLocked = getLockFlagAt(selectedImage, 'delete');
+      // Cut: bagian copy-locked tidak boleh masuk clipboard maupun dihapus.
+      if (copyLocked) {
+          notifyLocked(deleteLocked ? 'both' : 'copy');
+          return;
       }
+      await handleCopyImage(); // Copy dulu (bagian tanpa copy lock)
+      if (deleteLocked) {
+          // Delete-only: tetap tersalin, tetapi tidak boleh dihapus.
+          notifyLocked('delete');
+          return;
+      }
+      selectedImage.remove(); // Lalu hapus
+      setSelectedImage(null);
+      setActiveMenu('NONE');
+      handleInput();
+
+      setShowCutToast(true);
+      setTimeout(() => setShowCutToast(false), 2000);
   };
 
   const handleDeleteImage = () => {
+      if (selectedImage && getLockFlagAt(selectedImage, 'delete')) {
+          notifyLocked('delete');
+          return;
+      }
       if (selectedImage) {
           selectedImage.remove();
           setSelectedImage(null);

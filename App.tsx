@@ -1564,9 +1564,14 @@ export default function App() {
   };
 
   // Dipakai Editor untuk Cut/Delete seluruh catatan yang memiliki tujuan arsip.
-  const handleArchiveWholeContent = async (html: string, _mode: 'cut' | 'delete'): Promise<boolean> => {
+  // `sourceContent` opsional: hasil selektif dari Editor (bagian terkunci tetap ada).
+  const handleArchiveWholeContent = async (
+    html: string,
+    _mode: 'cut' | 'delete',
+    sourceContent?: string
+  ): Promise<boolean> => {
     if (!user || user.uid === 'offline-local' || archiveBusyRef.current) return false;
-    // Konten terkunci tidak boleh dipindahkan/dihapus lewat arsip.
+    // Pertahanan tambahan: konten final tidak boleh membawa wrapper lock.
     if (htmlPunyaKunci(html)) return false;
     const sumber = notesRef.current.find(n => n.id === currentNoteId);
     const tujuan = cariTujuanArsipValid(sumber, notesRef.current);
@@ -1576,7 +1581,7 @@ export default function App() {
       sourceId: sumber.id,
       targetId: tujuan.id,
       html,
-      sourceContent: '<p><br></p>',
+      sourceContent: sourceContent ?? '<p><br></p>',
       removeSource: true,
       setLink: false,
     }));
