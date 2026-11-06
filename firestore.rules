@@ -90,5 +90,27 @@ service cloud.firestore {
     match /tract_settings/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // --- PREFERENSI MODE TAMPILAN PER CATATAN -----------------------------
+    // Satu dokumen per kombinasi UID + note ID (ID dokumen: "<uid>_<noteId>").
+    // Klien hanya boleh membaca/menulis preferensinya sendiri.
+    match /note_preferences/{prefId} {
+      function pemilikPreferensi() {
+        return request.auth != null && request.auth.uid == resource.data.userId;
+      }
+      function payloadValid() {
+        return request.auth != null
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.noteId is string
+          && request.resource.data.mode in ['normal', 'code', 'preview']
+          && request.resource.data.keys().hasOnly(['userId', 'noteId', 'mode']);
+      }
+
+      allow read: if request.auth != null
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if payloadValid();
+      allow update: if pemilikPreferensi() && payloadValid();
+      allow delete: if false;
+    }
   }
 }

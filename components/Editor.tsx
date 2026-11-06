@@ -5,6 +5,13 @@ import { getHistoryChain, saveHistoryChain, cleanupLegacyLocalStorage } from '..
 import { exportNetworkAsJSON } from '../utils/networkExport';
 import { applyLock, removeLock } from '../utils/lockManager';
 import type { LockAction } from '../utils/lockManager';
+import {
+  bacaCacheMode,
+  dengarkanPreferensiMode,
+  simpanCacheMode,
+  simpanPreferensiMode,
+  type NoteMode,
+} from '../services/notePreferences';
 import { 
   Image as ImageIcon, Table, AtSign, 
   Bold, Italic, Underline, Strikethrough,
@@ -19,6 +26,7 @@ Upload, Replace, ReplaceAll, Clipboard, AlertTriangle, Lock, Unlock,
 interface EditorProps {
   note: Note;
   allNotes: Note[];
+  userId?: string;
   onUpdate: (updatedNote: Note) => void;
   onCreateNewNote: (title: string) => Promise<string>;
   onLinkClick: (noteId: string) => void;
@@ -487,6 +495,7 @@ const makeMemEntry = (content: string, time: number): HistEntry => {
 export const Editor = forwardRef<EditorHandle, EditorProps>(({ 
   note: rawNote, 
   allNotes = [], 
+  userId,
   onUpdate, 
   onCreateNewNote,
   onLinkClick,
@@ -518,6 +527,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const [cursorRange, setCursorRange] = useState<Range | null>(null);
+  // Dialog judul duplikat saat menautkan teks terpilih lewat tombol toolbar @.
+  const [duplikatTautan, setDuplikatTautan] = useState<{ title: string; existingId: string } | null>(null);
   // --- STATE BARU UNTUK NOTIFIKASI COPY & CUT ---
   const [showCopyToast, setShowCopyToast] = useState(false);
   const [showCutToast, setShowCutToast] = useState(false);
@@ -550,15 +561,34 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   
   // --- STATE BARU: Mode Live Preview (Browser Mini) ---
   const [isPreviewMode, setIsPreviewMode] = useState(() => {
-      // 1. Cek Memori Lokal dulu per catatan (Apakah sebelumnya nyala/mati)
+      // 1. Cek cache ber-UID (fallback ke key preview lama untuk migrasi)
       if (rawNote?.id) {
-          const saved = localStorage.getItem(`nexus_preview_${rawNote.id}`);
-          if (saved !== null) return saved === 'true';
+          const cached = rawNote?.userId
+              ? bacaCacheMode(rawNote.userId, rawNote.id)
+              : null;
+          if (cached) return cached === 'preview';
       }
       // 2. Jika tidak ada di memori, lakukan auto-detect seperti biasa
       const text = (rawNote?.content || '').toLowerCase();
       return text.includes('<!doctype html') || text.includes('<html');
   });
+
+  // Ref sinkron untuk lifecycle preferensi mode (menghindari closure usang).
+  const noteRef = useRef(note);
+  noteRef.current = note;
+  const codeDraftRef = useRef<string | null>(null);
+  codeDraftRef.current = codeDraft;
+  const isCodeViewRef = useRef(isCodeView);
+  isCodeViewRef.current = isCodeView;
+  const isPreviewModeRef = useRef(isPreviewMode);
+  isPreviewModeRef.current = isPreviewMode;
+  const modeLoadTokenRef = useRef(0);
+  const modeLoadedRef = useRef(false);
+  const modeTersimpanRef = useRef<NoteMode | null>(null);
+  const modePendingLocalRef = useRef<NoteMode | null>(null);
+  const modePendingAckRef = useRef(false);
+  const modeWriteTokenRef = useRef(0);
+  const noteIdResetRef = useRef(note.id);
   
   // --- STATE IMMERSIVE (FULL SCREEN) & TIMERS ---
   const [isImmersive, setIsImmersive] = useState(false);
@@ -677,9 +707,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   // --- FUNGSI BARU: Sinkronisasi Preview & Memori Lokal ---
   useEffect(() => {
       if (note.id && note.id !== 'safe-temp') {
-          // 1. Simpan status preview ke memori browser per catatan
-          localStorage.setItem(`nexus_preview_${note.id}`, String(isPreviewMode));
-          
+          // Cache & Firestore ditangani oleh efek preferensi mode (ber-UID).
+          // Di sini hanya mengatur perilaku tampilan preview.
           // 2. Jika Preview nyala, persiapkan konten iframe & masuk ke Immersive Full Screen
           if (isPreviewMode) {
               setIsCodeView(false);
@@ -1748,11 +1777,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
 
   // --- MODE KODE: draft lokal + seleksi hasil pemetaan ---
   const bolehKeluarModeKode = (): boolean => {
-    if (!isCodeView) return true;
-    if (!codeDraftDirtyRef.current || codeDraft === null) return true;
+    if (!isCodeViewRef.current) return true;
+    const draft = codeDraftRef.current;
+    if (!codeDraftDirtyRef.current || draft === null) return true;
 
     const remoteBerubah =
-      (note.content || '') !== codeRemoteBaseRef.current;
+      (noteRef.current.content || '') !== codeRemoteBaseRef.current;
 
     if (remoteBerubah) {
       const simpan = window.confirm(
@@ -1763,7 +1793,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       if (!simpan) return false;
     }
 
-    onUpdate({ ...note, content: codeDraft });
+    onUpdate({ ...noteRef.current, content: draft });
     return true;
   };
 
@@ -2090,7 +2120,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   }, [note.id, isCodeView, isPreviewMode]);
 
   // Ganti catatan: buang draft/penanda lama agar tidak bocor ke catatan baru.
+  // Reset mode tampilan hanya saat note.id benar-benar berubah; pada mount
+  // pertama mode awal (auto-detect/cache) harus dipertahankan.
   useEffect(() => {
+      const gantiCatatan = noteIdResetRef.current !== note.id;
+      noteIdResetRef.current = note.id;
+
       setCodeDraft(null);
       pendingCodeSelectionRef.current = null;
       codeRemoteBaseRef.current = '';
@@ -2099,7 +2134,200 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
       lastLocalHTML.current = '';
       lastSelectionRef.current = null;
       savedSelection.current = null;
+      pendingTautanRef.current = null;
+      setDuplikatTautan(null);
+
+      if (gantiCatatan) {
+        // Reset sinkron agar efek preferensi di bawah tidak membaca mode
+        // catatan sebelumnya (refs masih bernilai render lama).
+        codeDraftRef.current = null;
+        isCodeViewRef.current = false;
+        isPreviewModeRef.current = false;
+        setIsPreviewMode(false);
+        // Preferensi catatan baru dimuat oleh efek khusus di bawah.
+        modeLoadedRef.current = false;
+        modeTersimpanRef.current = null;
+        modePendingLocalRef.current = null;
+        modePendingAckRef.current = false;
+        modeWriteTokenRef.current += 1;
+      }
   }, [note.id]);
+
+  // --- PREFERENSI MODE TAMPILAN (Firestore + cache ber-UID) ---
+  // Menerapkan mode dari sumber luar. Transisi keluar Code Mode selalu lewat
+  // bolehKeluarModeKode(); bila ditolak, Code Mode + draft dipertahankan.
+  const terapkanModePreferensi = (mode: NoteMode, dariSumber: boolean): boolean => {
+    const sekarang: NoteMode = isPreviewModeRef.current
+      ? 'preview'
+      : isCodeViewRef.current ? 'code' : 'normal';
+
+    if (mode === sekarang) {
+      if (dariSumber) modeTersimpanRef.current = mode;
+      return true;
+    }
+
+    if (isCodeViewRef.current) {
+      if (!bolehKeluarModeKode()) {
+        modeTersimpanRef.current = sekarang;
+        return false;
+      }
+      setCodeDraft(null);
+      pendingCodeSelectionRef.current = null;
+      codeRemoteBaseRef.current = '';
+      codeDraftDirtyRef.current = false;
+      setIsCodeView(false);
+    }
+
+    if (mode === 'preview') {
+      setIsPreviewMode(true);
+    } else {
+      setIsPreviewMode(false);
+      if (mode === 'code') {
+        const el = editorRef.current;
+        const range = el ? ambilRangeEditor() : null;
+        let draft = noteRef.current.content || '';
+        let seleksiKode: { start: number; end: number } | null = null;
+        if (el && range) {
+          const peta = petakanRangeKeKode(range, el);
+          if (peta) {
+            draft = peta.codeText;
+            seleksiKode = { start: peta.start, end: peta.end };
+          }
+        }
+        codeRemoteBaseRef.current = noteRef.current.content || '';
+        codeDraftDirtyRef.current = false;
+        setCodeDraft(draft);
+        pendingCodeSelectionRef.current = seleksiKode;
+        setIsCodeView(true);
+      }
+    }
+
+    if (dariSumber) modeTersimpanRef.current = mode;
+    return true;
+  };
+
+  // Muat preferensi per (UID + note). Token mencegah respons lama diterapkan
+  // ke catatan/UID yang sudah berganti.
+  useEffect(() => {
+    const noteId = note.id;
+    const uid = userId || note.userId || '';
+    const token = ++modeLoadTokenRef.current;
+    modeLoadedRef.current = false;
+    modePendingLocalRef.current = null;
+    modePendingAckRef.current = false;
+
+    if (!noteId || noteId === 'safe-temp') {
+      modeLoadedRef.current = true;
+      return;
+    }
+
+    // 1. Cache ber-UID: tampilan awal tanpa menunggu jaringan.
+    const cache = uid ? bacaCacheMode(uid, noteId) : null;
+    if (token !== modeLoadTokenRef.current) return;
+    if (cache) terapkanModePreferensi(cache, true);
+
+    if (!uid || uid === 'offline-local') {
+      if (!modeTersimpanRef.current) {
+        const sekarang: NoteMode = isPreviewModeRef.current
+          ? 'preview'
+          : isCodeViewRef.current ? 'code' : 'normal';
+        modeTersimpanRef.current = sekarang;
+      }
+      modeLoadedRef.current = true;
+      return;
+    }
+
+    // 2. Firestore sebagai sumber kebenaran lintas perangkat.
+    const berhenti = dengarkanPreferensiMode(uid, noteId, (mode, hasPendingWrites) => {
+      if (token !== modeLoadTokenRef.current) return; // catatan/UID sudah berganti
+
+      const pending = modePendingLocalRef.current;
+      if (pending !== null) {
+        if (mode === pending) {
+          modePendingLocalRef.current = null;
+          modePendingAckRef.current = false;
+        } else if (hasPendingWrites || !modePendingAckRef.current) {
+          // Snapshot cache lama atau tulis lokal belum diakui backend:
+          // jangan menimpa pilihan mode terbaru pengguna.
+          return;
+        } else {
+          // Tulis lokal sudah diakui backend, tetapi snapshot server
+          // menunjukkan nilai lain yang lebih baru (LWW backend).
+          modePendingLocalRef.current = null;
+          modePendingAckRef.current = false;
+        }
+      }
+
+      if (mode === null) {
+        // Belum ada dokumen: pertahankan cache/default, jangan tulis.
+        if (!modeTersimpanRef.current) {
+          const sekarang: NoteMode = isPreviewModeRef.current
+            ? 'preview'
+            : isCodeViewRef.current ? 'code' : 'normal';
+          modeTersimpanRef.current = sekarang;
+        }
+        modeLoadedRef.current = true;
+        return;
+      }
+
+      const sekarang: NoteMode = isPreviewModeRef.current
+        ? 'preview'
+        : isCodeViewRef.current ? 'code' : 'normal';
+      if (mode === sekarang) {
+        modeTersimpanRef.current = mode;
+        modeLoadedRef.current = true;
+        return;
+      }
+
+      if (terapkanModePreferensi(mode, true)) {
+        modeLoadedRef.current = true;
+      } else {
+        // Pengguna menolak keluar dari Code Mode: pertahankan draft dan mode
+        // saat ini, tetapi anggap pemuatan awal selesai agar perubahan
+        // berikutnya tetap bisa disimpan. Preferensi yang gagal diterapkan
+        // tidak ditulis ulang.
+        modeLoadedRef.current = true;
+      }
+    });
+
+    return () => {
+      modeLoadTokenRef.current += 1;
+      berhenti();
+    };
+  }, [note.id, userId]);
+
+  // Simpan perubahan mode setelah preferensi awal termuat. Tidak menyentuh
+  // note.content dan tidak memakai timestamp lokal untuk LWW.
+  useEffect(() => {
+    const noteId = note.id;
+    const uid = userId || note.userId || '';
+    if (!modeLoadedRef.current || !uid || !noteId || noteId === 'safe-temp') return;
+
+    const mode: NoteMode = isPreviewMode ? 'preview' : isCodeView ? 'code' : 'normal';
+    if (mode === modeTersimpanRef.current) return;
+
+    modeTersimpanRef.current = mode;
+    modePendingLocalRef.current = mode;
+    modePendingAckRef.current = false;
+    const writeToken = ++modeWriteTokenRef.current;
+    simpanCacheMode(uid, noteId, mode);
+
+    if (uid === 'offline-local') return;
+    simpanPreferensiMode(uid, noteId, mode)
+      .then(() => {
+        if (writeToken === modeWriteTokenRef.current
+            && modePendingLocalRef.current === mode) {
+          modePendingAckRef.current = true;
+        }
+      })
+      .catch(() => {
+        if (writeToken === modeWriteTokenRef.current
+            && modePendingLocalRef.current === mode) {
+          modePendingLocalRef.current = null;
+          modePendingAckRef.current = false;
+        }
+      });
+  }, [isCodeView, isPreviewMode, note.id, userId]);
 
   // Mode kode/preview tidak memiliki seleksi editor visual.
   useEffect(() => {
@@ -2223,6 +2451,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
   const isIgnoringClick = useRef(false); // Tambahan untuk mencegah klik tidak sengaja
   const checkboxAbortRef = useRef<AbortController | null>(null); // Cleanup checkbox listeners
   const mentionCreatedIdsRef = useRef<Set<string>>(new Set()); // Track newly created note IDs for autocomplete
+  // Snapshot seleksi untuk penautan lewat toolbar @; bertahan saat fokus pindah
+  // ke dialog / toolbar dan saat pembuatan catatan berjalan asinkron.
+  const pendingTautanRef = useRef<{
+    range: Range;
+    title: string;
+    label: string;
+    noteId: string;
+  } | null>(null);
+  const tautanBusyRef = useRef(false);
   
     // --- KEYBOARD HANDLING (FULL FIX) ---
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -2681,45 +2918,63 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     }
   };
 
-  const insertMention = async (targetNoteId: string, targetTitle: string) => {
-    if (!cursorRange || !editorRef.current) return;
+  const insertMention = async (
+    targetNoteId: string,
+    targetTitle: string,
+    opsi?: { range?: Range; label?: string }
+  ) => {
+    const editorEl = editorRef.current;
+    if (!editorEl) return;
+
+    const sumber = opsi?.range ?? cursorRange;
+    if (!sumber) return;
+    // Range dari dialog/async bisa sudah detach (catatan berganti atau DOM
+    // diganti). Jangan menyisipkan chip ke posisi yang salah.
+    if (!sumber.startContainer.isConnected || !sumber.endContainer.isConnected) return;
+    if (!editorEl.contains(sumber.startContainer) || !editorEl.contains(sumber.endContainer)) return;
 
     // Aktifkan pemblokir klik sementara agar link tidak langsung terpicu saat dibuat
     isIgnoringClick.current = true;
     setTimeout(() => { isIgnoringClick.current = false; }, 500);
 
     const selection = window.getSelection();
-    if (selection) {
-      selection.removeAllRanges();
-      selection.addRange(cursorRange);
+    const workRange = sumber.cloneRange();
+
+    if (!opsi?.range) {
+      const textNode = workRange.startContainer;
+      if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
+          const text = textNode.textContent;
+          // Cari posisi '@' terakhir sebelum kursor
+          const atIndex = text.lastIndexOf('@', workRange.startOffset - 1);
+          if (atIndex >= 0) {
+              workRange.setStart(textNode, atIndex);
+              workRange.deleteContents();
+          }
+      }
     }
 
-    const textNode = cursorRange.startContainer;
-    if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
-        const text = textNode.textContent;
-        // Cari posisi '@' terakhir sebelum kursor
-        const atIndex = text.lastIndexOf('@', cursorRange.startOffset - 1);
-        if (atIndex >= 0) {
-            cursorRange.setStart(textNode, atIndex);
-            cursorRange.deleteContents();
-        }
-    }
-
-    // 1. Pastikan posisi kursor di browser sudah akurat setelah '@' dihapus
+    // 1. Pastikan posisi kursor di browser sudah akurat setelah perubahan range
     if (selection) {
       selection.removeAllRanges();
-      selection.addRange(cursorRange);
+      selection.addRange(workRange);
     }
 
     // 2. Sisipkan chip via DOM manipulation (bukan execCommand).
     // execCommand('insertHTML') menghapus atribut class/data-id di Chrome
     // saat menyisipkan ke dalam <li> atau checkbox <span> (nested contentEditable).
-    // Ambil range FRESH dari seleksi yang hidup agar aman jika teks node
-    // tadi ikut terhapus/diubah browser saat deleteContents.
-    const liveSel = window.getSelection();
-    let insertRange = liveSel && liveSel.rangeCount > 0
-      ? liveSel.getRangeAt(0).cloneRange()
-      : null;
+    // Untuk penautan seleksi, seluruh teks terpilih diganti chip dengan label asli.
+    let insertRange: Range | null;
+    if (opsi?.range) {
+      workRange.deleteContents();
+      insertRange = workRange;
+    } else {
+      // Ambil range FRESH dari seleksi yang hidup agar aman jika teks node
+      // tadi ikut terhapus/diubah browser saat deleteContents.
+      const liveSel = window.getSelection();
+      insertRange = liveSel && liveSel.rangeCount > 0
+        ? liveSel.getRangeAt(0).cloneRange()
+        : null;
+    }
     if (!insertRange) return;
     insertRange.collapse(true);
 
@@ -2727,7 +2982,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     chip.className = 'mention-chip';
     chip.contentEditable = 'false';
     chip.dataset.id = targetNoteId;
-    chip.textContent = '@' + targetTitle;
+    // Label seleksi mempertahankan teks asli tanpa awalan '@'.
+    chip.textContent = opsi?.label ?? ('@' + targetTitle);
 
     const space = document.createTextNode('\u00A0');
     const frag = document.createDocumentFragment();
@@ -2738,6 +2994,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
     const newRange = document.createRange();
     newRange.setStartAfter(space);
     newRange.collapse(true);
+    const liveSel = window.getSelection();
     if (liveSel) {
       liveSel.removeAllRanges();
       liveSel.addRange(newRange);
@@ -2760,6 +3017,130 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(({
           insertMention(newNoteId, mentionQuery);
       }
     }
+  };
+
+  // --- PENAUTAN TEKS TERPILIH LEWAT TOMBOL TOOLBAR @ ---
+  const normalisasiJudulTautan = (teks: string) =>
+    teks.replace(/\s+/g, ' ').trim().toLowerCase();
+
+  // Seleksi live di dalam editor; jika fokus sudah pindah (mis. toolbar pada
+  // perangkat sentuh), gunakan seleksi terakhir yang tersimpan. Seleksi live
+  // yang collapsed berarti pengguna memang tidak memilih teks (jangan pakai
+  // simpanan lama yang berpotensi stale).
+  const ambilSeleksiTautan = (): Range | null => {
+    const el = editorRef.current;
+    if (!el) return null;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const live = sel.getRangeAt(0);
+      if (el.contains(live.startContainer) && el.contains(live.endContainer)) {
+        return live.collapsed ? null : live.cloneRange();
+      }
+    }
+    const tersimpan = lastSelectionRef.current;
+    if (tersimpan && !tersimpan.collapsed
+        && tersimpan.startContainer.isConnected
+        && tersimpan.endContainer.isConnected
+        && el.contains(tersimpan.startContainer)
+        && el.contains(tersimpan.endContainer)) {
+      return tersimpan.cloneRange();
+    }
+    return null;
+  };
+
+  const pakaiTautanTersimpan = (targetNoteId: string) => {
+    const pending = pendingTautanRef.current;
+    if (!pending) return;
+    pendingTautanRef.current = null;
+    if (pending.noteId !== noteRef.current.id) return;
+    if (!pending.range.startContainer.isConnected) return;
+    void insertMention(targetNoteId, pending.title, {
+      range: pending.range,
+      label: pending.label,
+    });
+  };
+
+  const buatCatatanTautan = async () => {
+    const pending = pendingTautanRef.current;
+    if (!pending || tautanBusyRef.current) return;
+    tautanBusyRef.current = true;
+    try {
+      const newNoteId = await onCreateNewNote(pending.title);
+      if (!newNoteId) return;
+      mentionCreatedIdsRef.current.add(newNoteId);
+      if (pending.noteId !== noteRef.current.id) {
+        pendingTautanRef.current = null;
+        return;
+      }
+      pendingTautanRef.current = null;
+      await insertMention(newNoteId, pending.title, {
+        range: pending.range,
+        label: pending.label,
+      });
+    } finally {
+      tautanBusyRef.current = false;
+    }
+  };
+
+  const handleMentionToolbar = () => {
+    if (isCodeView || isPreviewMode || !editorRef.current) return;
+    if (tautanBusyRef.current) return;
+
+    const range = ambilSeleksiTautan();
+    if (range) {
+      const label = range.toString().replace(/\u00A0/g, ' ').trim();
+      const title = label.replace(/\s+/g, ' ').trim();
+      if (!title) return;
+
+      const noteId = noteRef.current.id;
+      pendingTautanRef.current = {
+        range: range.cloneRange(),
+        title,
+        label,
+        noteId,
+      };
+      savedSelection.current = range.cloneRange();
+
+      const judulDicari = normalisasiJudulTautan(title);
+      const catatanLama = allNotes.find(n =>
+        !n.deletedAt &&
+        n.id !== noteId &&
+        normalisasiJudulTautan(n.title || '') === judulDicari
+      );
+
+      if (catatanLama) {
+        setDuplikatTautan({ title, existingId: catatanLama.id });
+        return;
+      }
+
+      void buatCatatanTautan();
+      return;
+    }
+
+    // Tanpa seleksi: sisipkan '@' lalu buka popup mention yang sudah ada.
+    // Mekanisme keyboard '@.' tidak disentuh.
+    const editorEl = editorRef.current;
+    editorEl.focus();
+    const sel = window.getSelection();
+    const caret = resolveEditorRange(false);
+    if (!caret) return;
+
+    const at = document.createTextNode('@');
+    caret.deleteContents();
+    caret.insertNode(at);
+
+    const after = document.createRange();
+    after.setStartAfter(at);
+    after.collapse(true);
+    sel?.removeAllRanges();
+    sel?.addRange(after);
+    setCursorRange(after);
+
+    const rect = after.getBoundingClientRect();
+    setMentionPosition({ top: rect.top - 40, left: rect.left });
+    setMentionQuery('');
+    setShowMentionList(true);
+    handleInput();
   };
 
   // Di dalam components/Editor.tsx
@@ -4283,17 +4664,7 @@ const handleEditorClick = (e: React.MouseEvent) => {
                     <History size={18} />
                 </button>
 
-                <button onMouseDown={preventFocusLoss} onClick={() => {
-                   const text = document.createTextNode('@');
-                   const sel = window.getSelection();
-                   if (sel && sel.rangeCount > 0) {
-                        const range = sel.getRangeAt(0);
-                        range.insertNode(text);
-                        range.collapse(false);
-                        handleInput();
-                        editorRef.current?.focus();
-                   }
-                }} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400"><AtSign size={18} /></button>
+                <button onMouseDown={preventFocusLoss} onClick={handleMentionToolbar} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[40px] flex justify-center text-blue-600 dark:text-blue-400" title="Tautkan catatan"><AtSign size={18} /></button>
 
 				{/* --- TOMBOL LOCK (BARU) --- */}
                 <button 
@@ -4408,6 +4779,59 @@ const handleEditorClick = (e: React.MouseEvent) => {
       )}
 
       {/* --- DIALOG RIWAYAT UNDO / REDO (MESIN WAKTU) --- */}
+      {/* --- DIALOG JUDUL DUPLIKAT (TOMBOL @ DENGAN SELEKSI) --- */}
+      {duplikatTautan && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-100 dark:border-gray-700">
+                <h3 className="text-lg font-bold mb-2 dark:text-white text-center">Judul Catatan Sudah Ada</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">
+                    Catatan berjudul <span className="font-semibold text-gray-800 dark:text-gray-200">"{duplikatTautan.title}"</span> sudah ada. Pilih tindakan:
+                </p>
+
+                <div className="space-y-3">
+                    <button
+                        onClick={() => {
+                            const existingId = duplikatTautan.existingId;
+                            setDuplikatTautan(null);
+                            pakaiTautanTersimpan(existingId);
+                        }}
+                        className="w-full p-4 rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 hover:border-blue-500 flex items-center gap-3 transition-all text-left"
+                    >
+                        <div className="text-blue-600 dark:text-blue-400 font-bold text-lg">@</div>
+                        <div>
+                            <div className="font-bold text-gray-800 dark:text-gray-200">Gunakan catatan lama</div>
+                            <div className="text-xs text-gray-500">Tautkan ke catatan yang sudah ada</div>
+                        </div>
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            setDuplikatTautan(null);
+                            void buatCatatanTautan();
+                        }}
+                        className="w-full p-4 rounded-xl border-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 hover:border-green-500 flex items-center gap-3 transition-all text-left"
+                    >
+                        <div className="text-green-600 dark:text-green-400 font-bold text-lg">+</div>
+                        <div>
+                            <div className="font-bold text-gray-800 dark:text-gray-200">Buat catatan baru</div>
+                            <div className="text-xs text-gray-500">Buat catatan lain dengan judul yang sama</div>
+                        </div>
+                    </button>
+                </div>
+
+                <button
+                    onClick={() => {
+                        pendingTautanRef.current = null;
+                        setDuplikatTautan(null);
+                    }}
+                    className="mt-4 w-full py-2 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white text-sm font-medium"
+                >
+                    Batal
+                </button>
+            </div>
+        </div>
+      )}
+
       {showHistoryModal && (
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 p-4 animate-in fade-in">
             <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">

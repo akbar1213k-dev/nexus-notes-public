@@ -2263,6 +2263,7 @@ export default function App() {
                     ref={editorRef} 
                     note={n} 
                     allNotes={notes} 
+                    userId={user?.uid}
                     onUpdate={handleUpdateNote} 
                     onToggleImmersive={setIsImmersive} // Mengizinkan Editor mematikan/menyalakan TopBar
                     onCreateNewNote={async (title) => {
